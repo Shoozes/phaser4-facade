@@ -8,8 +8,10 @@ package.
   entrypoint. Serve it through a Vite/npm bundler so the Phaser peer dependency
   resolves from the consuming app.
 - `prototype-cdn.html`: loads Phaser first and then the global bundle through a
-  plain script tag. Pass `?runtime=<same-origin-or-CDN-URL>` to exercise the
-  dynamic runtime override used by the browser smoke.
+  plain script tag. The demo opts into the responsive virtual-room contract so
+  portrait/landscape viewport changes recalculate the room and canvas backing.
+  Pass `?runtime=<same-origin-or-CDN-URL>` to exercise the dynamic runtime
+  override used by the browser smoke.
 - `single-html-cdn/index.html`: direct host-page example that can be served with
   a downloaded global bundle from the same directory; it does not create an
   iframe.

@@ -69,7 +69,8 @@ package manifest check.
 
 - `examples/prototype-module.html`: module-entrypoint proof.
 - `examples/prototype-cdn.html`: plain-script/global proof with local, npm, and
-  Git-backed CDN fallback candidates and a `?runtime=` override for testing.
+  Git-backed CDN fallback candidates, responsive viewport handling, and a
+  `?runtime=` override for testing.
 - `examples/single-html-cdn/index.html`: direct host page for a downloaded or
   CDN global bundle; it does not create an iframe.
 
