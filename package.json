@@ -1,0 +1,64 @@
+{
+  "name": "phaser4-facade",
+  "version": "0.1.0",
+  "description": "Reusable mobile-first Phaser 4 runtime facade for procedural 2D game templates.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/gm-phaser4.module.js",
+  "module": "./dist/gm-phaser4.module.js",
+  "types": "./dist/gm-phaser4.d.ts",
+  "unpkg": "./dist/gm-phaser4.global.min.js",
+  "jsdelivr": "./dist/gm-phaser4.global.min.js",
+  "sideEffects": true,
+  "exports": {
+    ".": {
+      "types": "./dist/gm-phaser4.d.ts",
+      "import": "./dist/gm-phaser4.module.js",
+      "default": "./dist/gm-phaser4.module.js"
+    },
+    "./global": "./dist/gm-phaser4.global.js",
+    "./global.min.js": "./dist/gm-phaser4.global.min.js",
+    "./types": "./dist/gm-phaser4.d.ts",
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shoozes/phaser4-facade.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Shoozes/phaser4-facade/issues"
+  },
+  "homepage": "https://github.com/Shoozes/phaser4-facade",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build-runtime.mjs",
+    "verify": "npm run build && node scripts/test-runtime-package.mjs",
+    "pack:check": "npm run verify && npm pack --dry-run"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "types/",
+    "examples/",
+    "docs/",
+    "SKILL.md",
+    "llms.txt",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "phaser": "^4.1.0"
+  },
+  "keywords": [
+    "phaser",
+    "phaser4",
+    "mobile",
+    "2d",
+    "runtime",
+    "facade",
+    "gamemaker",
+    "front-end",
+    "game"
+  ]
+}

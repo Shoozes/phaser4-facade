@@ -1,0 +1,11 @@
+# Phaser 4 Facade context map
+
+- README.md: package ownership, entrypoints, build outputs, and distribution boundaries.
+- SKILL.md: concise LLM routing contract for using `GM.*` safely.
+- docs/getting-started.md: module and global setup.
+- docs/how-to-procedural-ui.md: procedural panel, button, text, and target patterns.
+- examples/README.md: runnable examples and their proof boundaries.
+- examples/prototype-module.html: module-entrypoint boot proof.
+- examples/prototype-cdn.html: plain-script/global boot proof.
+- examples/single-html-cdn/index.html: host-page example for a downloaded bundle pair.
+- types/gm-phaser4.d.ts: canonical public declarations.

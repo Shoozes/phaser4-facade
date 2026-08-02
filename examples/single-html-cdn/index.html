@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GM Phaser 4 Prototype</title>
+</head>
+<body>
+    <div id="game"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"></script>
+    <script>
+        window.onerror = function (message) {
+            const item = document.createElement("pre");
+            item.style.color = "#fff";
+            item.style.padding = "12px";
+            item.style.margin = "0";
+            item.textContent = String(message);
+            document.body.appendChild(item);
+        };
+
+        const obj_creature_target = {
+            create() {
+                this.x = GM.runtime.roomWidth / 2;
+                this.y = GM.runtime.roomHeight / 2;
+                this.r = 60;
+            },
+
+            step() {
+                this.y = GM.runtime.roomHeight / 2 + Math.sin(GM.runtime.currentTime / 500) * 200;
+            },
+
+            draw() {
+                GM.draw.setColor(GM.color.LIME);
+                GM.draw.circle(this.x, this.y, this.r, false);
+            }
+        };
+
+        (function () {
+            const runtimeCandidates = [
+                "../../dist/gm-phaser4.global.min.js",
+                "../main-files/runtime/gm-phaser4/gm-phaser4.global.min.js",
+                "../../main-files/runtime/gm-phaser4/gm-phaser4.global.min.js",
+                "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.global.min.js",
+                "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/gm-phaser4.global.min.js"
+            ];
+            const SCRIPT_TIMEOUT_MS = 8000;
+            let launched = false;
+
+            function validateRuntime() {
+                return Boolean(
+                    window.Phaser &&
+                    window.Phaser.Game &&
+                    window.GM &&
+                    window.GM.app &&
+                    typeof window.GM.app.start === "function"
+                );
+            }
+
+            function launchDemo() {
+                if (launched) return;
+                launched = true;
+
+                const game = GM.app.start({
+                    width: 720,
+                    height: 1280,
+                    bleed: 300,
+                    curtain: true,
+                    globals: false,
+                    create() {
+                        GM.entity.spawn(obj_creature_target, {
+                            x: GM.runtime.roomWidth / 2,
+                            y: GM.runtime.roomHeight / 2,
+                            layer: "Instances"
+                        });
+                    }
+                });
+
+                if (GM.phaser.game !== game || !GM.phaser.library) {
+                    throw new Error("GM.phaser runtime handles are not available.");
+                }
+            }
+
+            function loadScriptCandidates(candidates, validate, onReady, onFail) {
+                let index = 0;
+
+                function tryNext() {
+                    if (index >= candidates.length) {
+                        onFail();
+                        return;
+                    }
+
+                    const script = document.createElement("script");
+                    let settled = false;
+                    const timeout = window.setTimeout(function () {
+                        finish(false);
+                    }, SCRIPT_TIMEOUT_MS);
+
+                    function finish(loaded) {
+                        if (settled) return;
+                        settled = true;
+                        window.clearTimeout(timeout);
+
+                        if (loaded && validate()) {
+                            onReady();
+                            return;
+                        }
+
+                        if (script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+                        tryNext();
+                    }
+
+                    script.src = candidates[index];
+                    index += 1;
+                    script.onload = function () {
+                        finish(true);
+                    };
+                    script.onerror = function () {
+                        finish(false);
+                    };
+                    document.head.appendChild(script);
+                }
+
+                tryNext();
+            }
+
+            loadScriptCandidates(
+                runtimeCandidates,
+                validateRuntime,
+                launchDemo,
+                function () {
+                    throw new Error("Unable to load gm-phaser4 runtime.");
+                }
+            );
+        }());
+    </script>
+</body>
+</html>

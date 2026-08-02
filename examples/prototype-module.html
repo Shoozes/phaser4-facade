@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GM Phaser 4 Prototype</title>
+    <style>
+        html,
+        body,
+        #game {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            width: 100dvw;
+            height: 100dvh;
+            background: #000;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="game"></div>
+
+    <script type="module">
+        import "../dist/gm-phaser4.module.js";
+
+        const obj_creature_target = {
+            create() {
+                this.x = GM.runtime.roomWidth / 2;
+                this.y = GM.runtime.roomHeight / 2;
+                this.r = 60;
+            },
+
+            step() {
+                this.y = GM.runtime.roomHeight / 2 + Math.sin(GM.runtime.currentTime / 500) * 200;
+            },
+
+            draw() {
+                GM.draw.setColor(GM.color.LIME);
+                GM.draw.circle(this.x, this.y, this.r, false);
+            }
+        };
+
+        const game = GM.app.start({
+            width: 720,
+            height: 1280,
+            bleed: 300,
+            curtain: true,
+            curtainText: "TAP TO START",
+            globals: false,
+
+            create() {
+                GM.entity.spawn(obj_creature_target, {
+                    x: GM.runtime.roomWidth / 2,
+                    y: GM.runtime.roomHeight / 2,
+                    layer: "Instances"
+                });
+            },
+
+            draw() {
+                if (GM.ui.buttonCenter(GM.runtime.roomWidth / 2, GM.runtime.roomHeight - 300, 300, 80, "TEST BUTTON")) {
+                    GM.debug.log("ui button triggered");
+                }
+            }
+        });
+
+        if (GM.phaser.game !== game || !GM.phaser.library) {
+            throw new Error("GM.phaser runtime handles are not available.");
+        }
+    </script>
+</body>
+</html>
