@@ -90,6 +90,20 @@ assert.ok(item.width <= 120.01, `fitted width exceeded maxWidth: ${item.width}`)
 assert.ok(item.height <= 30.01, `fitted height exceeded maxHeight: ${item.height}`);
 assert.equal(state.perf.counts.fittedText, 1);
 
+const reconciledFit = createTextItem();
+const reconciledFitPool = createPool(reconciledFit);
+const reconciledFitOptions = { size: 40, minSize: 8, maxWidth: 50 };
+drawRuntimeTextFit(state, reconciledFitPool, parent, 0, 0, "AAAA", reconciledFitOptions);
+const firstReconciledSize = reconciledFit.style.fontSize;
+drawRuntimeTextFit(state, reconciledFitPool, parent, 0, 0, "BBBB", reconciledFitOptions);
+const secondReconciledSize = reconciledFit.style.fontSize;
+assert.equal(secondReconciledSize, firstReconciledSize, "same-width text should reuse the fitted size");
+assert.equal(
+    secondReconciledSize,
+    `${reconciledFit.__gmRuntimeFitSize}px`,
+    "textFit must reconcile the pooled Phaser style after the final measurement probe"
+);
+
 const pooledItem = createTextItem();
 const textPool = makeTextPool({ add: { text: () => pooledItem } }, parent, state);
 textPool.take();

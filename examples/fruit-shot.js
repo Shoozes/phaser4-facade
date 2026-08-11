@@ -3,6 +3,52 @@
 import { GM } from "../dist/gm-phaser4.module.js";
 import { installGrout13Bridge } from "../dist/gm-phaser4-grout13.module.js";
 
+const runtimeRoot = /** @type {any} */ (globalThis);
+const proof = runtimeRoot.__fruitShotProof = {
+    phase: "booting",
+    complete: false,
+    failed: false,
+    errors: [],
+    frames: 0,
+    atlasFrames: [],
+    textExtSeen: false,
+    textFitSeen: false,
+    guiTextExtSeen: false,
+    guiTextFitSeen: false,
+    spriteOptionsSeen: false,
+    fixedStepsSeen: false,
+    bridgeUsed: false,
+    sprite: null,
+    text: null,
+    guiText: null
+};
+
+function setStatus(text) {
+    const status = document.getElementById("status");
+    if (status) status.textContent = text;
+}
+
+function failProof(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    proof.failed = true;
+    proof.complete = false;
+    proof.phase = "failed";
+    proof.errors.push(message);
+    setStatus(`Fruit Shot failed: ${message}`);
+    const errorNode = document.getElementById("proof-error");
+    if (errorNode) {
+        errorNode.hidden = false;
+        errorNode.textContent = message;
+    }
+}
+
+globalThis.addEventListener?.("error", (event) => {
+    failProof(event.error || event.message || "window error");
+});
+globalThis.addEventListener?.("unhandledrejection", (event) => {
+    failProof(event.reason || "unhandled rejection");
+});
+
 function createFruitAtlas() {
     const canvas = document.createElement("canvas");
     canvas.width = 192;
@@ -44,69 +90,143 @@ function registerFruitAtlas() {
         { name: "lemon", spec: { w: 8, h: 8, steps: [{ type: "fill", col: 64 }] } },
         { name: "lime", spec: { w: 8, h: 8, steps: [{ type: "fill", col: 80 }] } }
     ];
-    if (globalThis.GROUT13) {
-        installGrout13Bridge(GM, globalThis.GROUT13);
-        GM.grout13.addAtlas("fruit-atlas", groutAssets, {
+const injectedGrout13 = runtimeRoot.GROUT13;
+    if (injectedGrout13) {
+        const bridge = installGrout13Bridge(GM, injectedGrout13);
+        const result = bridge.addAtlas("fruit-atlas", groutAssets, {
             compileOptions: { runtimeTarget: "canvas" }
         });
-        return;
+        proof.bridgeUsed = true;
+        proof.atlasFrames = Object.keys(result.frames || {});
+        return result;
     }
     const atlas = createFruitAtlas();
-    GM.asset.addAtlas("fruit-atlas", atlas.canvas, atlas.frames);
+    const result = GM.asset.addAtlas("fruit-atlas", atlas.canvas, atlas.frames);
+    proof.atlasFrames = Object.keys(atlas.frames);
+    return result;
 }
 
-GM.app.start({
-    width: 720,
-    height: 1280,
-    simulationHz: 60,
-    maxFrameDeltaMs: 100,
-    maxCatchUpSteps: 5,
-    randomSeed: 1337,
-    responsive: true,
-    create() {
-        registerFruitAtlas();
-        GM.layer.define("fruit", 100);
+function observeSprite(sprite) {
+    proof.sprite = sprite ? {
+        x: Number(sprite.x),
+        y: Number(sprite.y),
+        angle: Number(sprite.angle),
+        scaleX: Number(sprite.scaleX),
+        scaleY: Number(sprite.scaleY)
+    } : null;
+}
 
-        GM.entity.spawn({
-            create() {
-                this.fruit = GM.math.choose("strawberry", "lemon", "lime") || "strawberry";
-                this.spin = GM.math.random_range(-18, 18);
-                this.x = GM.runtime.roomWidth / 2;
-                this.y = GM.runtime.roomHeight / 2 + 80;
-            },
-            step() {
-                this.x += this.spin * GM.time.deltaSec;
-                if (this.x < 80 || this.x > GM.runtime.roomWidth - 80) this.spin *= -1;
-            },
-            draw() {
-                GM.draw.spriteExt("fruit-atlas", this.fruit, this.x, this.y, {
-                    scale: 1.5,
-                    rotation: this.spin * GM.time.currentTime / 1000,
-                    originX: 0.5,
-                    originY: 0.5
-                });
+function observeText(text) {
+    proof.text = text ? {
+        width: Number(text.width),
+        height: Number(text.height),
+        fontSize: String(text.style?.fontSize || "")
+    } : null;
+}
+
+const renderType = new URLSearchParams(window.location.search).get("render") === "canvas"
+    ? "CANVAS"
+    : "WEBGL";
+
+try {
+    GM.app.start({
+        parent: "game",
+        width: 720,
+        height: 1280,
+        simulationHz: 60,
+        maxFrameDeltaMs: 100,
+        maxCatchUpSteps: 5,
+        randomSeed: 1337,
+        responsive: true,
+        type: renderType,
+        create() {
+            registerFruitAtlas();
+            GM.layer.define("fruit", 100);
+
+            GM.entity.spawn({
+                create() {
+                    const fruitState = /** @type {any} */ (this);
+                    fruitState.fruit = GM.math.choose("strawberry", "lemon", "lime") || "strawberry";
+                    fruitState.spin = GM.math.random_range(-18, 18);
+                    fruitState.x = GM.runtime.roomWidth / 2;
+                    fruitState.y = GM.runtime.roomHeight / 2 + 80;
+                },
+                step() {
+                    const fruitState = /** @type {any} */ (this);
+                    fruitState.x += fruitState.spin * GM.runtime.deltaSec;
+                    if (fruitState.x < 80 || fruitState.x > GM.runtime.roomWidth - 80) fruitState.spin *= -1;
+                },
+                draw() {
+                    const fruitState = /** @type {any} */ (this);
+                    const sprite = /** @type {any} */ (GM.draw.spriteExt("fruit-atlas", fruitState.fruit, fruitState.x, fruitState.y, {
+                        scale: 1.5,
+                        rotation: fruitState.spin * GM.runtime.currentTime / 1000,
+                        originX: 0.5,
+                        originY: 0.5
+                    }));
+                    proof.spriteOptionsSeen = proof.spriteOptionsSeen || Boolean(sprite);
+                    observeSprite(sprite);
+                }
+            }, { layer: "fruit", name: "fruit", vars: { fruit: "strawberry" } });
+
+            GM.draw.setColor(GM.color.WHITE);
+        },
+        step(_api, deltaSec) {
+            proof.frames += 1;
+            proof.fixedStepsSeen = proof.fixedStepsSeen || Number.isFinite(deltaSec) && deltaSec > 0;
+            proof.phase = "running";
+            setStatus(`Fruit Shot running: ${proof.frames} fixed steps`);
+        },
+        draw() {
+            GM.draw.setColor("#073b4c");
+            GM.draw.rect(0, 0, GM.runtime.roomWidth, GM.runtime.roomHeight, false);
+            const heading = GM.draw.textExt(GM.runtime.roomWidth / 2, 80, "Fruit Shot", {
+                size: 46,
+                bold: true,
+                color: GM.color.WHITE,
+                hAlign: "center",
+                vAlign: "middle"
+            });
+            const fitted = GM.draw.textFit(GM.runtime.roomWidth / 2, 150, "Fixed-step motion, seeded choice, and reusable presentation options", {
+                size: 28,
+                minSize: 16,
+                maxWidth: GM.runtime.roomWidth - 80,
+                hAlign: "center",
+                vAlign: "middle",
+                color: "#ffd166"
+            });
+            proof.textExtSeen = proof.textExtSeen || Boolean(heading);
+            proof.textFitSeen = proof.textFitSeen || Boolean(fitted);
+            observeText(fitted);
+            if (proof.frames >= 8 && !proof.failed) {
+                proof.phase = "complete";
+                proof.complete = true;
+                setStatus(`Fruit Shot complete: ${proof.frames} fixed steps`);
             }
-        }, { layer: "fruit", name: "fruit", vars: { fruit: "strawberry" } });
-
-        GM.draw.setColor(GM.color.WHITE);
-    },
-    draw() {
-        GM.draw.setColor("#073b4c");
-        GM.draw.rectangle(0, 0, GM.runtime.roomWidth, GM.runtime.roomHeight, false);
-        GM.draw.textExt(GM.runtime.roomWidth / 2, 80, "Fruit Shot", {
-            size: 46,
-            bold: true,
-            color: GM.color.WHITE,
-            hAlign: "center",
-            vAlign: "middle"
-        });
-        GM.draw.textFit(GM.runtime.roomWidth / 2, 150, "Fixed-step motion, seeded choice, and reusable presentation options", {
-            size: 28,
-            minSize: 16,
-            maxWidth: GM.runtime.roomWidth - 80,
-            hAlign: "center",
-            vAlign: "middle",
-            color: "#ffd166"
-        });
-    }
-});
+        },
+        gui() {
+            const guiHeading = GM.gui.textExt(20, 20, proof.bridgeUsed ? "Grout13 atlas" : "Procedural atlas", {
+                size: 16,
+                color: "#ffffff"
+            });
+            const guiSummary = /** @type {any} */ (GM.gui.textFit(20, 44, "Canvas/WebGL proof", {
+                size: 16,
+                minSize: 10,
+                maxWidth: 180,
+                color: "#ffd166"
+            }));
+            proof.guiTextExtSeen = proof.guiTextExtSeen || Boolean(guiHeading);
+            proof.guiTextFitSeen = proof.guiTextFitSeen || Boolean(guiSummary);
+            proof.guiText = guiSummary ? {
+                width: Number(guiSummary.width),
+                height: Number(guiSummary.height),
+                fontSize: String(guiSummary.style?.fontSize || "")
+            } : null;
+        },
+        onError(error) {
+            failProof(error);
+        }
+    });
+} catch (error) {
+    failProof(error);
+}

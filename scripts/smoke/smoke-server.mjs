@@ -72,7 +72,7 @@ function startFrontendServer(frontendRoot, port) {
 function contentTypeFor(filePath) {
     const ext = path.extname(filePath).toLowerCase();
     if (ext === ".html") return "text/html; charset=utf-8";
-    if (ext === ".js") return "text/javascript; charset=utf-8";
+    if (ext === ".js" || ext === ".mjs") return "text/javascript; charset=utf-8";
     if (ext === ".css") return "text/css; charset=utf-8";
     if (ext === ".svg") return "image/svg+xml";
     if (ext === ".json") return "application/json; charset=utf-8";
@@ -87,9 +87,10 @@ function shouldFallbackToIndex(request, requestedPath) {
     return path.extname(requestedPath) === "" || accept.includes("text/html");
 }
 
-function startStaticServer(rootDir, port) {
-    if (!fs.existsSync(path.join(rootDir, "index.html"))) {
-        throw new Error(`Static smoke target is missing index.html: ${rootDir}`);
+export function startStaticServer(rootDir, port, options = {}) {
+    const fallbackPath = String(options.fallbackPath || "index.html");
+    if (!fs.existsSync(path.join(rootDir, fallbackPath))) {
+        throw new Error(`Static smoke target is missing fallback ${fallbackPath}: ${rootDir}`);
     }
 
     const resolvedRoot = path.resolve(rootDir);
@@ -104,7 +105,7 @@ function startStaticServer(rootDir, port) {
             return;
         }
         const normalized = path.normalize(decoded).replace(/^([/\\])+/, "");
-        const requestedPath = normalized === "" ? "index.html" : normalized;
+        const requestedPath = normalized === "" ? fallbackPath : normalized;
         const filePath = path.resolve(rootDir, requestedPath);
         const relativePath = path.relative(resolvedRoot, filePath);
 
@@ -121,7 +122,7 @@ function startStaticServer(rootDir, port) {
             return;
         }
 
-        const finalPath = fileExists ? filePath : path.join(rootDir, "index.html");
+        const finalPath = fileExists ? filePath : path.join(rootDir, fallbackPath);
         response.writeHead(200, { "Content-Type": contentTypeFor(finalPath) });
         fs.createReadStream(finalPath).pipe(response);
     });

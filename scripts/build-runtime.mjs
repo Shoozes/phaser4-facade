@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
 import { minifyJavaScript } from "./runtime-minifier.mjs";
+import { bundleRuntimeSource } from "./esbuild-runtime.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RUNTIME_ROOT = ROOT;
@@ -81,55 +81,7 @@ function checkInputs() {
 }
 
 async function bundleWithEsbuild(contents, sourcefile, format, externalPhaser) {
-    const runtimeNamespace = "phaser4-facade-runtime";
-    const result = await build({
-        absWorkingDir: ROOT,
-        bundle: true,
-        format,
-        legalComments: "none",
-        platform: "browser",
-        plugins: [{
-            name: "local-runtime-source",
-            setup(pluginBuild) {
-                pluginBuild.onResolve({ filter: /.*/ }, (args) => {
-                    if (externalPhaser && args.path === "phaser") {
-                        return { external: true, path: args.path };
-                    }
-                    if (!args.path.startsWith(".")) return { external: true, path: args.path };
-                    const importer = path.isAbsolute(args.importer)
-                        ? args.importer
-                        : path.resolve(ROOT, args.importer || sourcefile);
-                    const resolved = path.resolve(path.dirname(importer), args.path);
-                    if (!resolved.startsWith(`${SRC_DIR}${path.sep}`)) {
-                        throw new Error(`runtime build cannot resolve outside src/: ${args.path}`);
-                    }
-                    // Keep esbuild's namespace comments stable across checkouts.
-                    // Absolute source paths make otherwise identical artifacts differ
-                    // between the public facade repo and private consumer snapshots.
-                    return {
-                        namespace: runtimeNamespace,
-                        path: path.relative(ROOT, resolved).replaceAll(path.sep, "/")
-                    };
-                });
-                pluginBuild.onLoad({ filter: /.*/, namespace: runtimeNamespace }, (args) => ({
-                    contents: read(path.resolve(ROOT, args.path)),
-                    loader: "js",
-                    resolveDir: path.dirname(path.resolve(ROOT, args.path))
-                }));
-            }
-        }],
-        stdin: {
-            contents: normalizeLineEndings(contents),
-            loader: "js",
-            resolveDir: ".",
-            sourcefile
-        },
-        target: "es2020",
-        write: false
-    });
-    const output = result.outputFiles?.[0]?.text;
-    ensure(typeof output === "string" && output.length > 0, `esbuild produced no output for ${sourcefile}.`);
-    return output;
+    return bundleRuntimeSource({ root: ROOT, contents: normalizeLineEndings(contents), sourcefile, format, externalPhaser });
 }
 
 async function main() {

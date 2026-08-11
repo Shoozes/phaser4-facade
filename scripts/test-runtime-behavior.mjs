@@ -516,6 +516,13 @@ async function runCell(browser, baseUrl, cell) {
             "drawPrimitive",
             "drawSprite",
             "drawText",
+            "drawTextExt",
+            "drawTextFit",
+            "drawSpriteOptions",
+            "guiTextExt",
+            "guiTextFit",
+            "crossFrameTextReset",
+            "crossFrameSpriteReset",
             "entitySpawned",
             "entityStepped"
         ];

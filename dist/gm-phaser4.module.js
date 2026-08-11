@@ -971,7 +971,7 @@ function textStyleFor(presentation) {
     padding: 0
   };
 }
-function applyTextPresentation(state, item, label, presentation, parent) {
+function applyTextPresentation(state, item, label, presentation, parent, forceStyle = false) {
   const style = textStyleFor(presentation);
   const styleSignature = JSON.stringify(style);
   countRuntimePerf(state, "drawText");
@@ -980,7 +980,7 @@ function applyTextPresentation(state, item, label, presentation, parent) {
     item.setText(label);
     countRuntimePerf(state, "textSetCalls");
   }
-  if (item.__gmRuntimeStyleSignature !== styleSignature) {
+  if (forceStyle || item.__gmRuntimeStyleSignature !== styleSignature) {
     item.setStyle(style);
     item.__gmRuntimeStyleSignature = styleSignature;
     countRuntimePerf(state, "textStyleSetCalls");
@@ -1022,7 +1022,7 @@ function resolveFitSize(item, label, presentation, options) {
     presentation.resolution
   ]);
   if (item.__gmRuntimeFitSignature === signature && Number.isFinite(item.__gmRuntimeFitSize)) {
-    return item.__gmRuntimeFitSize;
+    return { size: item.__gmRuntimeFitSize, measured: false };
   }
   const fits = (
     /** @param {number} size */
@@ -1051,7 +1051,7 @@ function resolveFitSize(item, label, presentation, options) {
   }
   item.__gmRuntimeFitSignature = signature;
   item.__gmRuntimeFitSize = result;
-  return result;
+  return { size: result, measured: true };
 }
 function drawRuntimeTextWithOptions(state, pool, parent, x, y, text, options = {}, fit = false) {
   const presentation = normalizeTextPresentation(state, options);
@@ -1059,11 +1059,14 @@ function drawRuntimeTextWithOptions(state, pool, parent, x, y, text, options = {
   presentation.y = finiteDrawValue(y, 0, "text y", true);
   const label = String(text);
   const item = pool.take();
+  let forceStyle = false;
   if (fit) {
-    presentation.size = resolveFitSize(item, label, presentation, options);
+    const fitResult = resolveFitSize(item, label, presentation, options);
+    presentation.size = fitResult.size;
+    forceStyle = fitResult.measured;
     countRuntimePerf(state, "fittedText");
   }
-  return applyTextPresentation(state, item, label, presentation, parent);
+  return applyTextPresentation(state, item, label, presentation, parent, forceStyle);
 }
 function drawRuntimeText(state, pool, parent, x, y, text) {
   return drawRuntimeTextWithOptions(state, pool, parent, x, y, text);

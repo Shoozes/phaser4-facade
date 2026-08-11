@@ -245,6 +245,10 @@ export async function runQualification(options) {
         let drawPrimitiveSeen = false;
         let drawSpriteSeen = false;
         let drawTextSeen = false;
+        let drawPresentationVerified = false;
+        let guiPresentationVerified = false;
+        let crossFrameTextVerified = false;
+        let crossFrameSpriteVerified = false;
 
         const game = GM.app.start({
             parent: "game",
@@ -371,18 +375,97 @@ export async function runQualification(options) {
                 api.draw_rectangle(20, 20, 80, 80, false);
                 drawPrimitiveSeen = true;
 
-                api.draw_sprite_ext(ATLAS_KEY, FRAME_A, 120, 60, 2, 2, 0, 0xffffff, 1);
+                const extendedFrame = report.frames % 2 === 1;
+                const presentationSprite = extendedFrame
+                    ? GM.draw.spriteExt(ATLAS_KEY, FRAME_A, 120, 60, {
+                        scale: 1.5,
+                        scaleY: 0.75,
+                        rotation: 30,
+                        tint: 0xff00ff,
+                        alpha: 0.8,
+                        flipX: true,
+                        originX: 0.25,
+                        originY: 0.75
+                    })
+                    : GM.draw.sprite(ATLAS_KEY, FRAME_A, 120, 60);
                 api.draw_sprite_ext(ATLAS_KEY, FRAME_B, 180, 60, -2, 2, 90, 0xff00ff, 0.8);
                 drawSpriteSeen = true;
 
+                const presentationText = extendedFrame
+                    ? GM.draw.textExt(24, 100, `qual ${artifact} ${render}`, {
+                        font: "monospace",
+                        size: 18,
+                        bold: true,
+                        color: 0xff00ff,
+                        rotation: 15,
+                        scaleX: 1.25,
+                        scaleY: 0.75,
+                        hAlign: "center",
+                        vAlign: "middle"
+                    })
+                    : GM.draw.text(24, 100, `qual ${artifact} ${render}`);
+                const fittedText = GM.draw.textFit(24, 132, "fitted browser presentation", {
+                    font: "monospace",
+                    size: 32,
+                    minSize: 10,
+                    maxWidth: 160,
+                    maxHeight: 36,
+                    color: 0xffff00
+                });
+
+                if (extendedFrame && !drawPresentationVerified) {
+                    recordCheck("drawTextExt", Boolean(presentationText?.style), null);
+                    recordCheck("drawTextExtStyle", presentationText.style.fontFamily === "monospace" && presentationText.style.fontSize === "18px" && presentationText.style.fontStyle === "bold", JSON.stringify(presentationText.style));
+                    recordCheck("drawTextExtTransform", presentationText.angle === -15 && presentationText.scaleX === 1.25 && presentationText.scaleY === 0.75, JSON.stringify({ angle: presentationText.angle, scaleX: presentationText.scaleX, scaleY: presentationText.scaleY }));
+                    recordCheck("drawTextFit", Boolean(fittedText?.style), null);
+                    recordCheck("drawTextFitBounds", Number(fittedText.width) <= 160.01 && Number(fittedText.height) <= 36.01, JSON.stringify({ width: fittedText.width, height: fittedText.height }));
+                    recordCheck("drawSpriteOptions", Boolean(presentationSprite), null);
+                    recordCheck("drawSpriteOptionsTransform", presentationSprite.angle === -30 && presentationSprite.scaleX === 1.5 && presentationSprite.scaleY === 0.75 && presentationSprite.flipX === true && presentationSprite.originX === 0.25 && presentationSprite.originY === 0.75, JSON.stringify({ angle: presentationSprite.angle, scaleX: presentationSprite.scaleX, scaleY: presentationSprite.scaleY, flipX: presentationSprite.flipX, originX: presentationSprite.originX, originY: presentationSprite.originY }));
+                    drawPresentationVerified = true;
+                }
+                if (!extendedFrame && drawPresentationVerified && !crossFrameTextVerified) {
+                    recordCheck("crossFrameTextReset", presentationText.angle === 0 && presentationText.scaleX === 1 && presentationText.scaleY === 1 && presentationText.originX === 0 && presentationText.originY === 0, JSON.stringify({ angle: presentationText.angle, scaleX: presentationText.scaleX, scaleY: presentationText.scaleY, originX: presentationText.originX, originY: presentationText.originY }));
+                    crossFrameTextVerified = true;
+                }
+                if (!extendedFrame && drawPresentationVerified && !crossFrameSpriteVerified) {
+                    recordCheck("crossFrameSpriteReset", presentationSprite.angle === 0 && presentationSprite.scaleX === 1 && presentationSprite.scaleY === 1 && presentationSprite.flipX === false && presentationSprite.flipY === false && presentationSprite.originX === 0.5 && presentationSprite.originY === 0.5, JSON.stringify({ angle: presentationSprite.angle, scaleX: presentationSprite.scaleX, scaleY: presentationSprite.scaleY, flipX: presentationSprite.flipX, flipY: presentationSprite.flipY, originX: presentationSprite.originX, originY: presentationSprite.originY }));
+                    crossFrameSpriteVerified = true;
+                }
+
                 api.draw_set_color(0xffffff);
-                api.draw_set_font("monospace", 16, false);
-                api.draw_text(24, 100, `qual ${artifact} ${render}`);
                 drawTextSeen = true;
 
                 report.checks.drawPrimitive = { ok: drawPrimitiveSeen, detail: runId };
                 report.checks.drawSprite = { ok: drawSpriteSeen, detail: runId };
                 report.checks.drawText = { ok: drawTextSeen, detail: runId };
+            },
+            gui() {
+                const extendedFrame = report.frames % 2 === 1;
+                const guiText = extendedFrame
+                    ? GM.gui.textExt(24, 170, "GUI extended text", {
+                        font: "monospace",
+                        size: 16,
+                        color: 0x00ff66,
+                        rotation: 0,
+                        scaleX: 1.1,
+                        scaleY: 0.9
+                    })
+                    : GM.gui.text(24, 170, "GUI simple text");
+                const guiFit = GM.gui.textFit(24, 198, "GUI fitted text", {
+                    font: "monospace",
+                    size: 22,
+                    minSize: 10,
+                    maxWidth: 150,
+                    maxHeight: 30,
+                    color: 0x00ffff
+                });
+                if (extendedFrame && !guiPresentationVerified) {
+                    recordCheck("guiTextExt", Boolean(guiText?.style), null);
+                    recordCheck("guiTextExtStyle", guiText.style.fontFamily === "monospace" && guiText.style.fontSize === "16px", JSON.stringify(guiText.style));
+                    recordCheck("guiTextFit", Boolean(guiFit?.style), null);
+                    recordCheck("guiTextFitBounds", Number(guiFit.width) <= 150.01 && Number(guiFit.height) <= 30.01, JSON.stringify({ width: guiFit.width, height: guiFit.height }));
+                    guiPresentationVerified = true;
+                }
             }
         });
 
