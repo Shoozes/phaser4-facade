@@ -23,12 +23,16 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE_ROOT = ROOT;
 const FIXTURE_ROOT = path.join(PACKAGE_ROOT, "tests", "browser");
 const FRONTEND_ROOT = ROOT;
-const WORK_ROOT_BASE = path.join(ROOT, "runtime-data", "runtime-behavior");
+const WORK_ROOT_BASE = path.resolve(
+    process.env.PHASER4_RUNTIME_BEHAVIOR_ROOT || path.join(ROOT, "runtime-data", "runtime-behavior")
+);
 const WORK_ROOT = process.argv.includes("--skip-install")
     ? WORK_ROOT_BASE
     : path.join(WORK_ROOT_BASE, `run-${Date.now()}-${process.pid}`);
 const CACHE_ROOT = path.join(WORK_ROOT, "cache");
-const NPM_CACHE = path.join(ROOT, "runtime-data", "npm-cache");
+const NPM_CACHE = path.resolve(
+    process.env.PHASER4_RUNTIME_BEHAVIOR_NPM_CACHE || path.join(ROOT, "runtime-data", "npm-cache")
+);
 const DEFAULT_START_PORT = 4310;
 const PAGE_TIMEOUT_MS = 20000;
 const NPM_TIMEOUT_MS = 120000;
