@@ -1578,30 +1578,6 @@
   }
 
   // phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\pools.js
-  function createDefaultTextStyle() {
-    return {
-      fontFamily: "sans-serif",
-      fontSize: "24px",
-      fontStyle: "",
-      color: "#ffffff",
-      resolution: 1,
-      stroke: "transparent",
-      strokeThickness: 0,
-      shadow: {
-        offsetX: 0,
-        offsetY: 0,
-        color: "#000000",
-        blur: 0,
-        stroke: false,
-        fill: false
-      },
-      wordWrap: { width: 0, useAdvancedWrap: false },
-      fixedWidth: 0,
-      fixedHeight: 0,
-      lineSpacing: 0,
-      padding: 0
-    };
-  }
   function resetRuntimeTextItem(item) {
     if (typeof item.setPosition === "function") item.setPosition(0, 0);
     if (typeof item.setOrigin === "function") item.setOrigin(0, 0);
@@ -1617,8 +1593,6 @@
       } catch {
       }
     }
-    if (typeof item.setStyle === "function") item.setStyle(createDefaultTextStyle());
-    item.__gmRuntimeStyleSignature = "";
   }
   function makeTextPool(scene, parent, state = null) {
     return {

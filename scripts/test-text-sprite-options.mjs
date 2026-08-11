@@ -17,7 +17,8 @@ function createTextItem() {
         originX: 0,
         originY: 0,
         setText(value) { this.text = String(value); return this; },
-        setStyle(value) { this.style = { ...value }; return this; },
+        styleCalls: 0,
+        setStyle(value) { this.styleCalls += 1; this.style = { ...value }; return this; },
         setPosition(x, y) { this.x = x; this.y = y; return this; },
         setOrigin(x, y) { this.originX = x; this.originY = y; return this; },
         setAlpha(value) { this.alpha = value; return this; },
@@ -100,6 +101,18 @@ assert.equal(pooledItem.angle, 0, "text pool resets rotation");
 assert.equal(pooledItem.scaleX, 1, "text pool resets scaleX");
 assert.equal(pooledItem.scaleY, 1, "text pool resets scaleY");
 assert.equal(pooledItem.alpha, 1, "text pool resets alpha");
+
+const stableText = createTextItem();
+const stableTextPool = makeTextPool({ add: { text: () => stableText } }, parent, state);
+stableTextPool.begin();
+drawRuntimeText(state, stableTextPool, parent, 0, 0, "stable");
+stableTextPool.begin();
+drawRuntimeText(state, stableTextPool, parent, 0, 0, "stable");
+assert.equal(stableText.styleCalls, 1, "pooled text should not rewrite an unchanged style each frame");
+state.draw.color = 0xff0000;
+stableTextPool.begin();
+drawRuntimeText(state, stableTextPool, parent, 0, 0, "stable");
+assert.equal(stableText.styleCalls, 2, "pooled text should apply a changed style signature");
 
 const sprite = {
     angle: 0,

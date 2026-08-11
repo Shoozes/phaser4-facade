@@ -11,34 +11,10 @@
 
 import { countRuntimePerf } from "./perf-metrics.js";
 
-function createDefaultTextStyle() {
-    return {
-        fontFamily: "sans-serif",
-        fontSize: "24px",
-        fontStyle: "",
-        color: "#ffffff",
-        resolution: 1,
-        stroke: "transparent",
-        strokeThickness: 0,
-        shadow: {
-            offsetX: 0,
-            offsetY: 0,
-            color: "#000000",
-            blur: 0,
-            stroke: false,
-            fill: false
-        },
-        wordWrap: { width: 0, useAdvancedWrap: false },
-        fixedWidth: 0,
-        fixedHeight: 0,
-        lineSpacing: 0,
-        padding: 0
-    };
-}
-
 /**
  * Reset every mutable presentation field that a text draw can touch. Phaser
- * text objects are frame-borrowed, so visibility alone is not a safe reset.
+ * Draw reconciliation owns text style changes through its signature cache, so
+ * resetting style here would force a style write on every pooled draw.
  * @param {any} item
  */
 export function resetRuntimeTextItem(item) {
@@ -53,8 +29,6 @@ export function resetRuntimeTextItem(item) {
     if (typeof item.setCrop === "function") {
         try { item.setCrop(); } catch { /* optional Phaser feature */ }
     }
-    if (typeof item.setStyle === "function") item.setStyle(createDefaultTextStyle());
-    item.__gmRuntimeStyleSignature = "";
 }
 
 /**
