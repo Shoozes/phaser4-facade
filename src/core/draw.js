@@ -201,6 +201,65 @@ export function drawRuntimeLine(state, gfx, x1, y1, x2, y2) {
 const H_ALIGNMENTS = new Set(["left", "center", "right"]);
 const V_ALIGNMENTS = new Set(["top", "middle", "bottom"]);
 
+/**
+ * @typedef {object} RuntimeTextOptions
+ * @property {string=} font
+ * @property {number=} size
+ * @property {boolean=} bold
+ * @property {unknown=} color
+ * @property {number=} alpha
+ * @property {"left"|"center"|"right"=} hAlign
+ * @property {"top"|"middle"|"bottom"=} vAlign
+ * @property {number=} rotation
+ * @property {number=} scale
+ * @property {number=} scaleX
+ * @property {number=} scaleY
+ * @property {number=} originX
+ * @property {number=} originY
+ * @property {number=} maxWidth
+ * @property {number=} maxHeight
+ * @property {number=} minSize
+ */
+
+/**
+ * @typedef {object} RuntimeTextPresentation
+ * @property {string} font
+ * @property {number} size
+ * @property {boolean} bold
+ * @property {unknown} color
+ * @property {number} alpha
+ * @property {string} hAlign
+ * @property {string} vAlign
+ * @property {number} rotation
+ * @property {number} scaleX
+ * @property {number} scaleY
+ * @property {number} originX
+ * @property {number} originY
+ * @property {number} resolution
+ * @property {number} x
+ * @property {number} y
+ */
+
+/**
+ * @typedef {object} RuntimeSpriteOptions
+ * @property {number=} scale
+ * @property {number=} scaleX
+ * @property {number=} scaleY
+ * @property {number=} rotation
+ * @property {unknown=} color
+ * @property {number=} alpha
+ * @property {number=} originX
+ * @property {number=} originY
+ * @property {boolean=} flipX
+ * @property {boolean=} flipY
+ */
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @param {string} label
+ * @param {boolean=} required
+ */
 function finiteDrawValue(value, fallback, label, required = false) {
     if (value === undefined || value === null) {
         if (required) throw new TypeError(`${label} must be a finite number.`);
@@ -211,17 +270,32 @@ function finiteDrawValue(value, fallback, label, required = false) {
     return numeric;
 }
 
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @param {string} label
+ */
 function positiveDrawValue(value, fallback, label) {
     const numeric = finiteDrawValue(value, fallback, label);
     if (!(numeric > 0)) throw new RangeError(`${label} must be greater than zero.`);
     return numeric;
 }
 
+/**
+ * @param {unknown} value
+ * @param {Set<string>} allowed
+ * @param {string} fallback
+ */
 function normalizeAlignment(value, allowed, fallback) {
     const normalized = String(value ?? fallback).toLowerCase();
     return allowed.has(normalized) ? normalized : fallback;
 }
 
+/**
+ * @param {any} state
+ * @param {RuntimeTextOptions=} options
+ * @returns {RuntimeTextPresentation}
+ */
 function normalizeTextPresentation(state, options = {}) {
     const draw = state.draw || {};
     const hAlign = normalizeAlignment(options.hAlign === undefined ? draw.halign : options.hAlign, H_ALIGNMENTS, "left");
@@ -250,10 +324,13 @@ function normalizeTextPresentation(state, options = {}) {
         scaleY,
         originX,
         originY,
-        resolution: positiveDrawValue(state.render?.resolution, 1, "text resolution")
+        resolution: positiveDrawValue(state.render?.resolution, 1, "text resolution"),
+        x: 0,
+        y: 0
     };
 }
 
+/** @param {RuntimeTextPresentation} presentation */
 function textStyleFor(presentation) {
     return {
         fontFamily: presentation.font,
@@ -279,6 +356,13 @@ function textStyleFor(presentation) {
     };
 }
 
+/**
+ * @param {any} state
+ * @param {any} item
+ * @param {string} label
+ * @param {RuntimeTextPresentation} presentation
+ * @param {any} parent
+ */
 function applyTextPresentation(state, item, label, presentation, parent) {
     const style = textStyleFor(presentation);
     const styleSignature = JSON.stringify(style);
@@ -303,6 +387,10 @@ function applyTextPresentation(state, item, label, presentation, parent) {
     return item;
 }
 
+/**
+ * @param {any} item
+ * @param {RuntimeTextPresentation} presentation
+ */
 function measuredTextBounds(item, presentation) {
     const width = Math.abs(Number(item.width)) * Math.abs(presentation.scaleX);
     const height = Math.abs(Number(item.height)) * Math.abs(presentation.scaleY);
@@ -312,6 +400,12 @@ function measuredTextBounds(item, presentation) {
     };
 }
 
+/**
+ * @param {any} item
+ * @param {string} label
+ * @param {RuntimeTextPresentation} presentation
+ * @param {RuntimeTextOptions} options
+ */
 function resolveFitSize(item, label, presentation, options) {
     const maxWidth = positiveDrawValue(options.maxWidth, 0, "text maxWidth");
     const maxHeight = options.maxHeight === undefined ? null : positiveDrawValue(options.maxHeight, 0, "text maxHeight");
@@ -335,7 +429,7 @@ function resolveFitSize(item, label, presentation, options) {
         return item.__gmRuntimeFitSize;
     }
 
-    const fits = (size) => {
+    const fits = /** @param {number} size */ (size) => {
         const candidate = { ...presentation, size };
         item.setText(label);
         item.setStyle(textStyleFor(candidate));
@@ -371,7 +465,7 @@ function resolveFitSize(item, label, presentation, options) {
  * @param {number} x
  * @param {number} y
  * @param {any} text
- * @param {any=} options
+ * @param {RuntimeTextOptions=} options
  * @param {boolean=} fit
  */
 export function drawRuntimeTextWithOptions(state, pool, parent, x, y, text, options = {}, fit = false) {
@@ -392,12 +486,12 @@ export function drawRuntimeText(state, pool, parent, x, y, text) {
     return drawRuntimeTextWithOptions(state, pool, parent, x, y, text);
 }
 
-/** @param {any} state @param {any} pool @param {any} parent @param {number} x @param {number} y @param {any} text @param {any} options */
+/** @param {any} state @param {any} pool @param {any} parent @param {number} x @param {number} y @param {any} text @param {RuntimeTextOptions=} options */
 export function drawRuntimeTextExt(state, pool, parent, x, y, text, options) {
     return drawRuntimeTextWithOptions(state, pool, parent, x, y, text, options || {});
 }
 
-/** @param {any} state @param {any} pool @param {any} parent @param {number} x @param {number} y @param {any} text @param {any} options */
+/** @param {any} state @param {any} pool @param {any} parent @param {number} x @param {number} y @param {any} text @param {RuntimeTextOptions} options */
 export function drawRuntimeTextFit(state, pool, parent, x, y, text, options) {
     if (!options || typeof options !== "object") throw new TypeError("textFit options are required.");
     return drawRuntimeTextWithOptions(state, pool, parent, x, y, text, options, true);
@@ -427,6 +521,11 @@ function clampTintColor(color) {
     return converted >>> 0 & 0xffffff;
 }
 
+/**
+ * @param {any} state
+ * @param {string} key
+ * @param {any} frame
+ */
 function assertSpriteSource(state, key, frame) {
     const textures = state.scene?.textures;
     if (!textures || typeof textures.exists !== "function") return;
@@ -456,7 +555,10 @@ function assertSpriteSource(state, key, frame) {
 export function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rotation, color, alpha) {
     const posX = finiteOr(x, 0, "x");
     const posY = finiteOr(y, 0, "y");
-    const options = xscale && typeof xscale === "object" ? xscale : null;
+    /** @type {RuntimeSpriteOptions | null} */
+    const options = xscale && typeof xscale === "object"
+        ? /** @type {RuntimeSpriteOptions} */ (xscale)
+        : null;
     assertSpriteSource(state, key, frame);
     const baseScale = finiteOr(options?.scale, 1, "scale");
     const scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");

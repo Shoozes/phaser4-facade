@@ -940,7 +940,9 @@
       scaleY,
       originX,
       originY,
-      resolution: positiveDrawValue(state.render?.resolution, 1, "text resolution")
+      resolution: positiveDrawValue(state.render?.resolution, 1, "text resolution"),
+      x: 0,
+      y: 0
     };
   }
   function textStyleFor(presentation) {
@@ -1020,13 +1022,16 @@
     if (item.__gmRuntimeFitSignature === signature && Number.isFinite(item.__gmRuntimeFitSize)) {
       return item.__gmRuntimeFitSize;
     }
-    const fits = (size) => {
-      const candidate = { ...presentation, size };
-      item.setText(label);
-      item.setStyle(textStyleFor(candidate));
-      const bounds = measuredTextBounds(item, candidate);
-      return bounds.width <= maxWidth && (maxHeight === null || bounds.height <= maxHeight);
-    };
+    const fits = (
+      /** @param {number} size */
+      (size) => {
+        const candidate = { ...presentation, size };
+        item.setText(label);
+        item.setStyle(textStyleFor(candidate));
+        const bounds = measuredTextBounds(item, candidate);
+        return bounds.width <= maxWidth && (maxHeight === null || bounds.height <= maxHeight);
+      }
+    );
     let result = preferredSize;
     if (!fits(preferredSize)) {
       if (fits(minSize)) {
@@ -1096,7 +1101,10 @@
   function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rotation, color, alpha) {
     const posX = finiteOr(x, 0, "x");
     const posY = finiteOr(y, 0, "y");
-    const options = xscale && typeof xscale === "object" ? xscale : null;
+    const options = xscale && typeof xscale === "object" ? (
+      /** @type {RuntimeSpriteOptions} */
+      xscale
+    ) : null;
     assertSpriteSource(state, key, frame);
     const baseScale = finiteOr(options?.scale, 1, "scale");
     const scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");

@@ -72,7 +72,7 @@ import { curtain, curtain_active, dismissCurtain } from "./core/curtain.js";
 import { logDebugMessage } from "./core/debug.js";
 
 /**
- * @typedef {typeof globalThis & Record<string, unknown> & { Phaser?: unknown, GM?: unknown }} RuntimeRoot
+ * @typedef {Omit<typeof globalThis, "Phaser" | "GM"> & Record<string, unknown> & { Phaser?: unknown, GM?: unknown }} RuntimeRoot
  * @typedef {{ Game: new (...args: any[]) => any, Scene: new (...args: any[]) => any, VERSION?: string, Scale?: Record<string, unknown> }} PhaserRuntime
  * @typedef {{ width: number, height: number, curtain?: boolean, [key: string]: any }} RuntimeConfig
  * @typedef {Record<string, any>} DynamicRecord
@@ -133,8 +133,12 @@ import { logDebugMessage } from "./core/debug.js";
  * @property {(...args: any[]) => any} draw_circle
  * @property {(...args: any[]) => any} draw_line
  * @property {(...args: any[]) => any} draw_text
+ * @property {(...args: any[]) => any} draw_text_ext
+ * @property {(...args: any[]) => any} draw_text_fit
  * @property {(...args: any[]) => any} draw_gui_rectangle
  * @property {(...args: any[]) => any} draw_gui_text
+ * @property {(...args: any[]) => any} draw_gui_text_ext
+ * @property {(...args: any[]) => any} draw_gui_text_fit
  * @property {(...args: any[]) => any} draw_sprite
  * @property {(...args: any[]) => any} draw_sprite_ext
  * @property {(...args: any[]) => any} button
