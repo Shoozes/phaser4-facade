@@ -103,12 +103,18 @@ async function bundleWithEsbuild(contents, sourcefile, format, externalPhaser) {
                     if (!resolved.startsWith(`${SRC_DIR}${path.sep}`)) {
                         throw new Error(`runtime build cannot resolve outside src/: ${args.path}`);
                     }
-                    return { namespace: runtimeNamespace, path: resolved };
+                    // Keep esbuild's namespace comments stable across checkouts.
+                    // Absolute source paths make otherwise identical artifacts differ
+                    // between the public facade repo and private consumer snapshots.
+                    return {
+                        namespace: runtimeNamespace,
+                        path: path.relative(ROOT, resolved).replaceAll(path.sep, "/")
+                    };
                 });
                 pluginBuild.onLoad({ filter: /.*/, namespace: runtimeNamespace }, (args) => ({
-                    contents: read(args.path),
+                    contents: read(path.resolve(ROOT, args.path)),
                     loader: "js",
-                    resolveDir: path.dirname(args.path)
+                    resolveDir: path.dirname(path.resolve(ROOT, args.path))
                 }));
             }
         }],

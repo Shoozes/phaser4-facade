@@ -1,7 +1,7 @@
 // src/index.module.js
 import * as PhaserImport from "phaser";
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\constants.js
+// phaser4-facade-runtime:src/core/constants.js
 var DEFAULTS = {
   parent: "game",
   width: 720,
@@ -89,7 +89,7 @@ var INPUT = {
   vk_alt: "ALT"
 };
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\cleanup.js
+// phaser4-facade-runtime:src/core/cleanup.js
 function addRuntimeCleanup(state, fn) {
   if (typeof fn === "function") state.cleanup.push(fn);
   return fn;
@@ -161,7 +161,7 @@ function runRuntimeCleanup(state, reason) {
   return true;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\math.js
+// phaser4-facade-runtime:src/core/math.js
 var NAMED_COLORS = COLORS;
 var HEX_COLOR_PATTERN = /^[0-9a-f]{3}$|^[0-9a-f]{6}$/i;
 function bgrToRgb(value) {
@@ -278,7 +278,7 @@ function numberOr(value, fallback) {
   return Number.isFinite(next) ? next : fallback;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\rng.js
+// phaser4-facade-runtime:src/core/rng.js
 function createSeededRng(seed) {
   let state = normalizeSeed(seed);
   function next() {
@@ -349,7 +349,7 @@ function normalizeSeed(seed) {
   return (Math.floor(numeric) || 1) >>> 0;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\math-api.js
+// phaser4-facade-runtime:src/core/math-api.js
 function createMathApi() {
   let boundRng = null;
   return {
@@ -402,7 +402,7 @@ function createMathApi() {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\input.js
+// phaser4-facade-runtime:src/core/input.js
 function normalizeKey(input) {
   if (input && typeof input === "object") {
     const eventLike = input;
@@ -463,7 +463,7 @@ function pointerGateKey(pointer) {
   return "default";
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\perf-metrics.js
+// phaser4-facade-runtime:src/core/perf-metrics.js
 function nowMs() {
   const perf = typeof performance !== "undefined" ? performance : null;
   return perf && typeof perf.now === "function" ? perf.now() : Date.now();
@@ -581,7 +581,7 @@ function finalizeRuntimePerfFrame(state) {
   perf.topLabels = Array.from(perf._labels.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([text, count]) => ({ text, count }));
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\button.js
+// phaser4-facade-runtime:src/core/button.js
 function createRuntimeButtonClass(Phaser) {
   return class GMButtonObject extends Phaser.GameObjects.Container {
     /**
@@ -803,7 +803,7 @@ function createRuntimeButtonClass(Phaser) {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\draw.js
+// phaser4-facade-runtime:src/core/draw.js
 function clampDrawAlpha(value, fallback = 1) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? clamp(numeric, 0, 1) : fallback;
@@ -1133,7 +1133,7 @@ function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rot
   return item;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\entity.js
+// phaser4-facade-runtime:src/core/entity.js
 function stepRuntimeAlarms(state, api, inst) {
   if (!inst.alarm) return;
   for (let i = 0; i < ALARM_COUNT; i += 1) {
@@ -1262,7 +1262,7 @@ function setRuntimeAlarm(state, index, frames, inst) {
   target.__alarmSetFrame[numericIndex] = state.stepFrame || 0;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\layout.js
+// phaser4-facade-runtime:src/core/layout.js
 function resolveRoomLayout(w, h, cfg) {
   const baseWidth = Math.max(1, numberOr(cfg.width, 720));
   const baseHeight = Math.max(1, numberOr(cfg.height, 1280));
@@ -1318,7 +1318,7 @@ function resolveRoomLayout(w, h, cfg) {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\modal.js
+// phaser4-facade-runtime:src/core/modal.js
 function resolveModalInputBlockMs(options) {
   return modalInputBlockMs(options, DEFAULT_MODAL_INPUT_BLOCK_MS);
 }
@@ -1579,7 +1579,7 @@ function createModal(api, state, options, uiToolkit) {
   return modal;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\pools.js
+// phaser4-facade-runtime:src/core/pools.js
 function resetRuntimeTextItem(item) {
   if (typeof item.setPosition === "function") item.setPosition(0, 0);
   if (typeof item.setOrigin === "function") item.setOrigin(0, 0);
@@ -1686,7 +1686,7 @@ function makeSpritePool(scene, parent, state = null) {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\render-resolution.js
+// phaser4-facade-runtime:src/core/render-resolution.js
 function resolveRenderResolution(cfg, root) {
   const max = Math.max(1, numberOr(cfg.maxRenderResolution, 3));
   if (cfg.renderResolution === "auto") {
@@ -1807,7 +1807,7 @@ function syncRenderResolution(scene, state, cfg, root, source = "layout") {
   }
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\render-layers.js
+// phaser4-facade-runtime:src/core/render-layers.js
 function createWorldLayerManager(scene, state) {
   function ensure(name, depth) {
     const layerName = String(name || "world");
@@ -1857,7 +1857,7 @@ function createWorldLayerManager(scene, state) {
   return { beginFrame, ensure, publishTextDiagnostics, select };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\ui-toolkit.js
+// phaser4-facade-runtime:src/core/ui-toolkit.js
 var DEFAULT_UI_THEME = {
   panel: {
     texture: "gm_panel_blue",
@@ -2164,7 +2164,7 @@ function createUiToolkit() {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\assets.js
+// phaser4-facade-runtime:src/core/assets.js
 var RESERVED_FRAME_NAMES = /* @__PURE__ */ new Set([
   "hasOwnProperty",
   "constructor",
@@ -2433,7 +2433,7 @@ function textureFrameExists(scene, key, frame) {
   }
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\virtual-stick.js
+// phaser4-facade-runtime:src/core/virtual-stick.js
 function stickFiniteOr(value, fallback, label) {
   if (value === void 0 || value === null || value === "") return fallback;
   const numeric = Number(value);
@@ -2576,7 +2576,7 @@ function createVirtualStick(options = {}, pointerApi) {
   return stick;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\facade-namespaces.js
+// phaser4-facade-runtime:src/core/facade-namespaces.js
 function installFacadeNamespaces(deps) {
   const {
     GM: GM2,
@@ -3001,7 +3001,7 @@ function installFacadeNamespaces(deps) {
   return GM2;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\game-config.js
+// phaser4-facade-runtime:src/core/game-config.js
 function resolveRenderQuality(cfg) {
   const pixelArt = cfg.renderQuality === "pixel-art" || cfg.pixelArt === true;
   const antialias = cfg.antialias === void 0 ? !pixelArt : !!cfg.antialias;
@@ -3014,7 +3014,7 @@ function resolveRenderQuality(cfg) {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\game-start.js
+// phaser4-facade-runtime:src/core/game-start.js
 function resolveGameType(Phaser, raw) {
   if (raw === void 0 || raw === null) return Phaser.AUTO;
   if (raw === Phaser.AUTO || raw === Phaser.CANVAS || raw === Phaser.WEBGL) return raw;
@@ -3132,7 +3132,7 @@ function createGameStarter({ root, Phaser, makeScene, installGlobals }) {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\legacy-globals.js
+// phaser4-facade-runtime:src/core/legacy-globals.js
 var ACCESSOR_NAMES = [
   "room_width",
   "room_height",
@@ -3396,7 +3396,7 @@ function createLegacyGlobalInstaller(deps) {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\runtime-state.js
+// phaser4-facade-runtime:src/core/runtime-state.js
 function createRuntimeState(scene, cfg) {
   const perf = shouldEnableRuntimePerfProbe(cfg) ? createRuntimePerfState() : null;
   return {
@@ -3499,7 +3499,7 @@ function createRuntimeState(scene, cfg) {
   };
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\curtain.js
+// phaser4-facade-runtime:src/core/curtain.js
 function curtain(text, fadeMs, state, api, scene, cfg, normalizeDelayMs2, COLORS2, ALIGN2, INPUT2) {
   if (!state.curtain.visible && state.curtain.alpha <= 0) return false;
   const pressed = typeof api.mouse_check_button_pressed_raw === "function" ? api.mouse_check_button_pressed_raw(INPUT2.mb_left) : api.mouse_check_button_pressed(INPUT2.mb_left);
@@ -3549,14 +3549,14 @@ function curtain_active(state) {
   return state.curtain.visible && state.curtain.alpha > 0;
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\core\debug.js
+// phaser4-facade-runtime:src/core/debug.js
 function logDebugMessage(message, logger = console) {
   if (logger && typeof logger.log === "function") {
     logger.log(message);
   }
 }
 
-// phaser4-facade-runtime:C:\Users\jc816\OneDrive\Desktop\Gen-App\Phaser4-Game-Template\runtime-data\coordination\phaser4-facade\src\gm-phaser4.js
+// phaser4-facade-runtime:src/gm-phaser4.js
 function validatePhaserLibrary(Phaser) {
   if (!Phaser || typeof Phaser.Game !== "function" || typeof Phaser.Scene !== "function") {
     throw new Error("GM runtime requires a Phaser library with Game and Scene constructors.");
