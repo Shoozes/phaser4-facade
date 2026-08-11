@@ -7,7 +7,7 @@ import {
 } from "./constants.js";
 import {
     consumeInputEvent,
-    modalInputBlockMs as computeModalInputBlockMs,
+    modalInputBlockMs,
     normalizeDelayMs
 } from "./input.js";
 import { clamp } from "./math.js";
@@ -21,8 +21,7 @@ import { clamp } from "./math.js";
  *   consume_pointer: (blockMs: number, pointer?: unknown) => unknown,
  *   release_pointer: (pointer: unknown, blockMs: number) => unknown,
  *   begin_input_transition: (blockMs: number) => (() => void),
- *   pause_input: (blockMs: number) => unknown,
- *   clear_input_gate: () => unknown
+ *   pause_input: (blockMs: number) => unknown
  * }} RuntimeModalApi
  * @typedef {{
  *   scene: any,
@@ -42,7 +41,7 @@ import { clamp } from "./math.js";
  * @param {RuntimeModalOptions} options
  */
 function resolveModalInputBlockMs(options) {
-    return computeModalInputBlockMs(options, DEFAULT_MODAL_INPUT_BLOCK_MS);
+    return modalInputBlockMs(options, DEFAULT_MODAL_INPUT_BLOCK_MS);
 }
 
 /**
@@ -57,6 +56,19 @@ function responsiveModalSize(modal, explicitSize, themedSize, wideSize, narrowSi
     const preferred = Number(themedSize || wideSize);
     const t = clamp((modal.width - 320) / 220, 0, 1);
     return Math.round(narrowSize + (preferred - narrowSize) * t);
+}
+
+/**
+ * @param {any} text
+ * @param {number} fontSize
+ * @param {number} wrapWidth
+ * @param {number} [lineSpacing]
+ */
+function relayoutModalText(text, fontSize, wrapWidth, lineSpacing) {
+    if (!text) return;
+    if (typeof text.setFontSize === "function") text.setFontSize(`${fontSize}px`);
+    if (typeof text.setWordWrapWidth === "function") text.setWordWrapWidth(wrapWidth);
+    if (lineSpacing !== undefined && typeof text.setLineSpacing === "function") text.setLineSpacing(lineSpacing);
 }
 
 /**
@@ -108,8 +120,8 @@ export function createModal(api, state, options, uiToolkit) {
             scene.tweens.add({
                 targets: modal.container,
                 alpha: 0,
-                scaleX: options.closeScale || 0.28,
-                scaleY: options.closeScale || 0.28,
+                scaleX: options.closeScale ?? 0.28,
+                scaleY: options.closeScale ?? 0.28,
                 y: modal.centerY + 26,
                 duration: closeMs,
                 ease: "Expo.Out",
@@ -131,9 +143,7 @@ export function createModal(api, state, options, uiToolkit) {
                 modal.finishTransition = null;
             }
             state.modals = state.modals.filter((item) => item !== modal);
-            if (state.modals.length === 0) {
-                api.clear_input_gate();
-            }
+            scene.tweens.killTweensOf([modal.overlay, modal.container]);
             if (modal.handlePointerUp) scene.input.off("pointerup", modal.handlePointerUp);
             if (modal.container) modal.container.destroy(true);
             if (modal.overlay) modal.overlay.destroy();
@@ -150,6 +160,13 @@ export function createModal(api, state, options, uiToolkit) {
             modal.height = height;
             modal.centerX = api.display_width / 2;
             modal.centerY = api.display_height / 2;
+            const hasCloseButton = options.showClose !== false;
+            const titleSize = responsiveModalSize(modal, options.titleSize, modalTheme.titleSize, 34, 23);
+            const messageSize = responsiveModalSize(modal, options.messageSize, modalTheme.messageSize, 24, 20);
+            const okSize = responsiveModalSize(modal, options.okSize, undefined, 28, 24);
+            const titleWrapWidth = Math.max(168, modal.width - (hasCloseButton ? 150 : 56));
+            const messageWrapWidth = Math.max(190, modal.width - 76);
+            const messageLineSpacing = modal.width < 360 ? 5 : 8;
 
             if (modal.overlay) {
                 modal.overlay.setSize(api.display_width, api.display_height);
@@ -179,6 +196,28 @@ export function createModal(api, state, options, uiToolkit) {
                 y2: modal.centerY + modal.height / 2 - 28
             };
             modal.okHeight = okH;
+            if (modal.panel && typeof modal.panel.setSize === "function") {
+                modal.panel.setSize(modal.width, modal.height);
+            }
+            if (modal.title && typeof modal.title.setPosition === "function") {
+                modal.title.setPosition(0, -modal.height / 2 + 50);
+                relayoutModalText(modal.title, titleSize, titleWrapWidth, undefined);
+            }
+            if (modal.message && typeof modal.message.setPosition === "function") {
+                relayoutModalText(modal.message, messageSize, messageWrapWidth, messageLineSpacing);
+                const messageY = Math.max(-modal.height / 2 + 88, (modal.title?.y || 0) + (modal.title?.displayHeight || 0) / 2 + 18);
+                modal.message.setPosition(0, messageY);
+            }
+            if (modal.closeButton && typeof modal.closeButton.setPosition === "function") {
+                modal.closeButton.setPosition(modal.width / 2 - 42, -modal.height / 2 + 42);
+            }
+            if (modal.okButton) {
+                if (typeof modal.okButton.setPosition === "function") {
+                    modal.okButton.setPosition(0, modal.height / 2 - 28 - okH / 2);
+                }
+                if (typeof modal.okButton.__gmLayout === "function") modal.okButton.__gmLayout(okW, okH, okSize);
+                else if (typeof modal.okButton.setSize === "function") modal.okButton.setSize(okW, okH);
+            }
             return modal;
         }
     };
@@ -212,6 +251,7 @@ export function createModal(api, state, options, uiToolkit) {
     modal.container.setScale(options.openStartScale || 0.28);
 
     const panel = uiToolkit.createNineSliceObject(scene, 0, 0, modal.width, modal.height, options.window || {});
+    modal.panel = panel;
     const hasCloseButton = options.showClose !== false;
     const textResolution = state.render?.resolution || 1;
     const titleSize = responsiveModalSize(modal, options.titleSize, modalTheme.titleSize, 34, 23);
@@ -239,6 +279,8 @@ export function createModal(api, state, options, uiToolkit) {
         lineSpacing: modal.width < 360 ? 5 : 8,
         wordWrap: { width: messageWrapWidth }
     }).setOrigin(0.5, 0);
+    modal.title = title;
+    modal.message = message;
 
     modal.container.add([panel, title, message]);
 
@@ -254,6 +296,7 @@ export function createModal(api, state, options, uiToolkit) {
             onPointerUp: (/** @type {unknown} */ pointer) => api.release_pointer(pointer, resolveModalInputBlockMs(options)),
             onPointerCancel: (/** @type {unknown} */ pointer) => api.release_pointer(pointer, resolveModalInputBlockMs(options))
         });
+        modal.closeButton = closeButton;
         modal.container.add(closeButton);
     }
 
@@ -272,11 +315,13 @@ export function createModal(api, state, options, uiToolkit) {
             onPointerUp: (/** @type {unknown} */ pointer) => api.release_pointer(pointer, resolveModalInputBlockMs(options)),
             onPointerCancel: (/** @type {unknown} */ pointer) => api.release_pointer(pointer, resolveModalInputBlockMs(options))
         });
+        modal.okButton = okButton;
         modal.container.add(okButton);
     }
 
     state.screen.add([modal.overlay, modal.container]);
     state.modals.push(modal);
+    modal.layout();
 
     const openMs = normalizeDelayMs(options.openMs, DEFAULT_MODAL_OPEN_MS, 0);
     const backdropMs = normalizeDelayMs(options.backdropMs, openMs * 2, 0);

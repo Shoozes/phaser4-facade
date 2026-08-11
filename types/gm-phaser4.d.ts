@@ -3,6 +3,41 @@ type GMMouseButton = "left" | "right" | "middle";
 type GMHorizontalAlign = "left" | "center" | "right";
 type GMVerticalAlign = "top" | "middle" | "bottom";
 
+interface GMTextDrawOptions {
+    font?: string;
+    size?: number;
+    bold?: boolean;
+    color?: GMColorValue;
+    alpha?: number;
+    hAlign?: GMHorizontalAlign;
+    vAlign?: GMVerticalAlign;
+    rotation?: number;
+    scale?: number;
+    scaleX?: number;
+    scaleY?: number;
+    originX?: number;
+    originY?: number;
+}
+
+interface GMTextFitOptions extends GMTextDrawOptions {
+    maxWidth: number;
+    maxHeight?: number;
+    minSize?: number;
+}
+
+interface GMSpriteDrawOptions {
+    scale?: number;
+    scaleX?: number;
+    scaleY?: number;
+    rotation?: number;
+    color?: GMColorValue;
+    alpha?: number;
+    originX?: number;
+    originY?: number;
+    flipX?: boolean;
+    flipY?: boolean;
+}
+
 interface GMRuntime {
     readonly room_width: number;
     readonly room_height: number;
@@ -32,10 +67,15 @@ interface GMRuntime {
     draw_circle(x: number, y: number, radius: number, outline?: boolean): GMRuntime;
     draw_line(x1: number, y1: number, x2: number, y2: number): GMRuntime;
     draw_text(x: number, y: number, text: unknown): unknown;
+    draw_text_ext(x: number, y: number, text: unknown, options?: GMTextDrawOptions): unknown;
+    draw_text_fit(x: number, y: number, text: unknown, options: GMTextFitOptions): unknown;
     draw_gui_rectangle(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
     draw_gui_text(x: number, y: number, text: unknown): unknown;
+    draw_gui_text_ext(x: number, y: number, text: unknown, options?: GMTextDrawOptions): unknown;
+    draw_gui_text_fit(x: number, y: number, text: unknown, options: GMTextFitOptions): unknown;
     draw_sprite(key: string, frame: string | number | null | undefined, x: number, y: number): unknown;
     draw_sprite_ext(key: string, frame: string | number | null | undefined, x: number, y: number, xscale?: number, yscale?: number, rotation?: number, color?: GMColorValue, alpha?: number): unknown;
+    draw_sprite_ext(key: string, frame: string | number | null | undefined, x: number, y: number, options?: GMSpriteDrawOptions): unknown;
 
     button(x: number, y: number, w: number, h: number, text: string, onTap?: (gm: GMRuntime) => void, options?: GMButtonOptions): boolean;
     button_center(x: number, y: number, w: number, h: number, text: string, onTap?: (gm: GMRuntime) => void, options?: GMButtonOptions): boolean;
@@ -59,6 +99,7 @@ interface GMRuntime {
 
     keyboard_check(key: string | number | KeyboardEvent): boolean;
     keyboard_check_pressed(key: string | number | KeyboardEvent): boolean;
+    keyboard_check_pressed_raw(key: string | number | KeyboardEvent): boolean;
     keyboard_check_released(key: string | number | KeyboardEvent): boolean;
     mouse_check_button(button?: GMMouseButton): boolean;
     mouse_check_button_pressed(button?: GMMouseButton): boolean;
@@ -205,6 +246,7 @@ interface GMNoticeModalOptions {
     showOk?: boolean;
     okText?: string;
     okWidth?: number;
+    okHeight?: number;
     okSize?: number;
     closeOnBackdrop?: boolean;
     backdropAlpha?: number;
@@ -227,9 +269,11 @@ interface GMNoticeModalOptions {
 }
 
 interface GMStartConfig {
-    parent?: string;
+    parent?: string | object;
     width?: number;
     height?: number;
+    /** Phaser renderer type: AUTO | CANVAS | WEBGL (string or Phaser constant). */
+    type?: "AUTO" | "CANVAS" | "WEBGL" | number;
     responsive?: boolean;
     minHeight?: number;
     targetHeight?: number;
@@ -254,12 +298,20 @@ interface GMStartConfig {
     curtain?: boolean;
     curtainText?: string;
     curtainFadeMs?: number;
+    /** 0 = variable step (default). >0 enables fixed simulation Hz. */
+    simulationHz?: number;
+    maxFrameDeltaMs?: number;
+    maxCatchUpSteps?: number;
+    /** Seeds facade random helpers for this game; does not replace Math.random. */
+    randomSeed?: number | string | null;
     preload?: (gm: GMRuntime) => void;
     create?: (gm: GMRuntime) => void;
     step?: (gm: GMRuntime, deltaSeconds: number) => void;
     draw?: (gm: GMRuntime) => void;
     ui?: (gm: GMRuntime) => void;
     gui?: (gm: GMRuntime) => void;
+    onCleanupError?: (diagnostic: { phase: string; reason: string; message: string; error: unknown }) => void;
+    onError?: (error: unknown, context: { phase: string; frame?: number; time?: number; instanceId?: number | null; objectDefinition?: unknown }) => void;
 }
 
 interface GMColorConstants {
@@ -317,6 +369,8 @@ interface GMRuntimeInfo {
     readonly currentTime: number;
     readonly deltaMs: number;
     readonly deltaSec: number;
+    readonly simulationAlpha: number;
+    readonly simulationSteps: number;
 }
 
 interface GMPerfCounts {
@@ -366,13 +420,62 @@ interface GMDrawFacade {
     circle(x: number, y: number, radius: number, outline?: boolean): GMRuntime;
     line(x1: number, y1: number, x2: number, y2: number): GMRuntime;
     text(x: number, y: number, text: unknown): unknown;
+    textExt(x: number, y: number, text: unknown, options?: GMTextDrawOptions): unknown;
+    textFit(x: number, y: number, text: unknown, options: GMTextFitOptions): unknown;
     sprite(key: string, frame: string | number | null | undefined, x: number, y: number): unknown;
     spriteExt(key: string, frame: string | number | null | undefined, x: number, y: number, xscale?: number, yscale?: number, rotation?: number, color?: GMColorValue, alpha?: number): unknown;
+    spriteExt(key: string, frame: string | number | null | undefined, x: number, y: number, options?: GMSpriteDrawOptions): unknown;
 }
 
 interface GMGuiFacade {
     rect(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
     text(x: number, y: number, text: unknown): unknown;
+    textExt(x: number, y: number, text: unknown, options?: GMTextDrawOptions): unknown;
+    textFit(x: number, y: number, text: unknown, options: GMTextFitOptions): unknown;
+}
+
+interface GMPointerState {
+    id: string;
+    screenX: number;
+    screenY: number;
+    x: number;
+    y: number;
+    startX: number;
+    startY: number;
+    button: GMMouseButton | string;
+    down: boolean;
+    active: boolean;
+    owner: string | null;
+    downTime: number;
+}
+
+interface GMVirtualStickOptions {
+    mode?: "fixed" | "floating";
+    origin?: { x?: number; y?: number };
+    maxRadius?: number;
+    deadzone?: number;
+}
+
+interface GMVirtualStickVector {
+    readonly x: number;
+    readonly y: number;
+}
+
+interface GMVirtualStick {
+    readonly active: boolean;
+    readonly pointerId: string | null;
+    readonly mode: "fixed" | "floating";
+    readonly origin: GMVirtualStickVector;
+    readonly position: GMVirtualStickVector;
+    readonly vector: GMVirtualStickVector;
+    readonly distance: number;
+    readonly magnitude: number;
+    readonly angle: number;
+    press(pointerId: string | number, x: number, y: number): GMVirtualStick;
+    move(pointerId: string | number, x: number, y: number): GMVirtualStick;
+    release(pointerId?: string | number): GMVirtualStick;
+    cancel(pointerId?: string | number): GMVirtualStick;
+    reset(): GMVirtualStick;
 }
 
 interface GMInputFacade {
@@ -391,10 +494,16 @@ interface GMInputFacade {
     vk_alt: string;
     keyDown(key: string | number | KeyboardEvent): boolean;
     keyPressed(key: string | number | KeyboardEvent): boolean;
+    keyPressedRaw(key: string | number | KeyboardEvent): boolean;
     keyReleased(key: string | number | KeyboardEvent): boolean;
     pointerDown(button?: GMMouseButton): boolean;
     pointerPressed(button?: GMMouseButton): boolean;
     pointerReleased(button?: GMMouseButton): boolean;
+    getPointer(id: string | number): GMPointerState | null;
+    activePointers(): GMPointerState[];
+    capturePointer(id: string | number, owner?: string): GMRuntime;
+    releasePointer(id: string | number, owner?: string): GMRuntime;
+    createVirtualStick(options?: GMVirtualStickOptions): GMVirtualStick;
 }
 
 interface GMEntitySpawnOptions {
@@ -402,21 +511,43 @@ interface GMEntitySpawnOptions {
     y?: number;
     layer?: string;
     name?: string;
+    /** Applied to the instance before Create runs. */
+    vars?: Record<string, unknown>;
 }
 
 interface GMEntityFacade {
     spawn(objectDef: GMObjectDefinition, options?: GMEntitySpawnOptions): GMInstance;
-    spawnLayer(x: number, y: number, layer: string, objectDef: GMObjectDefinition): GMInstance;
+    spawnLayer(x: number, y: number, layer: string, objectDef: GMObjectDefinition, createVars?: Record<string, unknown>): GMInstance;
     destroy(inst?: GMInstance): GMRuntime;
     exists(target: GMInstance | GMObjectDefinition): boolean;
     count(objectDef: GMObjectDefinition): number;
     find(objectDef: GMObjectDefinition, index: number): GMInstance | null;
 }
 
+interface GMLayerFacade {
+    define(name: string, depth: number): GMRuntime;
+}
+
+interface GMAssetRegistrationManifest {
+    key: string;
+    texture?: unknown;
+    frames?: string[];
+    frameCount?: number;
+    width?: number;
+    height?: number;
+    source?: string;
+}
+
 interface GMAssetFacade {
     loadImage(key: string, url: string): GMRuntime;
     loadSound(key: string, url: string): GMRuntime;
     loadSheet(key: string, url: string, frameWidth: number, frameHeight: number): GMRuntime;
+    addCanvas(key: string, canvas: HTMLCanvasElement | OffscreenCanvas, options?: { replace?: boolean }): GMAssetRegistrationManifest;
+    addRgba(key: string, width: number, height: number, rgba: ArrayLike<number> | ArrayBufferView, options?: { replace?: boolean }): GMAssetRegistrationManifest;
+    addAtlas(key: string, source: HTMLCanvasElement | OffscreenCanvas | string, frames: object | Map<string, unknown> | unknown[], options?: { replace?: boolean }): GMAssetRegistrationManifest;
+    remove(key: string): boolean;
+    exists(key: string): boolean;
+    frameExists(key: string, frame: string | number): boolean;
 }
 
 interface GMAudioFacade {
@@ -449,10 +580,21 @@ interface GMDebugFacade {
     tween(target: object, options?: Record<string, unknown>): unknown;
 }
 
+interface GMSeededRng {
+    seed(nextSeed?: number | string): GMSeededRng;
+    getState(): number;
+    next(): number;
+    random(max: number): number;
+    randomRange(min: number, max: number): number;
+    irandom(max: number): number;
+    irandomRange(min: number, max: number): number;
+    choose<T>(...items: T[]): T | undefined;
+}
+
 interface GMMathFacade {
     clamp(value: number, min: number, max: number): number;
     lerp(a: number, b: number, t: number): number;
-    choose<T>(...items: T[]): T;
+    choose<T>(...items: T[]): T | undefined;
     random(max: number): number;
     random_range(min: number, max: number): number;
     irandom(max: number): number;
@@ -463,14 +605,18 @@ interface GMMathFacade {
     dcos(degrees: number): number;
     dtan(degrees: number): number;
     point_distance(x1: number, y1: number, x2: number, y2: number): number;
+    /** Degrees in [0, 360): right=0, up=90, left=180, down=270. */
     point_direction(x1: number, y1: number, x2: number, y2: number): number;
     lengthdir_x(length: number, direction: number): number;
     lengthdir_y(length: number, direction: number): number;
     point_in_rectangle(px: number, py: number, x1: number, y1: number, x2: number, y2: number): boolean;
+    setSeed(seed?: number | string | null): GMMathFacade;
+    getSeedState(): number | null;
+    createRng(seed?: number | string): GMSeededRng;
 }
 
 interface GMLegacyFacade {
-    installGlobals(): void;
+    installGlobals(): () => void;
     colors: Record<string, number>;
     input: Record<string, string>;
 }
@@ -483,6 +629,7 @@ interface GMPhaserFacade {
 
 interface GMFacade {
     version: string;
+    phaserVersion: string;
     start(config?: GMStartConfig): unknown;
     app: {
         start(config?: GMStartConfig): unknown;
@@ -493,6 +640,7 @@ interface GMFacade {
     gui: GMGuiFacade;
     input: GMInputFacade;
     entity: GMEntityFacade;
+    layer: GMLayerFacade;
     asset: GMAssetFacade;
     audio: GMAudioFacade;
     ui: GMUiFacade;
@@ -504,7 +652,7 @@ interface GMFacade {
     color: GMColorConstants;
     key: GMKeyConstants;
     pointer: GMPointerConstants;
-    installGlobals(): void;
+    installGlobals(): () => void;
     nineslice_window(x: number, y: number, w: number, h: number, options?: GMNineSliceWindowOptions): unknown;
     modal_notice(title: string, message?: string, options?: GMNoticeModalOptions): GMModal;
     modal_notice(options: GMNoticeModalOptions): GMModal;
@@ -513,130 +661,14 @@ interface GMFacade {
     math: GMMathFacade;
 }
 
-interface GameObjectRegistry {
-    obj_creature_target: GMObjectDefinition;
-    [key: string]: GMObjectDefinition;
-}
-
 interface Window {
     GM: GMFacade;
-    GameObjects: GameObjectRegistry;
 }
 
 declare var GM: GMFacade;
-declare var GameObjects: GameObjectRegistry;
 
-declare var room_width: number;
-declare var room_height: number;
-declare var display_width: number;
-declare var display_height: number;
-declare var mouse_x: number;
-declare var mouse_y: number;
-declare var current_time: number;
-declare var delta_time: number;
-declare var delta_sec: number;
-
-declare var c_black: number;
-declare var c_white: number;
-declare var c_gray: number;
-declare var c_grey: number;
-declare var c_dkgray: number;
-declare var c_dkgrey: number;
-declare var c_ltgray: number;
-declare var c_ltgrey: number;
-declare var c_red: number;
-declare var c_green: number;
-declare var c_lime: number;
-declare var c_blue: number;
-declare var c_yellow: number;
-declare var c_orange: number;
-declare var c_purple: number;
-declare var c_aqua: number;
-declare var c_fuchsia: number;
-
-declare var fa_left: GMHorizontalAlign;
-declare var fa_center: GMHorizontalAlign;
-declare var fa_right: GMHorizontalAlign;
-declare var fa_top: GMVerticalAlign;
-declare var fa_middle: GMVerticalAlign;
-declare var fa_bottom: GMVerticalAlign;
-
-declare var mb_left: GMMouseButton;
-declare var mb_right: GMMouseButton;
-declare var mb_middle: GMMouseButton;
-declare var vk_left: string;
-declare var vk_right: string;
-declare var vk_up: string;
-declare var vk_down: string;
-declare var vk_space: string;
-declare var vk_enter: string;
-declare var vk_escape: string;
-declare var vk_shift: string;
-declare var vk_control: string;
-declare var vk_alt: string;
-
-declare function clamp(value: number, min: number, max: number): number;
-declare function lerp(a: number, b: number, t: number): number;
-declare function choose<T>(...items: T[]): T;
-declare function random(max: number): number;
-declare function random_range(min: number, max: number): number;
-declare function irandom(max: number): number;
-declare function irandom_range(min: number, max: number): number;
-declare function degtorad(degrees: number): number;
-declare function radtodeg(radians: number): number;
-declare function sin(value: number): number;
-declare function cos(value: number): number;
-declare function tan(value: number): number;
-declare function dsin(degrees: number): number;
-declare function dcos(degrees: number): number;
-declare function dtan(degrees: number): number;
-declare function point_distance(x1: number, y1: number, x2: number, y2: number): number;
-declare function point_direction(x1: number, y1: number, x2: number, y2: number): number;
-declare function lengthdir_x(length: number, direction: number): number;
-declare function lengthdir_y(length: number, direction: number): number;
-declare function point_in_rectangle(px: number, py: number, x1: number, y1: number, x2: number, y2: number): boolean;
-declare function ord(value: unknown): number;
-
-declare function load_sprite(key: string, url: string): GMRuntime;
-declare function load_sound(key: string, url: string): GMRuntime;
-declare function load_spritesheet(key: string, url: string, frameWidth: number, frameHeight: number): GMRuntime;
-declare function draw_set_color(value: GMColorValue): GMRuntime;
-declare function draw_set_alpha(value: number): GMRuntime;
-declare function draw_set_line_width(value: number): GMRuntime;
-declare function draw_set_font(font?: string, size?: number, bold?: boolean): GMRuntime;
-declare function draw_set_halign(value: GMHorizontalAlign): GMRuntime;
-declare function draw_set_valign(value: GMVerticalAlign): GMRuntime;
-declare function draw_rectangle(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
-declare function draw_roundrect(x1: number, y1: number, x2: number, y2: number, radius?: number, outline?: boolean): GMRuntime;
-declare function draw_circle(x: number, y: number, radius: number, outline?: boolean): GMRuntime;
-declare function draw_line(x1: number, y1: number, x2: number, y2: number): GMRuntime;
-declare function draw_text(x: number, y: number, text: unknown): unknown;
-declare function draw_gui_rectangle(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
-declare function draw_gui_text(x: number, y: number, text: unknown): unknown;
-declare function draw_sprite(key: string, frame: string | number | null | undefined, x: number, y: number): unknown;
-declare function draw_sprite_ext(key: string, frame: string | number | null | undefined, x: number, y: number, xscale?: number, yscale?: number, rotation?: number, color?: GMColorValue, alpha?: number): unknown;
-declare function button(x: number, y: number, w: number, h: number, text: string, onTap?: (gm: GMRuntime) => void, options?: GMButtonOptions): boolean;
-declare function button_center(x: number, y: number, w: number, h: number, text: string, onTap?: (gm: GMRuntime) => void, options?: GMButtonOptions): boolean;
-declare function nineslice_window(x: number, y: number, w: number, h: number, options?: GMNineSliceWindowOptions): unknown;
-declare function modal_notice(title: string, message?: string, options?: GMNoticeModalOptions): GMModal;
-declare function modal_notice(options: GMNoticeModalOptions): GMModal;
-declare function modal_close_all(): GMRuntime;
-declare function curtain(text?: string, fadeMs?: number): boolean;
-declare function curtain_active(): boolean;
-declare function instance_create_layer(x: number, y: number, layer: string, objectDef: GMObjectDefinition): GMInstance;
-declare function instance_destroy(inst?: GMInstance): GMRuntime;
-declare function instance_exists(target: GMInstance | GMObjectDefinition): boolean;
-declare function instance_number(objectDef: GMObjectDefinition): number;
-declare function instance_find(objectDef: GMObjectDefinition, index: number): GMInstance | null;
-declare function alarm_set(index: number, frames: number, inst?: GMInstance): GMRuntime;
-declare function keyboard_check(key: string | number | KeyboardEvent): boolean;
-declare function keyboard_check_pressed(key: string | number | KeyboardEvent): boolean;
-declare function keyboard_check_released(key: string | number | KeyboardEvent): boolean;
-declare function mouse_check_button(button?: GMMouseButton): boolean;
-declare function mouse_check_button_pressed(button?: GMMouseButton): boolean;
-declare function mouse_check_button_released(button?: GMMouseButton): boolean;
-declare function show_debug_message(message: unknown): GMRuntime;
-declare function tween(target: object, options?: Record<string, unknown>): unknown;
-declare function wait(ms: number, fn?: (gm: GMRuntime) => void): unknown;
-declare function every(ms: number, fn?: (gm: GMRuntime) => void): unknown;
-declare function sound_play(key: string, config?: Record<string, unknown>): unknown;
+declare module "phaser4-facade" {
+    export function installGMRuntime(root: typeof globalThis, Phaser: unknown): GMFacade;
+    export const GM: GMFacade;
+    export default GM;
+}

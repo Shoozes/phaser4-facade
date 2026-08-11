@@ -21,18 +21,30 @@ export function createRuntimeState(scene, cfg) {
         screenText: null,
         worldSprites: null,
         worldLayers: new Map(),
+        layerRegistry: new Map(),
         activeWorldLayer: "world",
         activeWorldContainer: null,
         cleanup: [],
+        cleanupErrors: [],
         cleanedUp: false,
         modals: [],
         instances: [],
         nextInstanceId: 1,
         currentInstance: null,
+        stepFrame: 0,
         uiButtons: new Map(),
+        uiPanels: [],
+        uiPanelCursor: 0,
         frameId: 0,
         currentTime: 0,
         deltaMs: 0,
+        simulation: {
+            accumulatorMs: 0,
+            alpha: 0,
+            stepsThisFrame: 0,
+            fixedDeltaSec: 0
+        },
+        pointers: new Map(),
         layout: {
             x: 0,
             y: 0,
@@ -47,7 +59,15 @@ export function createRuntimeState(scene, cfg) {
             cssHeight: 0,
             width: 0,
             height: 0,
-            resolution: 1
+            resolution: 1,
+            resizeInProgress: false,
+            resizeDiagnostics: {
+                events: 0,
+                applied: 0,
+                reentrySkips: 0,
+                last: null,
+                lastSignature: null
+            }
         },
         draw: {
             color: 0xffffff,
@@ -70,12 +90,16 @@ export function createRuntimeState(scene, cfg) {
         },
         inputGate: {
             pausedUntil: 0,
+            // pointerId -> owner channel (joystick does not globally block input)
             capturedPointers: Object.create(null),
             transitions: 0
         },
         keysDown: Object.create(null),
         keysPressed: Object.create(null),
+        keysPressedRaw: Object.create(null),
         keysReleased: Object.create(null),
+        physicalKeysDown: Object.create(null),
+        suppressedKeys: Object.create(null),
         curtain: {
             alpha: cfg.curtain ? 1 : 0,
             visible: !!cfg.curtain,

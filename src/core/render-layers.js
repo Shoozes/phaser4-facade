@@ -8,7 +8,7 @@ import { makeSpritePool, makeTextPool } from "./pools.js";
  * @param {any} state
  */
 export function createWorldLayerManager(scene, state) {
-    /** @param {string} name @param {number} depth */
+    /** @param {string} name @param {number | undefined} depth */
     function ensure(name, depth) {
         const layerName = String(name || "world");
         let layer = state.worldLayers.get(layerName);
@@ -35,7 +35,7 @@ export function createWorldLayerManager(scene, state) {
     }
 
     /** @param {string} name @param {number} [depth] */
-    function select(name, depth = 0) {
+    function select(name, depth) {
         const layer = ensure(name, depth);
         state.activeWorldLayer = layer.name;
         state.activeWorldContainer = layer.container;

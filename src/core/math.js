@@ -5,23 +5,59 @@ import { COLORS } from "./constants.js";
 /** @type {Record<string, number>} */
 const NAMED_COLORS = COLORS;
 
+const HEX_COLOR_PATTERN = /^[0-9a-f]{3}$|^[0-9a-f]{6}$/i;
+
+/**
+ * GameMaker stores numeric colors as BGR integers while Phaser and CSS use
+ * RGB ordering. String colors remain ordinary CSS/RGB values.
+ * @param {number} value
+ * @returns {number}
+ */
+function bgrToRgb(value) {
+    const bgr = value >>> 0;
+    return ((bgr & 0xff) << 16) | (bgr & 0xff00) | ((bgr >>> 16) & 0xff);
+}
+
+/**
+ * @param {string} value
+ * @returns {string | null}
+ */
+function normalizeHexString(value) {
+    let hex = value.trim();
+    if (hex.startsWith("#")) hex = hex.slice(1);
+    else if (/^0x/i.test(hex)) hex = hex.slice(2);
+    if (!HEX_COLOR_PATTERN.test(hex)) return null;
+    if (hex.length === 3) hex = hex.split("").map((part) => part + part).join("");
+    return hex.toLowerCase();
+}
+
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isHexLike(value) {
+    if (typeof value !== "string") return false;
+    const trimmed = value.trim();
+    return trimmed.startsWith("#") || /^0x/i.test(trimmed) || /^[0-9a-f]+$/i.test(trimmed) || /^[0-9]/.test(trimmed);
+}
+
 /**
  * @param {unknown} value
  * @param {number} fallback
  */
 function toColor(value, fallback = 0xffffff) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xffffff) {
+        return bgrToRgb(value);
+    }
     if (typeof value !== "string") return fallback;
 
-    const named = NAMED_COLORS[String(value)];
-    if (named !== undefined) return named;
+    const named = NAMED_COLORS[String(value).trim()];
+    if (named !== undefined) return bgrToRgb(named);
 
-    let hex = value.trim();
-    if (hex[0] === "#") hex = hex.slice(1);
-    if (hex.length === 3) hex = hex.split("").map((part) => part + part).join("");
-
-    const parsed = parseInt(hex, 16);
-    return Number.isFinite(parsed) ? parsed : fallback;
+    const hex = normalizeHexString(value);
+    if (!hex) return fallback;
+    const parsed = Number.parseInt(hex, 16);
+    return Number.isInteger(parsed) ? parsed : fallback;
 }
 
 /**
@@ -29,12 +65,19 @@ function toColor(value, fallback = 0xffffff) {
  * @param {string} fallback
  */
 function toCssColor(value, fallback = "#ffffff") {
-    if (typeof value === "number" && Number.isFinite(value)) {
-        return "#" + value.toString(16).padStart(6, "0");
+    if (typeof value === "number") {
+        const parsed = toColor(value, Number.NaN);
+        return Number.isFinite(parsed) ? "#" + parsed.toString(16).padStart(6, "0") : fallback;
     }
     if (typeof value === "string") {
-        if (NAMED_COLORS[value] !== undefined) return toCssColor(NAMED_COLORS[value], fallback);
-        return value;
+        const named = NAMED_COLORS[value.trim()];
+        if (named !== undefined) return toCssColor(named, fallback);
+        const trimmed = value.trim();
+        const hex = normalizeHexString(trimmed);
+        if (hex) return "#" + hex;
+        // A malformed value that looks like a hex color should fail closed;
+        // regular CSS names/functions remain valid pass-through values.
+        return isHexLike(trimmed) ? fallback : (trimmed || fallback);
     }
     return fallback;
 }
@@ -58,19 +101,48 @@ export function lerp(a, b, t) {
 }
 
 /**
+ * @typedef {object} ActiveRng
+ * @property {() => number} next
+ * @property {(...items: unknown[]) => unknown} choose
+ * @property {(max: number) => number} random
+ * @property {(min: number, max: number) => number} randomRange
+ * @property {(max: number) => number} irandom
+ * @property {(min: number, max: number) => number} irandomRange
+ */
+/** @type {ActiveRng | null} */
+let activeRng = null;
+
+/**
+ * Bind an optional seedable RNG used by facade random helpers.
+ * Pass null to restore Math.random().
+ * @param {ActiveRng | null} rng
+ */
+export function setActiveRng(rng) {
+    activeRng = rng || null;
+}
+
+/**
+ * @returns {number}
+ */
+function unitRandom() {
+    return activeRng ? activeRng.next() : Math.random();
+}
+
+/**
  * @param {...unknown} items
  * @returns {unknown}
  */
 export function choose(...items) {
     if (items.length <= 0) return undefined;
-    return items[Math.floor(Math.random() * items.length)];
+    if (activeRng) return activeRng.choose(...items);
+    return items[Math.floor(unitRandom() * items.length)];
 }
 
 /**
  * @param {number} max
  */
 export function random(max) {
-    return Math.random() * max;
+    return unitRandom() * max;
 }
 
 /**
@@ -78,14 +150,14 @@ export function random(max) {
  * @param {number} max
  */
 export function random_range(min, max) {
-    return min + Math.random() * (max - min);
+    return min + unitRandom() * (max - min);
 }
 
 /**
  * @param {number} max
  */
 export function irandom(max) {
-    return Math.floor(Math.random() * (max + 1));
+    return Math.floor(unitRandom() * (max + 1));
 }
 
 /**
@@ -148,7 +220,9 @@ export function point_distance(x1, y1, x2, y2) {
  * @param {number} y2
  */
 export function point_direction(x1, y1, x2, y2) {
-    return radtodeg(Math.atan2(y1 - y2, x2 - x1));
+    // GameMaker: right=0, up=90, left=180, down=270 in [0, 360).
+    const degrees = radtodeg(Math.atan2(y1 - y2, x2 - x1));
+    return ((degrees % 360) + 360) % 360;
 }
 
 /**

@@ -16,7 +16,9 @@ export const DEFAULTS = {
     safeColor: 0x333333,
     bleedColor: 0x222222,
     stage: true,
-    globals: true,
+    // Legacy GML aliases are opt-in so a runtime cannot silently mutate the
+    // host page's global namespace.
+    globals: false,
     renderQuality: "smooth",
     pixelArt: false,
     antialias: true,
@@ -25,8 +27,17 @@ export const DEFAULTS = {
     maxRenderResolution: 3,
     curtain: false,
     curtainText: "TAP TO START",
-    curtainFadeMs: 350
+    curtainFadeMs: 350,
+    // 0 keeps legacy variable-step behavior. >0 enables fixed simulation Hz.
+    simulationHz: 0,
+    maxFrameDeltaMs: 100,
+    maxCatchUpSteps: 5,
+    // Optional seed applied when the game starts (does not replace Math.random).
+    randomSeed: null
 };
+
+export const RUNTIME_VERSION = "0.1.0";
+export const ALARM_COUNT = 12;
 
 export const DEFAULT_MODAL_INPUT_BLOCK_MS = 650;
 export const DEFAULT_MODAL_OPEN_MS = 300;
@@ -41,14 +52,16 @@ export const COLORS = {
     c_dkgrey: 0x404040,
     c_ltgray: 0xc0c0c0,
     c_ltgrey: 0xc0c0c0,
-    c_red: 0xff0000,
+    // GameMaker numeric colors are BGR-ordered integers. Keep CSS strings
+    // and Phaser-facing conversions in math.js/render boundaries.
+    c_red: 0x0000ff,
     c_green: 0x008000,
     c_lime: 0x00ff00,
-    c_blue: 0x0000ff,
-    c_yellow: 0xffff00,
-    c_orange: 0xffa500,
+    c_blue: 0xff0000,
+    c_yellow: 0x00ffff,
+    c_orange: 0x00a5ff,
     c_purple: 0x800080,
-    c_aqua: 0x00ffff,
+    c_aqua: 0xffff00,
     c_fuchsia: 0xff00ff
 };
 

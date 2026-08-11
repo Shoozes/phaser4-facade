@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>GM Phaser 4 Prototype</title>
     <style>
         html,
@@ -71,7 +71,7 @@
             }
         });
 
-        if (GM.phaser.game !== game || !GM.phaser.library) {
+        if (GM.phaser.game !== game || !GM.phaser.library || typeof GM.input.createVirtualStick !== "function") {
             throw new Error("GM.phaser runtime handles are not available.");
         }
     </script>

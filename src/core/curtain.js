@@ -10,6 +10,7 @@
  *   display_width: number,
  *   display_height: number,
  *   mouse_check_button_pressed: (button: unknown) => boolean,
+ *   mouse_check_button_pressed_raw?: (button: unknown) => boolean,
  *   draw_set_alpha: (alpha: number) => unknown,
  *   draw_set_color: (color: unknown) => unknown,
  *   draw_gui_rectangle: (x1: number, y1: number, x2: number, y2: number, outline: boolean) => unknown,
@@ -47,18 +48,11 @@
 export function curtain(text, fadeMs, state, api, scene, cfg, normalizeDelayMs, COLORS, ALIGN, INPUT) {
     if (!state.curtain.visible && state.curtain.alpha <= 0) return false;
 
-    if (!state.curtain.tweening && api.mouse_check_button_pressed(INPUT.mb_left)) {
-        state.curtain.tweening = true;
-        scene.tweens.add({
-            targets: state.curtain,
-            alpha: 0,
-            duration: normalizeDelayMs(fadeMs, cfg.curtainFadeMs, 0),
-            ease: "Linear",
-            onComplete: () => {
-                state.curtain.visible = false;
-                state.curtain.tweening = false;
-            }
-        });
+    const pressed = typeof api.mouse_check_button_pressed_raw === "function"
+        ? api.mouse_check_button_pressed_raw(INPUT.mb_left)
+        : api.mouse_check_button_pressed(INPUT.mb_left);
+    if (pressed) {
+        dismissCurtain(state, scene, fadeMs, cfg, normalizeDelayMs);
     }
 
     if (state.curtain.alpha > 0) {
@@ -88,6 +82,31 @@ export function curtain(text, fadeMs, state, api, scene, cfg, normalizeDelayMs, 
     }
 
     return state.curtain.visible;
+}
+
+/**
+ * Start the curtain dismissal before gameplay step code runs. The draw pass
+ * still owns the visual overlay; this helper only consumes the transition.
+ * @param {CurtainState} state
+ * @param {CurtainScene} scene
+ * @param {unknown} fadeMs
+ * @param {{ curtainFadeMs: number }} cfg
+ * @param {(value: unknown, fallback: number, min: number) => number} normalizeDelayMs
+ */
+export function dismissCurtain(state, scene, fadeMs, cfg, normalizeDelayMs) {
+    if (!state.curtain.visible || state.curtain.tweening) return false;
+    state.curtain.tweening = true;
+    scene.tweens.add({
+        targets: state.curtain,
+        alpha: 0,
+        duration: normalizeDelayMs(fadeMs, cfg.curtainFadeMs, 0),
+        ease: "Linear",
+        onComplete: () => {
+            state.curtain.visible = false;
+            state.curtain.tweening = false;
+        }
+    });
+    return true;
 }
 
 /**

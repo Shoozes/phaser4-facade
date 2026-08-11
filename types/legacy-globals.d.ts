@@ -1,0 +1,120 @@
+/// <reference path="../dist/gm-phaser4.d.ts" />
+
+/**
+ * Opt-in declarations for the legacy GML-style global aliases. Import this
+ * entrypoint only when the application starts with `globals: true`.
+ */
+declare var room_width: number;
+declare var room_height: number;
+declare var display_width: number;
+declare var display_height: number;
+declare var mouse_x: number;
+declare var mouse_y: number;
+declare var current_time: number;
+declare var delta_time: number;
+declare var delta_sec: number;
+
+declare var c_black: number;
+declare var c_white: number;
+declare var c_gray: number;
+declare var c_grey: number;
+declare var c_dkgray: number;
+declare var c_dkgrey: number;
+declare var c_ltgray: number;
+declare var c_ltgrey: number;
+declare var c_red: number;
+declare var c_green: number;
+declare var c_lime: number;
+declare var c_blue: number;
+declare var c_yellow: number;
+declare var c_orange: number;
+declare var c_purple: number;
+declare var c_aqua: number;
+declare var c_fuchsia: number;
+
+declare var fa_left: GMHorizontalAlign;
+declare var fa_center: GMHorizontalAlign;
+declare var fa_right: GMHorizontalAlign;
+declare var fa_top: GMVerticalAlign;
+declare var fa_middle: GMVerticalAlign;
+declare var fa_bottom: GMVerticalAlign;
+
+declare var mb_left: GMMouseButton;
+declare var mb_right: GMMouseButton;
+declare var mb_middle: GMMouseButton;
+declare var vk_left: string;
+declare var vk_right: string;
+declare var vk_up: string;
+declare var vk_down: string;
+declare var vk_space: string;
+declare var vk_enter: string;
+declare var vk_escape: string;
+declare var vk_shift: string;
+declare var vk_control: string;
+declare var vk_alt: string;
+
+declare function clamp(value: number, min: number, max: number): number;
+declare function lerp(a: number, b: number, t: number): number;
+declare function choose<T>(...items: T[]): T | undefined;
+declare function random(max: number): number;
+declare function random_range(min: number, max: number): number;
+declare function irandom(max: number): number;
+declare function irandom_range(min: number, max: number): number;
+declare function degtorad(degrees: number): number;
+declare function radtodeg(radians: number): number;
+declare function sin(value: number): number;
+declare function cos(value: number): number;
+declare function tan(value: number): number;
+declare function dsin(degrees: number): number;
+declare function dcos(degrees: number): number;
+declare function dtan(degrees: number): number;
+declare function point_distance(x1: number, y1: number, x2: number, y2: number): number;
+declare function point_direction(x1: number, y1: number, x2: number, y2: number): number;
+declare function lengthdir_x(length: number, direction: number): number;
+declare function lengthdir_y(length: number, direction: number): number;
+declare function point_in_rectangle(px: number, py: number, x1: number, y1: number, x2: number, y2: number): boolean;
+declare function ord(value: unknown): number;
+
+declare function load_sprite(key: string, url: string): GMRuntime;
+declare function load_sound(key: string, url: string): GMRuntime;
+declare function load_spritesheet(key: string, url: string, frameWidth: number, frameHeight: number): GMRuntime;
+declare function draw_set_color(value: GMColorValue): GMRuntime;
+declare function draw_set_alpha(value: number): GMRuntime;
+declare function draw_set_line_width(value: number): GMRuntime;
+declare function draw_set_font(font?: string, size?: number, bold?: boolean): GMRuntime;
+declare function draw_set_halign(value: GMHorizontalAlign): GMRuntime;
+declare function draw_set_valign(value: GMVerticalAlign): GMRuntime;
+declare function draw_rectangle(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
+declare function draw_roundrect(x1: number, y1: number, x2: number, y2: number, radius?: number, outline?: boolean): GMRuntime;
+declare function draw_circle(x: number, y: number, radius: number, outline?: boolean): GMRuntime;
+declare function draw_line(x1: number, y1: number, x2: number, y2: number): GMRuntime;
+declare function draw_text(x: number, y: number, text: unknown): unknown;
+declare function draw_gui_rectangle(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
+declare function draw_gui_text(x: number, y: number, text: unknown): unknown;
+declare function draw_sprite(key: string, frame: string | number | null | undefined, x: number, y: number): unknown;
+declare function draw_sprite_ext(key: string, frame: string | number | null | undefined, x: number, y: number, xscale?: number, yscale?: number, rotation?: number, color?: GMColorValue, alpha?: number): unknown;
+declare function button(x: number, y: number, w: number, h: number, text: string, onTap?: (gm: GMRuntime) => void, options?: GMButtonOptions): boolean;
+declare function button_center(x: number, y: number, w: number, h: number, text: string, onTap?: (gm: GMRuntime) => void, options?: GMButtonOptions): boolean;
+declare function nineslice_window(x: number, y: number, w: number, h: number, options?: GMNineSliceWindowOptions): unknown;
+declare function modal_notice(title: string, message?: string, options?: GMNoticeModalOptions): GMModal;
+declare function modal_notice(options: GMNoticeModalOptions): GMModal;
+declare function modal_close_all(): GMRuntime;
+declare function curtain(text?: string, fadeMs?: number): boolean;
+declare function curtain_active(): boolean;
+declare function instance_create_layer(x: number, y: number, layer: string, objectDef: GMObjectDefinition): GMInstance;
+declare function instance_destroy(inst?: GMInstance): GMRuntime;
+declare function instance_exists(target: GMInstance | GMObjectDefinition): boolean;
+declare function instance_number(objectDef: GMObjectDefinition): number;
+declare function instance_find(objectDef: GMObjectDefinition, index: number): GMInstance | null;
+declare function alarm_set(index: number, frames: number, inst?: GMInstance): GMRuntime;
+declare function keyboard_check(key: string | number | KeyboardEvent): boolean;
+declare function keyboard_check_pressed(key: string | number | KeyboardEvent): boolean;
+declare function keyboard_check_released(key: string | number | KeyboardEvent): boolean;
+declare function mouse_check_button(button?: GMMouseButton): boolean;
+declare function mouse_check_button_pressed(button?: GMMouseButton): boolean;
+declare function mouse_check_button_released(button?: GMMouseButton): boolean;
+declare function show_debug_message(message: unknown): GMRuntime;
+declare function tween(target: object, options?: Record<string, unknown>): unknown;
+declare function wait(ms: number, fn?: (gm: GMRuntime) => void): unknown;
+declare function every(ms: number, fn?: (gm: GMRuntime) => void): unknown;
+declare function sound_play(key: string, config?: Record<string, unknown>): unknown;

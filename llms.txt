@@ -9,3 +9,7 @@
 - examples/prototype-cdn.html: plain-script/global boot proof.
 - examples/single-html-cdn/index.html: host-page example for a downloaded bundle pair.
 - types/gm-phaser4.d.ts: canonical public declarations.
+- types/grout13.d.ts: optional injected Grout13 bridge declarations.
+- docs/migrations/0.2.0.md: compatibility notes for the promoted runtime.
+- docs/text-and-sprite-options.md: extended text, text-fit, and sprite option contracts.
+- examples/fruit-shot.html: focused cross-feature procedural proof.

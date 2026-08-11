@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>GM Phaser 4 CDN Prototype</title>
     <style>
         html,
@@ -42,7 +42,26 @@
         };
 
         (function () {
-            const runtimeOverride = new URL(window.location.href).searchParams.get("runtime");
+            const RUNTIME_VERSION = "0.1.0";
+
+            function isTrustedRuntimeUrl(candidate) {
+                try {
+                    const url = new URL(candidate, window.location.href);
+                    if (url.username || url.password || url.hash || url.search) return false;
+                    if (url.origin === window.location.origin) {
+                        return /gm-phaser4\.global(?:\.min)?\.js$/.test(url.pathname);
+                    }
+                    if (url.origin !== "https://cdn.jsdelivr.net") return false;
+                    return /^\/(?:npm\/phaser4-facade@[^/]+|gh\/Shoozes\/phaser4-facade@[^/]+)\/dist\/gm-phaser4\.global(?:\.min)?\.js$/.test(url.pathname);
+                } catch {
+                    return false;
+                }
+            }
+
+            const rawRuntimeOverride = new URL(window.location.href).searchParams.get("runtime");
+            const runtimeOverride = rawRuntimeOverride && isTrustedRuntimeUrl(rawRuntimeOverride)
+                ? rawRuntimeOverride
+                : null;
             const runtimeCandidates = [
                 runtimeOverride,
                 "../dist/gm-phaser4.global.js",
@@ -60,8 +79,11 @@
                     window.Phaser &&
                     window.Phaser.Game &&
                     window.GM &&
+                    window.GM.version === RUNTIME_VERSION &&
                     window.GM.app &&
-                    typeof window.GM.app.start === "function"
+                    typeof window.GM.app.start === "function" &&
+                    window.GM.input &&
+                    typeof window.GM.input.createVirtualStick === "function"
                 );
             }
 
@@ -125,8 +147,12 @@
                         settled = true;
                         window.clearTimeout(timeout);
 
-                        if (loaded && validate()) {
-                            onReady();
+                        if (loaded) {
+                            if (validate()) onReady();
+                            else {
+                                if (script.parentNode) script.parentNode.removeChild(script);
+                                onFail(new Error("Loaded gm-phaser4 runtime failed its version/API validation."));
+                            }
                             return;
                         }
 
@@ -154,8 +180,8 @@
                 runtimeCandidates,
                 validateRuntime,
                 launchDemo,
-                function () {
-                    throw new Error("Unable to load gm-phaser4 runtime.");
+                function (error) {
+                    throw error || new Error("Unable to load gm-phaser4 runtime.");
                 }
             );
         }());

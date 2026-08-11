@@ -16,7 +16,9 @@ const DEFAULTS = {
     safeColor: 0x333333,
     bleedColor: 0x222222,
     stage: true,
-    globals: true,
+    // Legacy GML aliases are opt-in so a runtime cannot silently mutate the
+    // host page's global namespace.
+    globals: false,
     renderQuality: "smooth",
     pixelArt: false,
     antialias: true,
@@ -25,8 +27,16 @@ const DEFAULTS = {
     maxRenderResolution: 3,
     curtain: false,
     curtainText: "TAP TO START",
-    curtainFadeMs: 350
+    curtainFadeMs: 350,
+    // 0 keeps legacy variable-step behavior. >0 enables fixed simulation Hz.
+    simulationHz: 0,
+    maxFrameDeltaMs: 100,
+    maxCatchUpSteps: 5,
+    // Optional seed applied when the game starts (does not replace Math.random).
+    randomSeed: null
 };
+const RUNTIME_VERSION = "0.1.0";
+const ALARM_COUNT = 12;
 const DEFAULT_MODAL_INPUT_BLOCK_MS = 650;
 const DEFAULT_MODAL_OPEN_MS = 300;
 const DEFAULT_MODAL_CLOSE_MS = 260;
@@ -39,14 +49,16 @@ const COLORS = {
     c_dkgrey: 0x404040,
     c_ltgray: 0xc0c0c0,
     c_ltgrey: 0xc0c0c0,
-    c_red: 0xff0000,
+    // GameMaker numeric colors are BGR-ordered integers. Keep CSS strings
+    // and Phaser-facing conversions in math.js/render boundaries.
+    c_red: 0x0000ff,
     c_green: 0x008000,
     c_lime: 0x00ff00,
-    c_blue: 0x0000ff,
-    c_yellow: 0xffff00,
-    c_orange: 0xffa500,
+    c_blue: 0xff0000,
+    c_yellow: 0x00ffff,
+    c_orange: 0x00a5ff,
     c_purple: 0x800080,
-    c_aqua: 0x00ffff,
+    c_aqua: 0xffff00,
     c_fuchsia: 0xff00ff
 };
 const ALIGN = {
@@ -82,6 +94,33 @@ const INPUT = {
 function addRuntimeCleanup(state, fn) {
     if (typeof fn === "function") state.cleanup.push(fn);
     return fn;
+}
+
+/**
+ * Preserve cleanup failures for diagnostics without allowing one bad owner to
+ * abort the rest of shutdown.
+ * @param {any} state
+ * @param {unknown} error
+ * @param {string} phase
+ * @param {string} [reason]
+ */
+function recordRuntimeCleanupError(state, error, phase, reason) {
+    const diagnostic = {
+        phase,
+        reason: reason || "cleanup",
+        message: error instanceof Error ? error.message : String(error),
+        error
+    };
+    if (Array.isArray(state.cleanupErrors)) state.cleanupErrors.push(diagnostic);
+    const onCleanupError = state.cfg && state.cfg.onCleanupError;
+    if (typeof onCleanupError === "function") {
+        try {
+            onCleanupError(diagnostic);
+        } catch {
+            // Diagnostics must never make teardown less safe.
+        }
+    }
+    return diagnostic;
 }
 
 /**
@@ -127,6 +166,22 @@ function onceRuntimeEvent(state, emitter, eventName, handler) {
 
 /**
  * @param {any} state
+ * @param {any} target
+ * @param {string} eventName
+ * @param {Function} handler
+ * @param {any} [options]
+ */
+function onRuntimeDomEvent(state, target, eventName, handler, options) {
+    if (!target || typeof target.addEventListener !== "function" || typeof handler !== "function") return handler;
+    target.addEventListener(eventName, handler, options);
+    addRuntimeCleanup(state, () => {
+        if (typeof target.removeEventListener === "function") target.removeEventListener(eventName, handler, options);
+    });
+    return handler;
+}
+
+/**
+ * @param {any} state
  * @param {string} [reason]
  */
 function runRuntimeCleanup(state, reason) {
@@ -137,8 +192,8 @@ function runRuntimeCleanup(state, reason) {
     for (const cleanup of callbacks) {
         try {
             cleanup(reason);
-        } catch {
-            // Cleanup must be best-effort during scene shutdown.
+        } catch (error) {
+            recordRuntimeCleanupError(state, error, "registered_cleanup", reason);
         }
     }
     return true;
@@ -149,23 +204,59 @@ function runRuntimeCleanup(state, reason) {
 /** @type {Record<string, number>} */
 const NAMED_COLORS = COLORS;
 
+const HEX_COLOR_PATTERN = /^[0-9a-f]{3}$|^[0-9a-f]{6}$/i;
+
+/**
+ * GameMaker stores numeric colors as BGR integers while Phaser and CSS use
+ * RGB ordering. String colors remain ordinary CSS/RGB values.
+ * @param {number} value
+ * @returns {number}
+ */
+function bgrToRgb(value) {
+    const bgr = value >>> 0;
+    return ((bgr & 0xff) << 16) | (bgr & 0xff00) | ((bgr >>> 16) & 0xff);
+}
+
+/**
+ * @param {string} value
+ * @returns {string | null}
+ */
+function normalizeHexString(value) {
+    let hex = value.trim();
+    if (hex.startsWith("#")) hex = hex.slice(1);
+    else if (/^0x/i.test(hex)) hex = hex.slice(2);
+    if (!HEX_COLOR_PATTERN.test(hex)) return null;
+    if (hex.length === 3) hex = hex.split("").map((part) => part + part).join("");
+    return hex.toLowerCase();
+}
+
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isHexLike(value) {
+    if (typeof value !== "string") return false;
+    const trimmed = value.trim();
+    return trimmed.startsWith("#") || /^0x/i.test(trimmed) || /^[0-9a-f]+$/i.test(trimmed) || /^[0-9]/.test(trimmed);
+}
+
 /**
  * @param {unknown} value
  * @param {number} fallback
  */
 function toColor(value, fallback = 0xffffff) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xffffff) {
+        return bgrToRgb(value);
+    }
     if (typeof value !== "string") return fallback;
 
-    const named = NAMED_COLORS[String(value)];
-    if (named !== undefined) return named;
+    const named = NAMED_COLORS[String(value).trim()];
+    if (named !== undefined) return bgrToRgb(named);
 
-    let hex = value.trim();
-    if (hex[0] === "#") hex = hex.slice(1);
-    if (hex.length === 3) hex = hex.split("").map((part) => part + part).join("");
-
-    const parsed = parseInt(hex, 16);
-    return Number.isFinite(parsed) ? parsed : fallback;
+    const hex = normalizeHexString(value);
+    if (!hex) return fallback;
+    const parsed = Number.parseInt(hex, 16);
+    return Number.isInteger(parsed) ? parsed : fallback;
 }
 
 /**
@@ -173,12 +264,19 @@ function toColor(value, fallback = 0xffffff) {
  * @param {string} fallback
  */
 function toCssColor(value, fallback = "#ffffff") {
-    if (typeof value === "number" && Number.isFinite(value)) {
-        return "#" + value.toString(16).padStart(6, "0");
+    if (typeof value === "number") {
+        const parsed = toColor(value, Number.NaN);
+        return Number.isFinite(parsed) ? "#" + parsed.toString(16).padStart(6, "0") : fallback;
     }
     if (typeof value === "string") {
-        if (NAMED_COLORS[value] !== undefined) return toCssColor(NAMED_COLORS[value], fallback);
-        return value;
+        const named = NAMED_COLORS[value.trim()];
+        if (named !== undefined) return toCssColor(named, fallback);
+        const trimmed = value.trim();
+        const hex = normalizeHexString(trimmed);
+        if (hex) return "#" + hex;
+        // A malformed value that looks like a hex color should fail closed;
+        // regular CSS names/functions remain valid pass-through values.
+        return isHexLike(trimmed) ? fallback : (trimmed || fallback);
     }
     return fallback;
 }
@@ -202,19 +300,48 @@ function lerp(a, b, t) {
 }
 
 /**
+ * @typedef {object} ActiveRng
+ * @property {() => number} next
+ * @property {(...items: unknown[]) => unknown} choose
+ * @property {(max: number) => number} random
+ * @property {(min: number, max: number) => number} randomRange
+ * @property {(max: number) => number} irandom
+ * @property {(min: number, max: number) => number} irandomRange
+ */
+/** @type {ActiveRng | null} */
+let activeRng = null;
+
+/**
+ * Bind an optional seedable RNG used by facade random helpers.
+ * Pass null to restore Math.random().
+ * @param {ActiveRng | null} rng
+ */
+function setActiveRng(rng) {
+    activeRng = rng || null;
+}
+
+/**
+ * @returns {number}
+ */
+function unitRandom() {
+    return activeRng ? activeRng.next() : Math.random();
+}
+
+/**
  * @param {...unknown} items
  * @returns {unknown}
  */
 function choose(...items) {
     if (items.length <= 0) return undefined;
-    return items[Math.floor(Math.random() * items.length)];
+    if (activeRng) return activeRng.choose(...items);
+    return items[Math.floor(unitRandom() * items.length)];
 }
 
 /**
  * @param {number} max
  */
 function random(max) {
-    return Math.random() * max;
+    return unitRandom() * max;
 }
 
 /**
@@ -222,14 +349,14 @@ function random(max) {
  * @param {number} max
  */
 function random_range(min, max) {
-    return min + Math.random() * (max - min);
+    return min + unitRandom() * (max - min);
 }
 
 /**
  * @param {number} max
  */
 function irandom(max) {
-    return Math.floor(Math.random() * (max + 1));
+    return Math.floor(unitRandom() * (max + 1));
 }
 
 /**
@@ -292,7 +419,9 @@ function point_distance(x1, y1, x2, y2) {
  * @param {number} y2
  */
 function point_direction(x1, y1, x2, y2) {
-    return radtodeg(Math.atan2(y1 - y2, x2 - x1));
+    // GameMaker: right=0, up=90, left=180, down=270 in [0, 360).
+    const degrees = radtodeg(Math.atan2(y1 - y2, x2 - x1));
+    return ((degrees % 360) + 360) % 360;
 }
 
 /**
@@ -337,7 +466,94 @@ function numberOr(value, fallback) {
 }
 
 // @ts-check
+
+/**
+ * Mulberry32 PRNG. Does not replace Math.random globally.
+ * @param {number} [seed]
+ */
+function createSeededRng(seed) {
+    let state = normalizeSeed(seed);
+
+    function next() {
+        state = (state + 0x6d2b79f5) | 0;
+        let t = Math.imul(state ^ (state >>> 15), 1 | state);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+
+    return {
+        /** @param {number} [nextSeed] */
+        seed(nextSeed) {
+            state = normalizeSeed(nextSeed);
+            return this;
+        },
+        getState() {
+            return state >>> 0;
+        },
+        next,
+        /**
+         * @param {number} max
+         */
+        random(max) {
+            return next() * Number(max);
+        },
+        /**
+         * @param {number} min
+         * @param {number} max
+         */
+        randomRange(min, max) {
+            return Number(min) + next() * (Number(max) - Number(min));
+        },
+        /**
+         * @param {number} max
+         */
+        irandom(max) {
+            return Math.floor(next() * (Number(max) + 1));
+        },
+        /**
+         * @param {number} min
+         * @param {number} max
+         */
+        irandomRange(min, max) {
+            return Math.floor(Number(min) + next() * (Number(max) - Number(min) + 1));
+        },
+        /**
+         * @param {...unknown} items
+         */
+        choose(...items) {
+            if (items.length <= 0) return undefined;
+            return items[Math.floor(next() * items.length)];
+        }
+    };
+}
+
+/**
+ * @param {unknown} seed
+ * @returns {number}
+ */
+function normalizeSeed(seed) {
+    if (seed === undefined || seed === null || seed === "") {
+        return (Math.floor(Math.random() * 0xffffffff) || 1) >>> 0;
+    }
+    const numeric = Number(seed);
+    if (!Number.isFinite(numeric)) {
+        // Stable string hash
+        const text = String(seed);
+        let hash = 2166136261;
+        for (let i = 0; i < text.length; i += 1) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash || 1) >>> 0;
+    }
+    return (Math.floor(numeric) || 1) >>> 0;
+}
+
+// @ts-check
 function createMathApi() {
+    /** @type {ReturnType<typeof createSeededRng> | null} */
+    let boundRng = null;
+
     return {
         clamp,
         lerp,
@@ -355,7 +571,30 @@ function createMathApi() {
         point_direction,
         lengthdir_x,
         lengthdir_y,
-        point_in_rectangle
+        point_in_rectangle,
+        /**
+         * Seed facade random helpers without replacing global Math.random.
+         * @param {number | string | null | undefined} seed
+         */
+        setSeed(seed) {
+            if (seed === null || seed === undefined) {
+                boundRng = null;
+                setActiveRng(null);
+                return this;
+            }
+            boundRng = createSeededRng(/** @type {any} */ (seed));
+            setActiveRng(boundRng);
+            return this;
+        },
+        getSeedState() {
+            return boundRng ? boundRng.getState() : null;
+        },
+        /**
+         * @param {number | string} [seed]
+         */
+        createRng(seed) {
+            return createSeededRng(/** @type {any} */ (seed));
+        }
     };
 }
 
@@ -513,6 +752,7 @@ function hasObjectKeys(value) {
  *   _stepStartedAt: number,
  *   _drawStartedAt: number,
  *   _uiStartedAt: number,
+ *   _frameDeltaMs: number,
  *   _labels: Map<string, number>
  * }} RuntimePerfState
  */
@@ -574,20 +814,23 @@ function createRuntimePerfState() {
         _stepStartedAt: 0,
         _drawStartedAt: 0,
         _uiStartedAt: 0,
+        _frameDeltaMs: 0,
         _labels: new Map()
     };
 }
 
 /**
  * @param {any} state
+ * @param {number} [deltaMs]
  */
-function beginRuntimePerfFrame(state) {
+function beginRuntimePerfFrame(state, deltaMs) {
     const perf = /** @type {RuntimePerfState | null | undefined} */ (state?.perf);
     if (!perf?.enabled) return;
     perf.counts = createCounts();
     perf.topLabels = [];
     perf._labels.clear();
     perf._frameStartedAt = nowMs();
+    perf._frameDeltaMs = Number.isFinite(Number(deltaMs)) ? Math.max(0, Number(deltaMs)) : 0;
     perf.frame.stepMs = 0;
     perf.frame.drawMs = 0;
     perf.frame.uiMs = 0;
@@ -652,7 +895,8 @@ function finalizeRuntimePerfFrame(state) {
     if (!perf?.enabled) return;
     const elapsed = Math.max(0, nowMs() - perf._frameStartedAt);
     perf.frame.totalMs = elapsed;
-    perf.frame.fpsEstimate = elapsed > 0 ? 1000 / elapsed : 0;
+    // This is frame cadence, not the reciprocal of facade CPU work.
+    perf.frame.fpsEstimate = perf._frameDeltaMs > 0 ? 1000 / perf._frameDeltaMs : 0;
     perf.topLabels = Array.from(perf._labels.entries())
         .sort((a, b) => b[1] - a[1])
         .slice(0, 12)
@@ -725,6 +969,8 @@ function createRuntimeButtonClass(Phaser) {
             this.id = id;
             this.hovered = false;
             this.down = false;
+            /** @type {string | null} */
+            this.activePointerId = null;
             this.pendingPress = false;
             this.activeUntil = 0;
             this.visualScale = 1;
@@ -778,6 +1024,7 @@ function createRuntimeButtonClass(Phaser) {
                 consumeInputEvent(pointer, event);
                 this.hovered = false;
                 this.down = false;
+                this.activePointerId = null;
             });
             this.hitZone.on("pointerdown", (
                 /** @type {unknown} */ pointer,
@@ -787,8 +1034,11 @@ function createRuntimeButtonClass(Phaser) {
             ) => {
                 consumeInputEvent(pointer, event);
                 if (this.api.input_blocked() || this.api.curtain_active()) return;
+                const pointerId = pointerGateKey(pointer);
+                if (this.down && this.activePointerId !== pointerId) return;
                 this.hovered = true;
                 this.down = true;
+                this.activePointerId = pointerId;
             });
             this.hitZone.on("pointerup", (
                 /** @type {unknown} */ pointer,
@@ -797,14 +1047,29 @@ function createRuntimeButtonClass(Phaser) {
                 /** @type {unknown} */ event
             ) => {
                 consumeInputEvent(pointer, event);
-                const canPress = this.down && !this.api.input_blocked() && !this.api.curtain_active();
+                const samePointer = this.activePointerId !== null && this.activePointerId === pointerGateKey(pointer);
+                if (!samePointer) return;
+                const canPress = samePointer && this.down && !this.api.input_blocked() && !this.api.curtain_active();
                 this.down = false;
+                this.activePointerId = null;
                 if (!canPress) return;
                 this.pendingPress = true;
                 const flashMs = Number(this.options.flashMs);
                 const flashDuration = Number.isFinite(flashMs) ? Math.max(0, flashMs) : 100;
                 this.activeUntil = this.state.currentTime + flashDuration;
             });
+            const cancelPointer = (
+                /** @type {unknown} */ pointer,
+                /** @type {unknown} */ localX,
+                /** @type {unknown} */ localY,
+                /** @type {unknown} */ event
+            ) => {
+                consumeInputEvent(pointer, event);
+                this.down = false;
+                this.activePointerId = null;
+            };
+            this.hitZone.on("pointercancel", cancelPointer);
+            this.hitZone.on("pointerupoutside", cancelPointer);
         }
 
         beginFrame() {
@@ -818,6 +1083,7 @@ function createRuntimeButtonClass(Phaser) {
             if (!wasConfiguredLastFrame) {
                 this.hovered = false;
                 this.down = false;
+                this.activePointerId = null;
                 this.pendingPress = false;
                 this.activeUntil = 0;
                 this.visualScale = 1;
@@ -992,7 +1258,7 @@ function clampDrawAlpha(value, fallback = 1) {
  * @param {any} state
  */
 function resetRuntimeDrawState(state) {
-    state.draw.color = 0xffffff;
+    state.draw.color = COLORS.c_white;
     state.draw.alpha = 1;
     state.draw.lineWidth = 1;
     state.draw.font = "sans-serif";
@@ -1037,7 +1303,8 @@ function drawRuntimeStage(state, cfg, gfx, roomWidth, roomHeight) {
  * @param {any} value
  */
 function setRuntimeDrawColor(state, value) {
-    state.draw.color = toColor(value);
+    const parsed = toColor(value, Number.NaN);
+    state.draw.color = Number.isFinite(parsed) ? value : COLORS.c_white;
 }
 
 /**
@@ -1066,7 +1333,7 @@ function setRuntimeDrawLineWidth(state, value) {
  */
 function setRuntimeDrawFont(state, font, size, bold) {
     if (font !== undefined) state.draw.font = font;
-    if (size !== undefined) state.draw.size = size;
+    if (size !== undefined) state.draw.size = positiveDrawValue(size, state.draw.size, "draw font size");
     if (bold !== undefined) state.draw.bold = !!bold;
 }
 
@@ -1075,7 +1342,7 @@ function setRuntimeDrawFont(state, font, size, bold) {
  * @param {string} value
  */
 function setRuntimeDrawHAlign(state, value) {
-    state.draw.halign = value;
+    state.draw.halign = normalizeAlignment(value, H_ALIGNMENTS, "left");
 }
 
 /**
@@ -1083,7 +1350,7 @@ function setRuntimeDrawHAlign(state, value) {
  * @param {string} value
  */
 function setRuntimeDrawVAlign(state, value) {
-    state.draw.valign = value;
+    state.draw.valign = normalizeAlignment(value, V_ALIGNMENTS, "top");
 }
 
 /**
@@ -1172,44 +1439,246 @@ function drawRuntimeLine(state, gfx, x1, y1, x2, y2) {
     gfx.strokePath();
 }
 
-/**
- * @param {any} state
- * @param {any} pool
- * @param {any} parent
- * @param {number} x
- * @param {number} y
- * @param {any} text
- */
-function drawRuntimeText(state, pool, parent, x, y, text) {
-    const item = pool.take();
-    const originX = state.draw.halign === "center" ? 0.5 : state.draw.halign === "right" ? 1 : 0;
-    const originY = state.draw.valign === "middle" ? 0.5 : state.draw.valign === "bottom" ? 1 : 0;
-    const label = String(text);
-    const style = {
-        fontFamily: state.draw.font,
-        fontSize: state.draw.size + "px",
-        fontStyle: state.draw.bold ? "bold" : "",
-        color: toCssColor(state.draw.color),
-        resolution: state.render?.resolution || 1
-    };
+const H_ALIGNMENTS = new Set(["left", "center", "right"]);
+const V_ALIGNMENTS = new Set(["top", "middle", "bottom"]);
 
+function finiteDrawValue(value, fallback, label, required = false) {
+    if (value === undefined || value === null) {
+        if (required) throw new TypeError(`${label} must be a finite number.`);
+        return fallback;
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) throw new TypeError(`${label} must be a finite number.`);
+    return numeric;
+}
+
+function positiveDrawValue(value, fallback, label) {
+    const numeric = finiteDrawValue(value, fallback, label);
+    if (!(numeric > 0)) throw new RangeError(`${label} must be greater than zero.`);
+    return numeric;
+}
+
+function normalizeAlignment(value, allowed, fallback) {
+    const normalized = String(value ?? fallback).toLowerCase();
+    return allowed.has(normalized) ? normalized : fallback;
+}
+
+function normalizeTextPresentation(state, options = {}) {
+    const draw = state.draw || {};
+    const hAlign = normalizeAlignment(options.hAlign === undefined ? draw.halign : options.hAlign, H_ALIGNMENTS, "left");
+    const vAlign = normalizeAlignment(options.vAlign === undefined ? draw.valign : options.vAlign, V_ALIGNMENTS, "top");
+    const size = positiveDrawValue(options.size === undefined ? draw.size : options.size, 24, "text size");
+    const scale = finiteDrawValue(options.scale, 1, "text scale");
+    const scaleX = finiteDrawValue(options.scaleX, scale, "text scaleX");
+    const scaleY = finiteDrawValue(options.scaleY, scale, "text scaleY");
+    const rotation = finiteDrawValue(options.rotation, 0, "text rotation");
+    const originX = options.originX === undefined
+        ? (hAlign === "center" ? 0.5 : hAlign === "right" ? 1 : 0)
+        : finiteDrawValue(options.originX, 0, "text originX");
+    const originY = options.originY === undefined
+        ? (vAlign === "middle" ? 0.5 : vAlign === "bottom" ? 1 : 0)
+        : finiteDrawValue(options.originY, 0, "text originY");
+    return {
+        font: options.font === undefined ? String(draw.font || "sans-serif") : String(options.font),
+        size,
+        bold: options.bold === undefined ? !!draw.bold : !!options.bold,
+        color: options.color === undefined ? draw.color : options.color,
+        alpha: clampDrawAlpha(options.alpha === undefined ? draw.alpha : options.alpha, 1),
+        hAlign,
+        vAlign,
+        rotation,
+        scaleX,
+        scaleY,
+        originX,
+        originY,
+        resolution: positiveDrawValue(state.render?.resolution, 1, "text resolution")
+    };
+}
+
+function textStyleFor(presentation) {
+    return {
+        fontFamily: presentation.font,
+        fontSize: `${presentation.size}px`,
+        fontStyle: presentation.bold ? "bold" : "",
+        color: toCssColor(presentation.color),
+        resolution: presentation.resolution,
+        stroke: "transparent",
+        strokeThickness: 0,
+        shadow: {
+            offsetX: 0,
+            offsetY: 0,
+            color: "#000000",
+            blur: 0,
+            stroke: false,
+            fill: false
+        },
+        wordWrap: { width: 0, useAdvancedWrap: false },
+        fixedWidth: 0,
+        fixedHeight: 0,
+        lineSpacing: 0,
+        padding: 0
+    };
+}
+
+function applyTextPresentation(state, item, label, presentation, parent) {
+    const style = textStyleFor(presentation);
+    const styleSignature = JSON.stringify(style);
     countRuntimePerf(state, "drawText");
     countRuntimeTextLabel(state, label);
     if (item.text !== label) {
         item.setText(label);
         countRuntimePerf(state, "textSetCalls");
     }
-    item.setPosition(x, y);
-    item.setOrigin(originX, originY);
-    item.setAlpha(state.draw.alpha);
-    if (item.__gmRuntimeStyleSignature !== JSON.stringify(style)) {
+    if (item.__gmRuntimeStyleSignature !== styleSignature) {
         item.setStyle(style);
-        item.__gmRuntimeStyleSignature = JSON.stringify(style);
+        item.__gmRuntimeStyleSignature = styleSignature;
         countRuntimePerf(state, "textStyleSetCalls");
     }
+    item.setPosition(presentation.x, presentation.y);
+    item.setOrigin(presentation.originX, presentation.originY);
+    item.setAlpha(presentation.alpha);
+    if (typeof item.setAngle === "function") item.setAngle(presentation.rotation === 0 ? 0 : -presentation.rotation);
+    else if (typeof item.setRotation === "function") item.setRotation(-presentation.rotation * Math.PI / 180);
+    item.setScale(presentation.scaleX, presentation.scaleY);
     if (parent && typeof parent.bringToTop === "function") parent.bringToTop(item);
-
     return item;
+}
+
+function measuredTextBounds(item, presentation) {
+    const width = Math.abs(Number(item.width)) * Math.abs(presentation.scaleX);
+    const height = Math.abs(Number(item.height)) * Math.abs(presentation.scaleY);
+    return {
+        width: Number.isFinite(width) ? width : Number.POSITIVE_INFINITY,
+        height: Number.isFinite(height) ? height : Number.POSITIVE_INFINITY
+    };
+}
+
+function resolveFitSize(item, label, presentation, options) {
+    const maxWidth = positiveDrawValue(options.maxWidth, 0, "text maxWidth");
+    const maxHeight = options.maxHeight === undefined ? null : positiveDrawValue(options.maxHeight, 0, "text maxHeight");
+    const requestedMinSize = positiveDrawValue(options.minSize, Math.max(1, Math.min(presentation.size, 8)), "text minSize");
+    const preferredSize = presentation.size;
+    const minSize = Math.min(requestedMinSize, preferredSize);
+    const signature = JSON.stringify([
+        label,
+        maxWidth,
+        maxHeight,
+        minSize,
+        preferredSize,
+        presentation.font,
+        presentation.bold,
+        presentation.color,
+        presentation.scaleX,
+        presentation.scaleY,
+        presentation.resolution
+    ]);
+    if (item.__gmRuntimeFitSignature === signature && Number.isFinite(item.__gmRuntimeFitSize)) {
+        return item.__gmRuntimeFitSize;
+    }
+
+    const fits = (size) => {
+        const candidate = { ...presentation, size };
+        item.setText(label);
+        item.setStyle(textStyleFor(candidate));
+        const bounds = measuredTextBounds(item, candidate);
+        return bounds.width <= maxWidth && (maxHeight === null || bounds.height <= maxHeight);
+    };
+
+    let result = preferredSize;
+    if (!fits(preferredSize)) {
+        if (fits(minSize)) {
+            let low = minSize;
+            let high = preferredSize;
+            for (let iteration = 0; iteration < 12; iteration += 1) {
+                const middle = (low + high) / 2;
+                if (fits(middle)) low = middle;
+                else high = middle;
+            }
+            result = low;
+        } else {
+            result = minSize;
+        }
+    }
+    item.__gmRuntimeFitSignature = signature;
+    item.__gmRuntimeFitSize = result;
+    return result;
+}
+
+/**
+ * Shared world/GUI text path for simple, extended, and fitted text.
+ * @param {any} state
+ * @param {any} pool
+ * @param {any} parent
+ * @param {number} x
+ * @param {number} y
+ * @param {any} text
+ * @param {any=} options
+ * @param {boolean=} fit
+ */
+function drawRuntimeTextWithOptions(state, pool, parent, x, y, text, options = {}, fit = false) {
+    const presentation = normalizeTextPresentation(state, options);
+    presentation.x = finiteDrawValue(x, 0, "text x", true);
+    presentation.y = finiteDrawValue(y, 0, "text y", true);
+    const label = String(text);
+    const item = pool.take();
+    if (fit) {
+        presentation.size = resolveFitSize(item, label, presentation, options);
+        countRuntimePerf(state, "fittedText");
+    }
+    return applyTextPresentation(state, item, label, presentation, parent);
+}
+
+/** @param {any} state @param {any} pool @param {any} parent @param {number} x @param {number} y @param {any} text */
+function drawRuntimeText(state, pool, parent, x, y, text) {
+    return drawRuntimeTextWithOptions(state, pool, parent, x, y, text);
+}
+
+/** @param {any} state @param {any} pool @param {any} parent @param {number} x @param {number} y @param {any} text @param {any} options */
+function drawRuntimeTextExt(state, pool, parent, x, y, text, options) {
+    return drawRuntimeTextWithOptions(state, pool, parent, x, y, text, options || {});
+}
+
+/** @param {any} state @param {any} pool @param {any} parent @param {number} x @param {number} y @param {any} text @param {any} options */
+function drawRuntimeTextFit(state, pool, parent, x, y, text, options) {
+    if (!options || typeof options !== "object") throw new TypeError("textFit options are required.");
+    return drawRuntimeTextWithOptions(state, pool, parent, x, y, text, options, true);
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @param {string} label
+ */
+function finiteOr(value, fallback, label) {
+    if (value === undefined || value === null) return fallback;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        throw new TypeError(`draw_sprite_ext ${label} must be a finite number.`);
+    }
+    return numeric;
+}
+
+/**
+ * Phaser tint is a 24-bit RGB integer after BGR conversion at the color boundary.
+ * @param {unknown} color
+ */
+function clampTintColor(color) {
+    const converted = toColor(color === undefined ? COLORS.c_white : color);
+    if (!Number.isFinite(converted)) return 0xffffff;
+    return converted >>> 0 & 0xffffff;
+}
+
+function assertSpriteSource(state, key, frame) {
+    const textures = state.scene?.textures;
+    if (!textures || typeof textures.exists !== "function") return;
+    if (!textures.exists(key)) {
+        throw new Error(`[phaser4-facade] draw_sprite_ext texture not found: ${String(key)}`);
+    }
+    if (frame === undefined || frame === null || typeof textures.get !== "function") return;
+    const texture = textures.get(key);
+    if (texture && typeof texture.has === "function" && !texture.has(frame)) {
+        throw new Error(`[phaser4-facade] draw_sprite_ext frame not found: ${String(key)}:${String(frame)}`);
+    }
 }
 
 /**
@@ -1226,12 +1695,33 @@ function drawRuntimeText(state, pool, parent, x, y, text) {
  * @param {number=} alpha
  */
 function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rotation, color, alpha) {
+    const posX = finiteOr(x, 0, "x");
+    const posY = finiteOr(y, 0, "y");
+    const options = xscale && typeof xscale === "object" ? xscale : null;
+    assertSpriteSource(state, key, frame);
+    const baseScale = finiteOr(options?.scale, 1, "scale");
+    const scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");
+    const scaleY = finiteOr(options ? options.scaleY : yscale, baseScale, "yscale");
+    const requestedRotation = options ? options.rotation : rotation;
+    const requestedColor = options ? options.color : color;
+    const requestedAlpha = options ? options.alpha : alpha;
     const item = pool.take(key, frame);
-    item.setPosition(x, y);
-    item.setScale(xscale === undefined ? 1 : xscale, yscale === undefined ? 1 : yscale);
-    item.setRotation(rotation || 0);
-    item.setAlpha(clampDrawAlpha(alpha === undefined ? state.draw.alpha : alpha, state.draw.alpha));
-    item.setTint(toColor(color === undefined ? COLORS.c_white : color));
+    item.setPosition(posX, posY);
+    if (options?.originX !== undefined || options?.originY !== undefined) {
+        item.setOrigin(
+            finiteOr(options.originX, 0.5, "originX"),
+            finiteOr(options.originY, 0.5, "originY")
+        );
+    }
+    if (options && typeof item.setFlip === "function") item.setFlip(!!options.flipX, !!options.flipY);
+    item.setScale(scaleX, scaleY);
+    // GameMaker degrees: positive rotation is counter-clockwise; Phaser angles are clockwise.
+    const numericRotation = finiteOr(requestedRotation, 0, "rotation");
+    const degrees = ((numericRotation % 360) + 360) % 360;
+    if (typeof item.setAngle === "function") item.setAngle(degrees === 0 ? 0 : -degrees);
+    else if (typeof item.setRotation === "function") item.setRotation(-degrees * Math.PI / 180);
+    item.setAlpha(clampDrawAlpha(requestedAlpha === undefined ? state.draw.alpha : requestedAlpha, state.draw.alpha));
+    item.setTint(clampTintColor(requestedColor));
     return item;
 }
 
@@ -1244,11 +1734,12 @@ function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rot
  */
 function stepRuntimeAlarms(state, api, inst) {
     if (!inst.alarm) return;
-    for (let i = 0; i < inst.alarm.length; i += 1) {
-        if (inst.alarm[i] === undefined || inst.alarm[i] < 0) continue;
+    for (let i = 0; i < ALARM_COUNT; i += 1) {
+        const current = Number(inst.alarm[i]);
+        if (!Number.isFinite(current) || current < 0) continue;
         const setFrame = inst.__alarmSetFrame && inst.__alarmSetFrame[i] !== undefined ? inst.__alarmSetFrame[i] : -1;
         if (setFrame === state.stepFrame) continue;
-        if (inst.alarm[i] > 0) inst.alarm[i] -= 1;
+        if (current > 0) inst.alarm[i] = current - 1;
         if (inst.alarm[i] === 0) {
             const fn = inst["alarm" + i];
             inst.alarm[i] = -1;
@@ -1265,15 +1756,19 @@ function stepRuntimeAlarms(state, api, inst) {
 function stepRuntimeInstances(state, api) {
     state.stepFrame = (state.stepFrame || 0) + 1;
     const snapshot = state.instances.slice();
-    for (const inst of snapshot) {
-        if (!inst.__active) continue;
-        state.currentInstance = inst;
-        if (typeof inst.step === "function") inst.step.call(inst, api);
-        if (!inst.__active) continue;
-        stepRuntimeAlarms(state, api, inst);
+    try {
+        for (const inst of snapshot) {
+            if (!inst.__active) continue;
+            state.currentInstance = inst;
+            // GameMaker alarms are evaluated at the start of an instance step.
+            stepRuntimeAlarms(state, api, inst);
+            if (!inst.__active) continue;
+            if (typeof inst.step === "function") inst.step.call(inst, api);
+        }
+    } finally {
+        state.currentInstance = null;
+        state.instances = state.instances.filter((/** @type {any} */ inst) => inst.__active);
     }
-    state.currentInstance = null;
-    state.instances = state.instances.filter((/** @type {any} */ inst) => inst.__active);
 }
 
 /**
@@ -1282,12 +1777,31 @@ function stepRuntimeInstances(state, api) {
  */
 function drawRuntimeInstances(state, api) {
     const snapshot = state.instances.slice();
-    for (const inst of snapshot) {
-        if (!inst.__active || inst.visible === false) continue;
-        state.currentInstance = inst;
-        if (typeof inst.draw === "function") inst.draw.call(inst, api);
+    const previousLayer = state.activeWorldLayer || "world";
+    try {
+        for (const inst of snapshot) {
+            if (!inst.__active || inst.visible === false) continue;
+            const layerName = inst.layer || "Instances";
+            const depth = Number.isFinite(Number(inst.layerDepth))
+                ? Number(inst.layerDepth)
+                : (state.layerRegistry instanceof Map && state.layerRegistry.has(layerName)
+                    ? state.layerRegistry.get(layerName)
+                    : undefined);
+            if (typeof api.render_layer === "function") api.render_layer(layerName, depth);
+            state.currentInstance = inst;
+            try {
+                if (typeof inst.draw === "function") inst.draw.call(inst, api);
+            } finally {
+                state.currentInstance = null;
+                if (typeof api.render_layer === "function") api.render_layer(previousLayer);
+            }
+        }
+    } finally {
+        state.currentInstance = null;
+        if (typeof api.render_layer === "function" && state.activeWorldLayer !== previousLayer) {
+            api.render_layer(previousLayer);
+        }
     }
-    state.currentInstance = null;
 }
 
 /**
@@ -1297,25 +1811,49 @@ function drawRuntimeInstances(state, api) {
  * @param {number} y
  * @param {string} layer
  * @param {any} objectDef
+ * @param {Record<string, unknown> | null | undefined} [createVars]
  */
-function createRuntimeInstance(state, api, x, y, layer, objectDef) {
+function createRuntimeInstance(state, api, x, y, layer, objectDef, createVars) {
     const source = objectDef || {};
     const inst = Object.assign({}, source);
     inst.id = state.nextInstanceId++;
     inst.object_index = objectDef;
     inst.x = x;
     inst.y = y;
-    inst.layer = layer || "Instances";
+    const layerName = layer || "Instances";
+    if (state.layerRegistry instanceof Map && state.layerRegistry.size > 0 && !state.layerRegistry.has(layerName)) {
+        // Unknown names are still allowed, but registered depths are applied when known.
+    }
+    inst.layer = layerName;
+    if (state.layerRegistry instanceof Map && state.layerRegistry.has(layerName)) {
+        inst.layerDepth = state.layerRegistry.get(layerName);
+    }
     inst.visible = inst.visible !== false;
     inst.__active = true;
-    inst.__alarmSetFrame = [];
-    inst.alarm = Array.isArray(inst.alarm) ? inst.alarm.slice() : [];
+    inst.__alarmSetFrame = Array(ALARM_COUNT).fill(-1);
+    const sourceAlarm = Array.isArray(inst.alarm) ? inst.alarm : [];
+    inst.alarm = Array.from({ length: ALARM_COUNT }, (_, index) => {
+        const value = Number(sourceAlarm[index]);
+        return Number.isFinite(value) ? value : -1;
+    });
+
+    // GameMaker creation structs are applied before the Create event.
+    if (createVars && typeof createVars === "object") {
+        Object.assign(inst, createVars);
+    }
 
     state.instances.push(inst);
 
     state.currentInstance = inst;
-    if (typeof inst.create === "function") inst.create.call(inst, api);
-    state.currentInstance = null;
+    try {
+        if (typeof inst.create === "function") inst.create.call(inst, api);
+    } catch (error) {
+        inst.__active = false;
+        state.instances = state.instances.filter((/** @type {any} */ item) => item !== inst);
+        throw error;
+    } finally {
+        state.currentInstance = null;
+    }
 
     return inst;
 }
@@ -1370,11 +1908,20 @@ function findRuntimeInstance(state, objectDef, index) {
 function setRuntimeAlarm(state, index, frames, inst) {
     const target = inst || state.currentInstance;
     if (!target) return;
+    const numericIndex = Number(index);
+    if (!Number.isInteger(numericIndex) || numericIndex < 0 || numericIndex >= ALARM_COUNT) return;
     const numericFrames = Number(frames);
-    const nextFrames = Number.isFinite(numericFrames) ? Math.floor(numericFrames) : -1;
-    target.alarm[index] = nextFrames < 0 ? -1 : nextFrames;
-    target.__alarmSetFrame = Array.isArray(target.__alarmSetFrame) ? target.__alarmSetFrame : [];
-    target.__alarmSetFrame[index] = state.stepFrame || 0;
+    const nextFrames = Number.isFinite(numericFrames) && numericFrames >= 0
+        ? Math.round(numericFrames)
+        : -1;
+    if (!Array.isArray(target.alarm) || target.alarm.length !== ALARM_COUNT) {
+        target.alarm = Array.from({ length: ALARM_COUNT }, (_, alarmIndex) => Number(target.alarm?.[alarmIndex]) || -1);
+    }
+    target.alarm[numericIndex] = nextFrames;
+    target.__alarmSetFrame = Array.isArray(target.__alarmSetFrame) && target.__alarmSetFrame.length === ALARM_COUNT
+        ? target.__alarmSetFrame
+        : Array(ALARM_COUNT).fill(-1);
+    target.__alarmSetFrame[numericIndex] = state.stepFrame || 0;
 }
 
 // @ts-check
@@ -1468,8 +2015,7 @@ function resolveRoomLayout(w, h, cfg) {
  *   consume_pointer: (blockMs: number, pointer?: unknown) => unknown,
  *   release_pointer: (pointer: unknown, blockMs: number) => unknown,
  *   begin_input_transition: (blockMs: number) => (() => void),
- *   pause_input: (blockMs: number) => unknown,
- *   clear_input_gate: () => unknown
+ *   pause_input: (blockMs: number) => unknown
  * }} RuntimeModalApi
  * @typedef {{
  *   scene: any,
@@ -1489,7 +2035,7 @@ function resolveRoomLayout(w, h, cfg) {
  * @param {RuntimeModalOptions} options
  */
 function resolveModalInputBlockMs(options) {
-    return computeModalInputBlockMs(options, DEFAULT_MODAL_INPUT_BLOCK_MS);
+    return modalInputBlockMs(options, DEFAULT_MODAL_INPUT_BLOCK_MS);
 }
 
 /**
@@ -1504,6 +2050,19 @@ function responsiveModalSize(modal, explicitSize, themedSize, wideSize, narrowSi
     const preferred = Number(themedSize || wideSize);
     const t = clamp((modal.width - 320) / 220, 0, 1);
     return Math.round(narrowSize + (preferred - narrowSize) * t);
+}
+
+/**
+ * @param {any} text
+ * @param {number} fontSize
+ * @param {number} wrapWidth
+ * @param {number} [lineSpacing]
+ */
+function relayoutModalText(text, fontSize, wrapWidth, lineSpacing) {
+    if (!text) return;
+    if (typeof text.setFontSize === "function") text.setFontSize(`${fontSize}px`);
+    if (typeof text.setWordWrapWidth === "function") text.setWordWrapWidth(wrapWidth);
+    if (lineSpacing !== undefined && typeof text.setLineSpacing === "function") text.setLineSpacing(lineSpacing);
 }
 
 /**
@@ -1555,8 +2114,8 @@ function createModal(api, state, options, uiToolkit) {
             scene.tweens.add({
                 targets: modal.container,
                 alpha: 0,
-                scaleX: options.closeScale || 0.28,
-                scaleY: options.closeScale || 0.28,
+                scaleX: options.closeScale ?? 0.28,
+                scaleY: options.closeScale ?? 0.28,
                 y: modal.centerY + 26,
                 duration: closeMs,
                 ease: "Expo.Out",
@@ -1578,9 +2137,7 @@ function createModal(api, state, options, uiToolkit) {
                 modal.finishTransition = null;
             }
             state.modals = state.modals.filter((item) => item !== modal);
-            if (state.modals.length === 0) {
-                api.clear_input_gate();
-            }
+            scene.tweens.killTweensOf([modal.overlay, modal.container]);
             if (modal.handlePointerUp) scene.input.off("pointerup", modal.handlePointerUp);
             if (modal.container) modal.container.destroy(true);
             if (modal.overlay) modal.overlay.destroy();
@@ -1597,6 +2154,13 @@ function createModal(api, state, options, uiToolkit) {
             modal.height = height;
             modal.centerX = api.display_width / 2;
             modal.centerY = api.display_height / 2;
+            const hasCloseButton = options.showClose !== false;
+            const titleSize = responsiveModalSize(modal, options.titleSize, modalTheme.titleSize, 34, 23);
+            const messageSize = responsiveModalSize(modal, options.messageSize, modalTheme.messageSize, 24, 20);
+            const okSize = responsiveModalSize(modal, options.okSize, undefined, 28, 24);
+            const titleWrapWidth = Math.max(168, modal.width - (hasCloseButton ? 150 : 56));
+            const messageWrapWidth = Math.max(190, modal.width - 76);
+            const messageLineSpacing = modal.width < 360 ? 5 : 8;
 
             if (modal.overlay) {
                 modal.overlay.setSize(api.display_width, api.display_height);
@@ -1626,6 +2190,28 @@ function createModal(api, state, options, uiToolkit) {
                 y2: modal.centerY + modal.height / 2 - 28
             };
             modal.okHeight = okH;
+            if (modal.panel && typeof modal.panel.setSize === "function") {
+                modal.panel.setSize(modal.width, modal.height);
+            }
+            if (modal.title && typeof modal.title.setPosition === "function") {
+                modal.title.setPosition(0, -modal.height / 2 + 50);
+                relayoutModalText(modal.title, titleSize, titleWrapWidth, undefined);
+            }
+            if (modal.message && typeof modal.message.setPosition === "function") {
+                relayoutModalText(modal.message, messageSize, messageWrapWidth, messageLineSpacing);
+                const messageY = Math.max(-modal.height / 2 + 88, (modal.title?.y || 0) + (modal.title?.displayHeight || 0) / 2 + 18);
+                modal.message.setPosition(0, messageY);
+            }
+            if (modal.closeButton && typeof modal.closeButton.setPosition === "function") {
+                modal.closeButton.setPosition(modal.width / 2 - 42, -modal.height / 2 + 42);
+            }
+            if (modal.okButton) {
+                if (typeof modal.okButton.setPosition === "function") {
+                    modal.okButton.setPosition(0, modal.height / 2 - 28 - okH / 2);
+                }
+                if (typeof modal.okButton.__gmLayout === "function") modal.okButton.__gmLayout(okW, okH, okSize);
+                else if (typeof modal.okButton.setSize === "function") modal.okButton.setSize(okW, okH);
+            }
             return modal;
         }
     };
@@ -1659,6 +2245,7 @@ function createModal(api, state, options, uiToolkit) {
     modal.container.setScale(options.openStartScale || 0.28);
 
     const panel = uiToolkit.createNineSliceObject(scene, 0, 0, modal.width, modal.height, options.window || {});
+    modal.panel = panel;
     const hasCloseButton = options.showClose !== false;
     const textResolution = state.render?.resolution || 1;
     const titleSize = responsiveModalSize(modal, options.titleSize, modalTheme.titleSize, 34, 23);
@@ -1686,6 +2273,8 @@ function createModal(api, state, options, uiToolkit) {
         lineSpacing: modal.width < 360 ? 5 : 8,
         wordWrap: { width: messageWrapWidth }
     }).setOrigin(0.5, 0);
+    modal.title = title;
+    modal.message = message;
 
     modal.container.add([panel, title, message]);
 
@@ -1701,6 +2290,7 @@ function createModal(api, state, options, uiToolkit) {
             onPointerUp: (/** @type {unknown} */ pointer) => api.release_pointer(pointer, resolveModalInputBlockMs(options)),
             onPointerCancel: (/** @type {unknown} */ pointer) => api.release_pointer(pointer, resolveModalInputBlockMs(options))
         });
+        modal.closeButton = closeButton;
         modal.container.add(closeButton);
     }
 
@@ -1719,11 +2309,13 @@ function createModal(api, state, options, uiToolkit) {
             onPointerUp: (/** @type {unknown} */ pointer) => api.release_pointer(pointer, resolveModalInputBlockMs(options)),
             onPointerCancel: (/** @type {unknown} */ pointer) => api.release_pointer(pointer, resolveModalInputBlockMs(options))
         });
+        modal.okButton = okButton;
         modal.container.add(okButton);
     }
 
     state.screen.add([modal.overlay, modal.container]);
     state.modals.push(modal);
+    modal.layout();
 
     const openMs = normalizeDelayMs(options.openMs, DEFAULT_MODAL_OPEN_MS, 0);
     const backdropMs = normalizeDelayMs(options.backdropMs, openMs * 2, 0);
@@ -1760,6 +2352,52 @@ function createModal(api, state, options, uiToolkit) {
  * }} RuntimeDrawPool
  */
 
+function createDefaultTextStyle() {
+    return {
+        fontFamily: "sans-serif",
+        fontSize: "24px",
+        fontStyle: "",
+        color: "#ffffff",
+        resolution: 1,
+        stroke: "transparent",
+        strokeThickness: 0,
+        shadow: {
+            offsetX: 0,
+            offsetY: 0,
+            color: "#000000",
+            blur: 0,
+            stroke: false,
+            fill: false
+        },
+        wordWrap: { width: 0, useAdvancedWrap: false },
+        fixedWidth: 0,
+        fixedHeight: 0,
+        lineSpacing: 0,
+        padding: 0
+    };
+}
+
+/**
+ * Reset every mutable presentation field that a text draw can touch. Phaser
+ * text objects are frame-borrowed, so visibility alone is not a safe reset.
+ * @param {any} item
+ */
+function resetRuntimeTextItem(item) {
+    if (typeof item.setPosition === "function") item.setPosition(0, 0);
+    if (typeof item.setOrigin === "function") item.setOrigin(0, 0);
+    if (typeof item.setAlpha === "function") item.setAlpha(1);
+    if (typeof item.setAngle === "function") item.setAngle(0);
+    else if (typeof item.setRotation === "function") item.setRotation(0);
+    if (typeof item.setScale === "function") item.setScale(1, 1);
+    if (typeof item.setBlendMode === "function") item.setBlendMode(0);
+    if (typeof item.clearMask === "function") item.clearMask(true);
+    if (typeof item.setCrop === "function") {
+        try { item.setCrop(); } catch { /* optional Phaser feature */ }
+    }
+    if (typeof item.setStyle === "function") item.setStyle(createDefaultTextStyle());
+    item.__gmRuntimeStyleSignature = "";
+}
+
 /**
  * @param {any} scene
  * @param {any} parent
@@ -1791,6 +2429,7 @@ function makeTextPool(scene, parent, state = null) {
             } else {
                 countRuntimePerf(state, "textObjectsReused");
             }
+            resetRuntimeTextItem(item);
             this.cursor += 1;
             item.setVisible(true);
             return item;
@@ -1833,6 +2472,26 @@ function makeSpritePool(scene, parent, state = null) {
                 item.__gmRuntimeTextureKey = key;
                 item.__gmRuntimeFrame = normalizedFrame;
             }
+            // Fully reset mutable Phaser sprite state for pool reuse safety.
+            if (typeof item.setOrigin === "function") item.setOrigin(0.5, 0.5);
+            if (typeof item.setFlip === "function") item.setFlip(false, false);
+            else {
+                if (typeof item.setFlipX === "function") item.setFlipX(false);
+                if (typeof item.setFlipY === "function") item.setFlipY(false);
+            }
+            if (typeof item.clearTint === "function") item.clearTint();
+            if (typeof item.setAlpha === "function") item.setAlpha(1);
+            if (typeof item.setAngle === "function") item.setAngle(0);
+            else if (typeof item.setRotation === "function") item.setRotation(0);
+            if (typeof item.setScale === "function") item.setScale(1, 1);
+            if (typeof item.setBlendMode === "function") item.setBlendMode(0);
+            if (typeof item.clearMask === "function") item.clearMask(true);
+            if (typeof item.setCrop === "function") {
+                try { item.setCrop(); } catch { /* optional */ }
+            }
+            if (item.filters && typeof item.filters.clear === "function") {
+                try { item.filters.clear(); } catch { /* optional */ }
+            }
             this.cursor += 1;
             item.setVisible(true);
             countRuntimePerf(state, "sprites");
@@ -1857,10 +2516,50 @@ function resolveRenderResolution(cfg, root) {
 }
 
 /**
- * @param {number} value
+ * @param {unknown[]} values
  */
-function cssSize(value) {
-    return Math.max(1, Math.round(value));
+function cssSize(values) {
+    for (const value of values) {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric) && numeric > 0) return Math.max(1, Math.round(numeric));
+    }
+    return 1;
+}
+
+/**
+ * @param {any} target
+ * @param {string} key
+ * @param {number} expected
+ */
+function dimensionMatches(target, key, expected) {
+    if (!target || (typeof target !== "object" && typeof target !== "function") || !(key in target)) return true;
+    return Number(target[key]) === expected;
+}
+
+/**
+ * @param {any} target
+ * @param {number} width
+ * @param {number} height
+ */
+function sizeMatches(target, width, height) {
+    return dimensionMatches(target, "width", width) && dimensionMatches(target, "height", height);
+}
+
+/**
+ * @param {any} target
+ * @param {number} resolution
+ */
+function displayScaleMatches(target, resolution) {
+    return dimensionMatches(target, "x", resolution) && dimensionMatches(target, "y", resolution);
+}
+
+/**
+ * @param {any} scene
+ * @param {number} width
+ * @param {number} height
+ */
+function rendererMatches(scene, width, height) {
+    return dimensionMatches(scene.renderer, "width", width) && dimensionMatches(scene.renderer, "height", height);
 }
 
 /**
@@ -1868,54 +2567,121 @@ function cssSize(value) {
  * @param {any} state
  * @param {Record<string, unknown>} cfg
  * @param {Window & typeof globalThis} root
+ * @param {string} [source]
  */
-function syncRenderResolution(scene, state, cfg, root) {
+function syncRenderResolution(scene, state, cfg, root, source = "layout") {
+    state.render = state.render || {};
+    const renderState = state.render;
+    const diagnostics = renderState.resizeDiagnostics || {
+        events: 0,
+        applied: 0,
+        reentrySkips: 0,
+        last: null,
+        lastSignature: null
+    };
+    renderState.resizeDiagnostics = diagnostics;
+    diagnostics.events += 1;
+
+    if (renderState.resizeInProgress) {
+        diagnostics.reentrySkips += 1;
+        diagnostics.last = {
+            source,
+            changed: false,
+            reentrant: true
+        };
+        return renderState;
+    }
+
+    renderState.resizeInProgress = true;
     const scale = scene.scale;
     const canvas = scale?.canvas || scene.game?.canvas;
     const parentSize = scale?.parentSize || {};
     const canvasRect = canvas?.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
 
-    const cssWidth = cssSize(parentSize.width || canvasRect?.width || root.innerWidth || scale?.width || cfg.width || 1);
-    const cssHeight = cssSize(parentSize.height || canvasRect?.height || root.innerHeight || scale?.height || cfg.height || 1);
-    const resolution = resolveRenderResolution(cfg, root);
-    const width = Math.max(1, Math.round(cssWidth * resolution));
-    const height = Math.max(1, Math.round(cssHeight * resolution));
+    try {
+        const cssWidth = cssSize([
+            parentSize.width,
+            canvasRect?.width,
+            root.innerWidth,
+            scale?.width,
+            cfg.width
+        ]);
+        const cssHeight = cssSize([
+            parentSize.height,
+            canvasRect?.height,
+            root.innerHeight,
+            scale?.height,
+            cfg.height
+        ]);
+        const resolution = resolveRenderResolution(cfg, root);
+        const width = Math.max(1, Math.round(cssWidth * resolution));
+        const height = Math.max(1, Math.round(cssHeight * resolution));
 
-    state.render.cssWidth = cssWidth;
-    state.render.cssHeight = cssHeight;
-    state.render.resolution = resolution;
-    state.render.width = width;
-    state.render.height = height;
+        renderState.cssWidth = cssWidth;
+        renderState.cssHeight = cssHeight;
+        renderState.resolution = resolution;
+        renderState.width = width;
+        renderState.height = height;
 
-    if (!canvas) return state.render;
+        if (!canvas) {
+            diagnostics.last = { source, changed: false, reason: "canvas-unavailable" };
+            return renderState;
+        }
 
-    const styleWidth = `${cssWidth}px`;
-    const styleHeight = `${cssHeight}px`;
-    const shouldResize = canvas.width !== width ||
-        canvas.height !== height ||
-        canvas.style.width !== styleWidth ||
-        canvas.style.height !== styleHeight ||
-        canvas.style.marginLeft !== "0px" ||
-        canvas.style.marginTop !== "0px";
+        const styleWidth = `${cssWidth}px`;
+        const styleHeight = `${cssHeight}px`;
+        const imageRendering = cfg.renderQuality === "pixel-art" || cfg.pixelArt ? "pixelated" : "auto";
+        const signature = [cssWidth, cssHeight, resolution, width, height, imageRendering].join(":");
+        const shouldResize = diagnostics.lastSignature !== signature ||
+            canvas.width !== width ||
+            canvas.height !== height ||
+            canvas.style.width !== styleWidth ||
+            canvas.style.height !== styleHeight ||
+            canvas.style.marginLeft !== "0px" ||
+            canvas.style.marginTop !== "0px" ||
+            canvas.style.imageRendering !== imageRendering ||
+            !sizeMatches(scale?.gameSize, cssWidth, cssHeight) ||
+            !sizeMatches(scale?.baseSize, width, height) ||
+            !sizeMatches(scale?.displaySize, cssWidth, cssHeight) ||
+            !displayScaleMatches(scale?.displayScale, resolution) ||
+            !rendererMatches(scene, width, height);
 
-    canvas.style.imageRendering = cfg.renderQuality === "pixel-art" || cfg.pixelArt ? "pixelated" : "auto";
-    if (!shouldResize) return state.render;
+        if (!shouldResize) {
+            diagnostics.last = { source, changed: false, signature };
+            return renderState;
+        }
 
-    canvas.width = width;
-    canvas.height = height;
-    canvas.style.width = styleWidth;
-    canvas.style.height = styleHeight;
-    canvas.style.marginLeft = "0px";
-    canvas.style.marginTop = "0px";
+        canvas.style.imageRendering = imageRendering;
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.width = styleWidth;
+        canvas.style.height = styleHeight;
+        canvas.style.marginLeft = "0px";
+        canvas.style.marginTop = "0px";
 
-    if (scale?.gameSize?.setSize) scale.gameSize.setSize(cssWidth, cssHeight);
-    if (scale?.baseSize?.setSize) scale.baseSize.setSize(width, height);
-    if (scale?.displaySize?.setSize) scale.displaySize.setSize(cssWidth, cssHeight);
-    if (typeof scale?.updateBounds === "function") scale.updateBounds();
-    if (scale?.displayScale?.set) scale.displayScale.set(resolution, resolution);
-    if (scene.renderer && typeof scene.renderer.resize === "function") scene.renderer.resize(width, height);
+        if (scale?.gameSize?.setSize) scale.gameSize.setSize(cssWidth, cssHeight);
+        if (scale?.baseSize?.setSize) scale.baseSize.setSize(width, height);
+        if (scale?.displaySize?.setSize) scale.displaySize.setSize(cssWidth, cssHeight);
+        if (typeof scale?.updateBounds === "function") scale.updateBounds();
+        if (scale?.displayScale?.set) scale.displayScale.set(resolution, resolution);
+        if (scene.renderer && typeof scene.renderer.resize === "function") scene.renderer.resize(width, height);
 
-    return state.render;
+        diagnostics.applied += 1;
+        diagnostics.lastSignature = signature;
+        diagnostics.last = {
+            source,
+            changed: true,
+            cssWidth,
+            cssHeight,
+            width,
+            height,
+            resolution,
+            signature
+        };
+        return renderState;
+    } finally {
+        renderState.resizeInProgress = false;
+    }
 }
 
 // @ts-check
@@ -1926,7 +2692,7 @@ function syncRenderResolution(scene, state, cfg, root) {
  * @param {any} state
  */
 function createWorldLayerManager(scene, state) {
-    /** @param {string} name @param {number} depth */
+    /** @param {string} name @param {number | undefined} depth */
     function ensure(name, depth) {
         const layerName = String(name || "world");
         let layer = state.worldLayers.get(layerName);
@@ -1953,7 +2719,7 @@ function createWorldLayerManager(scene, state) {
     }
 
     /** @param {string} name @param {number} [depth] */
-    function select(name, depth = 0) {
+    function select(name, depth) {
         const layer = ensure(name, depth);
         state.activeWorldLayer = layer.name;
         state.activeWorldContainer = layer.container;
@@ -2001,8 +2767,8 @@ const DEFAULT_UI_THEME = {
         shadow: "rgba(0, 0, 0, 0.45)",
         shadowBlur: 10,
         shadowOffsetY: 4,
-        fallbackFill: 0x24466f,
-        fallbackStroke: 0x76b8f3,
+        fallbackFill: "#24466f",
+        fallbackStroke: "#76b8f3",
         slice: 18
     },
     button: {
@@ -2017,8 +2783,8 @@ const DEFAULT_UI_THEME = {
         innerStroke: "#7a3f17",
         innerStrokeWidth: 2,
         textColor: "#3a210d",
-        hoverTint: 0xfff0ba,
-        downTint: 0xffd071,
+        hoverTint: "#fff0ba",
+        downTint: "#ffd071",
         slice: 18
     },
     modal: {
@@ -2286,9 +3052,28 @@ function createUiToolkit() {
             resolution: options.resolution || 1
         }).setOrigin(0.5);
         const hitZone = scene.add.zone(0, 0, w, h).setOrigin(0.5);
+        /** @type {string | null} */
+        let activePointerId = null;
 
         container.add([back, text, hitZone]);
         container.setSize(w, h);
+        /**
+         * @param {unknown} nextWidth
+         * @param {unknown} nextHeight
+         * @param {unknown} nextTextSize
+         */
+        container.__gmLayout = (nextWidth, nextHeight, nextTextSize) => {
+            const width = Math.max(1, Number(nextWidth) || 1);
+            const height = Math.max(1, Number(nextHeight) || 1);
+            container.setSize(width, height);
+            if (typeof back.setSize === "function") back.setSize(width, height);
+            else if (typeof back.setDisplaySize === "function") back.setDisplaySize(width, height);
+            if (typeof hitZone.setSize === "function") hitZone.setSize(width, height);
+            if (Number.isFinite(Number(nextTextSize)) && typeof text.setFontSize === "function") {
+                text.setFontSize(`${Number(nextTextSize)}px`);
+            }
+            return container;
+        };
         hitZone.setInteractive();
         hitZone.input.cursor = "pointer";
 
@@ -2333,6 +3118,9 @@ function createUiToolkit() {
          */
         const onPointerDown = (pointer, localX, localY, event) => {
             consumeInputEvent(pointer, event);
+            const pointerId = pointerGateKey(pointer);
+            if (activePointerId !== null && activePointerId !== pointerId) return;
+            activePointerId = pointerId;
             if (typeof options.onPointerDown === "function") options.onPointerDown(pointer);
             tweenButton(downScale, downTint, 70, "Quad.Out");
         };
@@ -2344,6 +3132,9 @@ function createUiToolkit() {
          */
         const onPointerUp = (pointer, localX, localY, event) => {
             consumeInputEvent(pointer, event);
+            const samePointer = activePointerId !== null && activePointerId === pointerGateKey(pointer);
+            if (!samePointer) return;
+            activePointerId = null;
             if (typeof options.onPointerUp === "function") options.onPointerUp(pointer);
             tweenButton(hoverScale, hoverTint, 90, "Back.Out");
             if (typeof onPress === "function") onPress(pointer);
@@ -2356,6 +3147,7 @@ function createUiToolkit() {
          */
         const onPointerOut = (pointer, localX, localY, event) => {
             consumeInputEvent(pointer, event);
+            activePointerId = null;
             if (typeof options.onPointerCancel === "function") options.onPointerCancel(pointer);
             tweenButton(1, normalTint, 90, "Back.Out");
         };
@@ -2364,6 +3156,8 @@ function createUiToolkit() {
         hitZone.on("pointerdown", onPointerDown);
         hitZone.on("pointerup", onPointerUp);
         hitZone.on("pointerout", onPointerOut);
+        hitZone.on("pointercancel", onPointerOut);
+        hitZone.on("pointerupoutside", onPointerOut);
         return container;
     }
 
@@ -2388,6 +3182,536 @@ function createUiToolkit() {
 }
 
 // @ts-check
+
+const RESERVED_FRAME_NAMES = new Set([
+    "hasOwnProperty",
+    "constructor",
+    "__proto__",
+    "prototype",
+    "toString",
+    "valueOf",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString"
+]);
+
+/**
+ * @param {unknown} key
+ * @returns {string}
+ */
+function normalizeTextureKey(key) {
+    const text = String(key || "").trim();
+    if (!text) throw new TypeError("GM.asset requires a non-empty texture key.");
+    if (RESERVED_FRAME_NAMES.has(text)) {
+        throw new TypeError(`GM.asset rejects reserved texture key: ${text}`);
+    }
+    return text;
+}
+
+/**
+ * @param {unknown} name
+ * @returns {string}
+ */
+function normalizeFrameName(name) {
+    const text = String(name ?? "").trim();
+    if (!text) throw new TypeError("GM.asset frame name must be a non-empty string.");
+    if (RESERVED_FRAME_NAMES.has(text)) {
+        throw new TypeError(`GM.asset rejects reserved frame name: ${text}`);
+    }
+    return text;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {number}
+ */
+function requireFiniteNumber(value, label) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) throw new TypeError(`GM.asset ${label} must be a finite number.`);
+    return numeric;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {number}
+ */
+function requireNonNegativeInt(value, label) {
+    const numeric = requireFiniteNumber(value, label);
+    if (!Number.isInteger(numeric) || numeric < 0) {
+        throw new TypeError(`GM.asset ${label} must be a non-negative integer.`);
+    }
+    return numeric;
+}
+
+/**
+ * Accept plain objects, null-prototype objects, Maps, or frame-entry arrays.
+ * Always returns a normal Object with Object.prototype for Phaser parsers.
+ * @param {unknown} frames
+ * @returns {Record<string, any>}
+ */
+function normalizeAtlasFrames(frames) {
+    /** @type {Array<[string, any]>} */
+    const entries = [];
+
+    if (frames instanceof Map) {
+        for (const [name, value] of frames.entries()) entries.push([String(name), value]);
+    } else if (Array.isArray(frames)) {
+        for (const item of frames) {
+            if (Array.isArray(item)) {
+                if (item.length < 2) {
+                    throw new TypeError("GM.asset.addAtlas frame tuple entries require [name, frame].");
+                }
+                entries.push([String(item[0]), item[1]]);
+                continue;
+            }
+            if (!item || typeof item !== "object") {
+                throw new TypeError("GM.asset.addAtlas frame array entries must be objects.");
+            }
+            /** @type {any} */
+            const row = item;
+            const name = row.name ?? row.filename ?? row.key ?? row.frame;
+            if (name === undefined || name === null) {
+                throw new TypeError("GM.asset.addAtlas frame array entries require name/filename/key.");
+            }
+            entries.push([String(name), row]);
+        }
+    } else if (frames && typeof frames === "object") {
+        for (const [name, value] of Object.entries(frames)) entries.push([name, value]);
+    } else {
+        throw new TypeError("GM.asset.addAtlas frames must be an object, Map, or array.");
+    }
+
+    /** @type {Record<string, any>} */
+    const safe = {};
+    const seen = new Set();
+    for (const [rawName, rawValue] of entries) {
+        const name = normalizeFrameName(rawName);
+        if (seen.has(name)) throw new TypeError(`GM.asset.addAtlas duplicate frame: ${name}`);
+        seen.add(name);
+
+        /** @type {any} */
+        const source = rawValue && typeof rawValue === "object" ? rawValue : {};
+        const frame = source.frame && typeof source.frame === "object" ? source.frame : source;
+        const x = requireNonNegativeInt(frame.x ?? source.x, `frame ${name}.x`);
+        const y = requireNonNegativeInt(frame.y ?? source.y, `frame ${name}.y`);
+        const w = requireNonNegativeInt(frame.w ?? frame.width ?? source.w ?? source.width, `frame ${name}.w`);
+        const h = requireNonNegativeInt(frame.h ?? frame.height ?? source.h ?? source.height, `frame ${name}.h`);
+        if (w <= 0 || h <= 0) throw new TypeError(`GM.asset.addAtlas frame ${name} requires positive size.`);
+
+        /** @type {Record<string, any>} */
+        const normalized = {
+            frame: { x, y, w, h }
+        };
+
+        if (source.rotated === true) normalized.rotated = true;
+        if (source.trimmed === true || source.spriteSourceSize || source.sourceSize) {
+            normalized.trimmed = true;
+            const ss = source.spriteSourceSize || {};
+            normalized.spriteSourceSize = {
+                x: requireNonNegativeInt(ss.x ?? 0, `frame ${name}.spriteSourceSize.x`),
+                y: requireNonNegativeInt(ss.y ?? 0, `frame ${name}.spriteSourceSize.y`),
+                w: requireNonNegativeInt(ss.w ?? ss.width ?? w, `frame ${name}.spriteSourceSize.w`),
+                h: requireNonNegativeInt(ss.h ?? ss.height ?? h, `frame ${name}.spriteSourceSize.h`)
+            };
+            const src = source.sourceSize || {};
+            normalized.sourceSize = {
+                w: requireNonNegativeInt(src.w ?? src.width ?? w, `frame ${name}.sourceSize.w`),
+                h: requireNonNegativeInt(src.h ?? src.height ?? h, `frame ${name}.sourceSize.h`)
+            };
+        }
+        if (source.pivot && typeof source.pivot === "object") {
+            normalized.pivot = {
+                x: requireFiniteNumber(source.pivot.x ?? 0, `frame ${name}.pivot.x`),
+                y: requireFiniteNumber(source.pivot.y ?? 0, `frame ${name}.pivot.y`)
+            };
+        }
+        if (source.anchor && typeof source.anchor === "object") {
+            normalized.anchor = {
+                x: requireFiniteNumber(source.anchor.x ?? 0, `frame ${name}.anchor.x`),
+                y: requireFiniteNumber(source.anchor.y ?? 0, `frame ${name}.anchor.y`)
+            };
+        }
+
+        safe[name] = normalized;
+    }
+
+    if (Object.keys(safe).length === 0) {
+        throw new TypeError("GM.asset.addAtlas requires at least one frame.");
+    }
+    return safe;
+}
+
+/**
+ * @param {any} scene
+ * @returns {any}
+ */
+function requireTextures(scene) {
+    if (!scene || !scene.textures) {
+        throw new Error("GM.asset requires an active Phaser scene with a texture manager.");
+    }
+    return scene.textures;
+}
+
+/**
+ * @param {any} textures
+ * @param {string} key
+ * @param {boolean} replace
+ */
+function ensureReplaceable(textures, key, replace) {
+    if (!textures.exists(key)) return;
+    if (!replace) {
+        throw new Error(`GM.asset texture already exists: ${key}. Pass { replace: true } to overwrite.`);
+    }
+    if (typeof textures.remove === "function") textures.remove(key);
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ * @param {HTMLCanvasElement | OffscreenCanvas} canvas
+ * @param {{ replace?: boolean }} [options]
+ */
+function addCanvasTexture(scene, key, canvas, options = {}) {
+    const textureKey = normalizeTextureKey(key);
+    const textures = requireTextures(scene);
+    if (!canvas || typeof canvas !== "object") {
+        throw new TypeError("GM.asset.addCanvas requires a canvas.");
+    }
+    ensureReplaceable(textures, textureKey, options.replace === true);
+    if (typeof textures.addCanvas !== "function") {
+        throw new Error("Phaser textures.addCanvas is unavailable.");
+    }
+    const texture = textures.addCanvas(textureKey, canvas);
+    return {
+        key: textureKey,
+        texture,
+        width: Number(/** @type {any} */ (canvas).width) || 0,
+        height: Number(/** @type {any} */ (canvas).height) || 0,
+        frames: ["__BASE"]
+    };
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ * @param {number} width
+ * @param {number} height
+ * @param {ArrayLike<number> | ArrayBufferView} rgba
+ * @param {{ replace?: boolean }} [options]
+ */
+function addRgbaTexture(scene, key, width, height, rgba, options = {}) {
+    const w = requireNonNegativeInt(width, "width");
+    const h = requireNonNegativeInt(height, "height");
+    if (w <= 0 || h <= 0) throw new TypeError("GM.asset.addRgba requires positive width and height.");
+    const expected = w * h * 4;
+    const source = rgba && typeof rgba === "object" && "buffer" in /** @type {any} */ (rgba)
+        ? new Uint8ClampedArray(/** @type {ArrayBufferView} */ (rgba).buffer, /** @type {ArrayBufferView} */ (rgba).byteOffset, /** @type {ArrayBufferView} */ (rgba).byteLength)
+        : new Uint8ClampedArray(/** @type {ArrayLike<number>} */ (rgba));
+    if (source.length < expected) {
+        throw new TypeError(`GM.asset.addRgba expected at least ${expected} bytes, got ${source.length}.`);
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("GM.asset.addRgba could not create a 2d canvas context.");
+    const imageBytes = new Uint8ClampedArray(expected);
+    imageBytes.set(source.subarray(0, expected));
+    const imageData = new ImageData(imageBytes, w, h);
+    ctx.putImageData(imageData, 0, 0);
+    return addCanvasTexture(scene, key, canvas, options);
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ * @param {HTMLCanvasElement | OffscreenCanvas | string} source
+ * @param {unknown} frames
+ * @param {{ replace?: boolean }} [options]
+ */
+function addAtlasTexture(scene, key, source, frames, options = {}) {
+    const textureKey = normalizeTextureKey(key);
+    const textures = requireTextures(scene);
+    const safeFrames = normalizeAtlasFrames(frames);
+    ensureReplaceable(textures, textureKey, options.replace === true);
+
+    let atlasSource = source;
+    if (typeof source === "string") {
+        if (!textures.exists(source)) {
+            throw new Error(`GM.asset.addAtlas source texture not found: ${source}`);
+        }
+        const base = textures.get(source);
+        const baseSource = base?.source?.[0]?.image || base?.source?.[0]?.source;
+        if (!baseSource) {
+            throw new Error(`GM.asset.addAtlas source texture has no image source: ${source}`);
+        }
+        atlasSource = baseSource;
+    }
+
+    if (!atlasSource || typeof atlasSource !== "object") {
+        throw new TypeError("GM.asset.addAtlas source must be a canvas or existing texture key.");
+    }
+
+    try {
+        if (typeof textures.addAtlasJSONHash !== "function") {
+            throw new Error("Phaser textures.addAtlasJSONHash is unavailable.");
+        }
+        const data = {
+            frames: safeFrames,
+            meta: { scale: "1" }
+        };
+        const texture = textures.addAtlasJSONHash(textureKey, atlasSource, data);
+        if (!texture) {
+            throw new Error(`Phaser could not register atlas texture: ${textureKey}`);
+        }
+        return {
+            key: textureKey,
+            texture,
+            frames: Object.keys(safeFrames),
+            frameCount: Object.keys(safeFrames).length,
+            width: Number(/** @type {any} */ (atlasSource).width) || 0,
+            height: Number(/** @type {any} */ (atlasSource).height) || 0,
+            source: typeof source === "string" ? source : undefined
+        };
+    } catch (error) {
+        if (typeof textures.remove === "function" && textures.exists(textureKey)) {
+            textures.remove(textureKey);
+        }
+        throw error;
+    }
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ */
+function removeTexture(scene, key) {
+    const textureKey = normalizeTextureKey(key);
+    const textures = requireTextures(scene);
+    if (!textures.exists(textureKey)) return false;
+    if (typeof textures.remove === "function") textures.remove(textureKey);
+    return true;
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ */
+function textureExists(scene, key) {
+    const textureKey = String(key || "").trim();
+    if (!textureKey) return false;
+    const textures = requireTextures(scene);
+    return Boolean(textures.exists(textureKey));
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ * @param {string | number} frame
+ */
+function textureFrameExists(scene, key, frame) {
+    if (!textureExists(scene, key)) return false;
+    const textures = requireTextures(scene);
+    const texture = textures.get(String(key).trim());
+    if (!texture) return false;
+    if (typeof texture.has === "function") return texture.has(frame);
+    if (typeof texture.hasFrame === "function") return texture.hasFrame(frame);
+    try {
+        return Boolean(texture.get && texture.get(frame));
+    } catch {
+        return false;
+    }
+}
+
+// @ts-check
+
+/**
+ * @typedef {{ x: number, y: number }} StickPoint
+ * @typedef {{
+ *   capturePointer: (id: string, owner: string) => unknown,
+ *   releasePointer: (id: string, owner: string) => unknown
+ * }} VirtualStickPointerApi
+ * @typedef {{
+ *   mode?: "fixed" | "floating",
+ *   origin?: { x?: unknown, y?: unknown },
+ *   maxRadius?: unknown,
+ *   deadzone?: unknown
+ * }} VirtualStickOptions
+ */
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @param {string} label
+ */
+function stickFiniteOr(value, fallback, label) {
+    if (value === undefined || value === null || value === "") return fallback;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) throw new TypeError(`GM.input virtual stick ${label} must be finite.`);
+    return numeric;
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @param {string} label
+ */
+function stickPositiveOr(value, fallback, label) {
+    const numeric = stickFiniteOr(value, fallback, label);
+    if (numeric <= 0) throw new RangeError(`GM.input virtual stick ${label} must be positive.`);
+    return numeric;
+}
+
+/**
+ * @param {unknown} pointerId
+ */
+function stickPointerKey(pointerId) {
+    const key = String(pointerId ?? "").trim();
+    if (!key) throw new TypeError("GM.input virtual stick pointer id must be non-empty.");
+    return key;
+}
+
+/**
+ * @param {VirtualStickOptions | undefined} options
+ * @param {VirtualStickPointerApi} pointerApi
+ */
+function createVirtualStick(options = {}, pointerApi) {
+    if (!pointerApi || typeof pointerApi.capturePointer !== "function" || typeof pointerApi.releasePointer !== "function") {
+        throw new TypeError("GM.input virtual stick requires pointer capture callbacks.");
+    }
+
+    const mode = options.mode === "floating" ? "floating" : "fixed";
+    const fixedOrigin = {
+        x: stickFiniteOr(options.origin?.x, 0, "origin.x"),
+        y: stickFiniteOr(options.origin?.y, 0, "origin.y")
+    };
+    const maxRadius = stickPositiveOr(options.maxRadius, 96, "maxRadius");
+    const deadzone = Math.min(0.99, Math.max(0, stickFiniteOr(options.deadzone, 0.12, "deadzone")));
+    /** @type {{ active: boolean, pointerId: string | null, origin: StickPoint, position: StickPoint, vector: StickPoint, distance: number, magnitude: number, angle: number }} */
+    const state = {
+        active: false,
+        pointerId: null,
+        origin: { ...fixedOrigin },
+        position: { ...fixedOrigin },
+        vector: { x: 0, y: 0 },
+        distance: 0,
+        magnitude: 0,
+        angle: 0
+    };
+
+    function clearVector() {
+        state.position = { ...state.origin };
+        state.vector = { x: 0, y: 0 };
+        state.distance = 0;
+        state.magnitude = 0;
+        state.angle = 0;
+    }
+
+    /**
+     * @param {number} x
+     * @param {number} y
+     */
+    function updateVector(x, y) {
+        const dx = x - state.origin.x;
+        const dy = y - state.origin.y;
+        const distance = Math.hypot(dx, dy);
+        const normalizedDistance = Math.min(1, distance / maxRadius);
+        const magnitude = normalizedDistance <= deadzone
+            ? 0
+            : (normalizedDistance - deadzone) / (1 - deadzone);
+        const directionX = distance > 0 ? dx / distance : 0;
+        const directionY = distance > 0 ? dy / distance : 0;
+
+        state.position = { x, y };
+        state.distance = distance;
+        state.magnitude = magnitude;
+        state.vector = {
+            x: directionX * magnitude,
+            y: directionY * magnitude
+        };
+        state.angle = magnitude > 0 ? Math.atan2(state.vector.y, state.vector.x) : 0;
+    }
+
+    /**
+     * @param {unknown} pointerId
+     * @param {unknown} x
+     * @param {unknown} y
+     */
+    function move(pointerId, x, y) {
+        const key = stickPointerKey(pointerId);
+        if (!state.active || state.pointerId !== key) return stick;
+        updateVector(stickFiniteOr(x, 0, "x"), stickFiniteOr(y, 0, "y"));
+        return stick;
+    }
+
+    const stick = {
+        get active() { return state.active; },
+        get pointerId() { return state.pointerId; },
+        get mode() { return mode; },
+        get origin() { return { ...state.origin }; },
+        get position() { return { ...state.position }; },
+        get vector() { return { ...state.vector }; },
+        get distance() { return state.distance; },
+        get magnitude() { return state.magnitude; },
+        get angle() { return state.angle; },
+
+        /**
+         * @param {unknown} pointerId
+         * @param {unknown} x
+         * @param {unknown} y
+         */
+        press(pointerId, x, y) {
+            const key = stickPointerKey(pointerId);
+            if (state.active) return move(key, x, y);
+            const position = {
+                x: stickFiniteOr(x, 0, "x"),
+                y: stickFiniteOr(y, 0, "y")
+            };
+            if (mode === "floating") state.origin = { ...position };
+            else state.origin = { ...fixedOrigin };
+            pointerApi.capturePointer(key, "joystick");
+            state.active = true;
+            state.pointerId = key;
+            updateVector(position.x, position.y);
+            return stick;
+        },
+
+        move,
+
+        /**
+         * @param {unknown} [pointerId]
+         */
+        release(pointerId) {
+            if (!state.active) return stick;
+            if (pointerId !== undefined && pointerId !== null && stickPointerKey(pointerId) !== state.pointerId) return stick;
+            const owner = state.pointerId;
+            if (owner) pointerApi.releasePointer(owner, "joystick");
+            state.active = false;
+            state.pointerId = null;
+            clearVector();
+            return stick;
+        },
+
+        /**
+         * @param {unknown} [pointerId]
+         */
+        cancel(pointerId) {
+            return stick.release(pointerId);
+        },
+
+        reset() {
+            return stick.release();
+        }
+    };
+
+    return stick;
+}
+
+// @ts-check
+
 
 /**
  * @typedef {{
@@ -2489,6 +3813,14 @@ function installFacadeNamespaces(deps) {
     defineReadonly(runtime, "currentTime", () => activeOrNull() ? GM._active.current_time : 0);
     defineReadonly(runtime, "deltaMs", () => activeOrNull() ? GM._active.delta_time : 0);
     defineReadonly(runtime, "deltaSec", () => activeOrNull() ? GM._active.delta_sec : 0);
+    defineReadonly(runtime, "simulationAlpha", () => {
+        const activeRuntime = activeOrNull();
+        return activeRuntime ? Number(activeRuntime.state.simulation?.alpha || 0) : 0;
+    });
+    defineReadonly(runtime, "simulationSteps", () => {
+        const activeRuntime = activeOrNull();
+        return activeRuntime ? Number(activeRuntime.state.simulation?.stepsThisFrame || 0) : 0;
+    });
     defineReadonly(GM, "perf", () => {
         const perf = activeOrNull() ? GM._active.state.perf : null;
         if (!perf?.enabled) return null;
@@ -2512,39 +3844,63 @@ function installFacadeNamespaces(deps) {
         circle: function () { return callActive("draw_circle", arguments); },
         line: function () { return callActive("draw_line", arguments); },
         text: function () { return callActive("draw_text", arguments); },
+        textExt: function () { return callActive("draw_text_ext", arguments); },
+        textFit: function () { return callActive("draw_text_fit", arguments); },
         sprite: function () { return callActive("draw_sprite", arguments); },
         spriteExt: function () { return callActive("draw_sprite_ext", arguments); }
     };
 
     const gui = {
         rect: function () { return callActive("draw_gui_rectangle", arguments); },
-        text: function () { return callActive("draw_gui_text", arguments); }
+        text: function () { return callActive("draw_gui_text", arguments); },
+        textExt: function () { return callActive("draw_gui_text_ext", arguments); },
+        textFit: function () { return callActive("draw_gui_text_fit", arguments); }
     };
 
     const input = Object.assign({}, INPUT, {
         keyDown: function () { return callActive("keyboard_check", arguments); },
         keyPressed: function () { return callActive("keyboard_check_pressed", arguments); },
+        keyPressedRaw: function () { return callActive("keyboard_check_pressed_raw", arguments); },
         keyReleased: function () { return callActive("keyboard_check_released", arguments); },
         pointerDown: function () { return callActive("mouse_check_button", arguments); },
         pointerPressed: function () { return callActive("mouse_check_button_pressed", arguments); },
-        pointerReleased: function () { return callActive("mouse_check_button_released", arguments); }
+        pointerReleased: function () { return callActive("mouse_check_button_released", arguments); },
+        getPointer: function () { return callActive("get_pointer", arguments); },
+        activePointers: function () { return callActive("active_pointers", arguments); },
+        capturePointer: function () { return callActive("capture_pointer", arguments); },
+        releasePointer: function () { return callActive("release_pointer_id", arguments); },
+        /**
+         * @param {any} options
+         */
+        createVirtualStick(options) {
+            return createVirtualStick(options, {
+                capturePointer(id, owner) {
+                    return active().capture_pointer(id, owner);
+                },
+                releasePointer(id, owner) {
+                    return active().release_pointer_id(id, owner);
+                }
+            });
+        }
     });
 
     const entity = {
         /**
          * @param {unknown} objectDef
-         * @param {{ x?: unknown, y?: unknown, layer?: string, name?: unknown }} [options]
+         * @param {{ x?: unknown, y?: unknown, layer?: string, name?: unknown, vars?: Record<string, unknown> }} [options]
          */
         spawn(objectDef, options) {
             options = options || {};
-            const inst = active().instance_create_layer(
+            /** @type {Record<string, unknown>} */
+            const createVars = Object.assign({}, options.vars || {});
+            if (options.name !== undefined) createVars.name = options.name;
+            return active().instance_create_layer(
                 options.x === undefined ? 0 : options.x,
                 options.y === undefined ? 0 : options.y,
                 options.layer || "Instances",
-                objectDef
+                objectDef,
+                createVars
             );
-            if (options.name !== undefined) inst.name = options.name;
-            return inst;
         },
         spawnLayer: function () { return callActive("instance_create_layer", arguments); },
         destroy: function () { return callActive("instance_destroy", arguments); },
@@ -2553,10 +3909,64 @@ function installFacadeNamespaces(deps) {
         find: function () { return callActive("instance_find", arguments); }
     };
 
+    const layer = {
+        define: function () { return callActive("define_layer", arguments); }
+    };
+
     const asset = {
         loadImage: function () { return callActive("load_sprite", arguments); },
         loadSound: function () { return callActive("load_sound", arguments); },
-        loadSheet: function () { return callActive("load_spritesheet", arguments); }
+        loadSheet: function () { return callActive("load_spritesheet", arguments); },
+        /**
+         * @param {string} key
+         * @param {HTMLCanvasElement | OffscreenCanvas} canvas
+         * @param {{ replace?: boolean }} [options]
+         */
+        addCanvas(key, canvas, options) {
+            return addCanvasTexture(active().scene, key, canvas, options);
+        },
+        /**
+         * @param {string} key
+         * @param {number} width
+         * @param {number} height
+         * @param {ArrayLike<number> | ArrayBufferView} rgba
+         * @param {{ replace?: boolean }} [options]
+         */
+        addRgba(key, width, height, rgba, options) {
+            return addRgbaTexture(active().scene, key, width, height, rgba, options);
+        },
+        /**
+         * @param {string} key
+         * @param {HTMLCanvasElement | OffscreenCanvas | string} source
+         * @param {unknown} frames
+         * @param {{ replace?: boolean }} [options]
+         */
+        addAtlas(key, source, frames, options) {
+            return addAtlasTexture(active().scene, key, source, frames, options);
+        },
+        /**
+         * @param {string} key
+         */
+        remove(key) {
+            return removeTexture(active().scene, key);
+        },
+        /**
+         * @param {string} key
+         */
+        exists(key) {
+            const activeRuntime = activeOrNull();
+            if (!activeRuntime) return false;
+            return textureExists(activeRuntime.scene, key);
+        },
+        /**
+         * @param {string} key
+         * @param {string | number} frame
+         */
+        frameExists(key, frame) {
+            const activeRuntime = activeOrNull();
+            if (!activeRuntime) return false;
+            return textureFrameExists(activeRuntime.scene, key, frame);
+        }
     };
 
     const audio = {
@@ -2573,12 +3983,11 @@ function installFacadeNamespaces(deps) {
          * @param {unknown} theme
          */
         setTheme(theme) {
-            uiToolkit.setTheme(theme);
             const activeRuntime = activeOrNull();
             if (activeRuntime) {
-                uiToolkit.ensureTextures(activeRuntime.scene, true);
-                return activeRuntime;
+                return activeRuntime.ui_set_theme(theme);
             }
+            uiToolkit.setTheme(theme);
             return GM;
         },
         getTheme() {
@@ -2632,6 +4041,7 @@ function installFacadeNamespaces(deps) {
     GM.gui = gui;
     GM.input = input;
     GM.entity = entity;
+    GM.layer = layer;
     GM.asset = asset;
     GM.audio = audio;
     GM.ui = ui;
@@ -2686,14 +4096,109 @@ function resolveRenderQuality(cfg) {
 
 
 /**
- * @param {Record<string, any> | undefined} config
+ * Resolve Phaser renderer type from config. Accepts Phaser constants or
+ * case-insensitive "AUTO" | "CANVAS" | "WEBGL" strings for tests and hosts.
+ * @param {any} Phaser
+ * @param {any} raw
  */
-function mergeConfig(config) {
-    return Object.assign({}, DEFAULTS, config || {});
+function resolveGameType(Phaser, raw) {
+    if (raw === undefined || raw === null) return Phaser.AUTO;
+    if (raw === Phaser.AUTO || raw === Phaser.CANVAS || raw === Phaser.WEBGL) return raw;
+    const label = String(raw).trim().toUpperCase();
+    if (label === "AUTO") return Phaser.AUTO;
+    if (label === "CANVAS") return Phaser.CANVAS;
+    if (label === "WEBGL") return Phaser.WEBGL;
+    throw new TypeError("GM.app.start type must be AUTO, CANVAS, or WEBGL.");
 }
 
 /**
- * @param {{ root: any, Phaser: any, makeScene: (config: any) => any, installGlobals: () => void }} deps
+ * @param {Record<string, any> | undefined} config
+ */
+function mergeConfig(config) {
+    /** @type {Record<string, any>} */
+    const merged = Object.assign({}, DEFAULTS, config || {});
+    const positiveFields = [
+        "width", "height", "minHeight", "targetHeight", "maxHeight",
+        "desktopBreakpoint", "desktopMinWidth", "desktopHeight", "desktopMaxWidth"
+    ];
+    for (const field of positiveFields) {
+        if (!Number.isFinite(Number(merged[field])) || Number(merged[field]) <= 0) {
+            throw new TypeError(`GM.app.start requires a positive finite ${field}.`);
+        }
+    }
+    if (merged.minHeight > merged.maxHeight || merged.targetHeight < merged.minHeight || merged.targetHeight > merged.maxHeight) {
+        throw new RangeError("GM.app.start requires minHeight <= targetHeight <= maxHeight.");
+    }
+    if (merged.desktopMinWidth > merged.desktopMaxWidth) {
+        throw new RangeError("GM.app.start requires desktopMinWidth <= desktopMaxWidth.");
+    }
+    if (merged.renderResolution !== "auto" &&
+        (!Number.isFinite(Number(merged.renderResolution)) || Number(merged.renderResolution) <= 0)) {
+        throw new TypeError("GM.app.start requires renderResolution to be a positive number or 'auto'.");
+    }
+    if (!Number.isFinite(Number(merged.maxRenderResolution)) || Number(merged.maxRenderResolution) <= 0) {
+        throw new TypeError("GM.app.start requires a positive finite maxRenderResolution.");
+    }
+    for (const callbackName of ["preload", "create", "step", "draw", "ui", "gui", "onCleanupError", "onError"]) {
+        if (merged[callbackName] !== undefined && typeof merged[callbackName] !== "function") {
+            throw new TypeError(`GM.app.start requires ${callbackName} to be a function when provided.`);
+        }
+    }
+    if (merged.globals !== undefined && typeof merged.globals !== "boolean") {
+        throw new TypeError("GM.app.start requires globals to be a boolean.");
+    }
+    if (merged.simulationHz !== undefined &&
+        (!Number.isFinite(Number(merged.simulationHz)) || Number(merged.simulationHz) < 0)) {
+        throw new TypeError("GM.app.start requires simulationHz to be a non-negative finite number.");
+    }
+    if (merged.maxFrameDeltaMs !== undefined &&
+        (!Number.isFinite(Number(merged.maxFrameDeltaMs)) || Number(merged.maxFrameDeltaMs) <= 0)) {
+        throw new TypeError("GM.app.start requires maxFrameDeltaMs to be a positive finite number.");
+    }
+    if (merged.maxCatchUpSteps !== undefined &&
+        (!Number.isFinite(Number(merged.maxCatchUpSteps)) || Number(merged.maxCatchUpSteps) < 1)) {
+        throw new TypeError("GM.app.start requires maxCatchUpSteps to be a finite number >= 1.");
+    }
+    return merged;
+}
+
+/**
+ * Prefer the configured parent element's box over the full window so the
+ * facade does not assume it owns the entire browser chrome.
+ * @param {any} root
+ * @param {unknown} parent
+ * @param {number} fallbackWidth
+ * @param {number} fallbackHeight
+ */
+function resolveStartSize(root, parent, fallbackWidth, fallbackHeight) {
+    /** @type {any} */
+    let element = null;
+    if (typeof parent === "string" && root.document) {
+        element = root.document.getElementById(parent) || root.document.querySelector(parent);
+    } else if (parent && typeof parent === "object" && typeof /** @type {any} */ (parent).getBoundingClientRect === "function") {
+        element = parent;
+    }
+    if (element && typeof element.getBoundingClientRect === "function") {
+        const rect = element.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+            return { width: Math.round(rect.width), height: Math.round(rect.height) };
+        }
+        const clientWidth = Number(element.clientWidth);
+        const clientHeight = Number(element.clientHeight);
+        if (clientWidth > 0 && clientHeight > 0) {
+            return { width: Math.round(clientWidth), height: Math.round(clientHeight) };
+        }
+    }
+    const windowWidth = Number(root.innerWidth);
+    const windowHeight = Number(root.innerHeight);
+    return {
+        width: Number.isFinite(windowWidth) && windowWidth > 0 ? windowWidth : fallbackWidth,
+        height: Number.isFinite(windowHeight) && windowHeight > 0 ? windowHeight : fallbackHeight
+    };
+}
+
+/**
+ * @param {{ root: any, Phaser: any, makeScene: (config: any) => any, installGlobals: () => (() => void) | undefined }} deps
  */
 function createGameStarter({ root, Phaser, makeScene, installGlobals }) {
     /**
@@ -2705,25 +4210,30 @@ function createGameStarter({ root, Phaser, makeScene, installGlobals }) {
         }
 
         const cfg = mergeConfig(config);
-        if (cfg.globals) installGlobals();
+        const globalsDisposer = cfg.globals ? installGlobals() : null;
         const renderQuality = resolveRenderQuality(cfg);
-
-        return new Phaser.Game({
-            type: Phaser.AUTO,
-            parent: cfg.parent,
-            width: root.innerWidth,
-            height: root.innerHeight,
-            backgroundColor: toColor(cfg.background),
-            pixelArt: renderQuality.pixelArt,
-            antialias: renderQuality.antialias,
-            antialiasGL: renderQuality.antialiasGL,
-            roundPixels: renderQuality.roundPixels,
-            scale: {
-                mode: Phaser.Scale.RESIZE,
-                autoCenter: Phaser.Scale.CENTER_BOTH
-            },
-            scene: makeScene(cfg)
-        });
+        const startSize = resolveStartSize(root, cfg.parent, cfg.width, cfg.height);
+        try {
+            return new Phaser.Game({
+                type: resolveGameType(Phaser, cfg.type),
+                parent: cfg.parent,
+                width: startSize.width,
+                height: startSize.height,
+                backgroundColor: toColor(cfg.background),
+                pixelArt: renderQuality.pixelArt,
+                antialias: renderQuality.antialias,
+                antialiasGL: renderQuality.antialiasGL,
+                roundPixels: renderQuality.roundPixels,
+                scale: {
+                    mode: Phaser.Scale.RESIZE,
+                    autoCenter: Phaser.Scale.CENTER_BOTH
+                },
+                scene: makeScene(cfg)
+            });
+        } catch (error) {
+            if (typeof globalsDisposer === "function") globalsDisposer();
+            throw error;
+        }
     };
 }
 
@@ -2755,9 +4265,24 @@ function installGlobalAccessors(target, GM) {
     for (const [name, getter] of Object.entries(getters)) {
         Object.defineProperty(target, name, {
             configurable: true,
+            enumerable: true,
             get: getter
         });
     }
+}
+
+/**
+ * @param {PropertyDescriptor | undefined} left
+ * @param {PropertyDescriptor | undefined} right
+ */
+function descriptorsMatch(left, right) {
+    if (!left || !right) return left === right;
+    return left.value === right.value &&
+        left.get === right.get &&
+        left.set === right.set &&
+        left.enumerable === right.enumerable &&
+        left.configurable === right.configurable &&
+        left.writable === right.writable;
 }
 
 /**
@@ -2784,7 +4309,6 @@ function createLegacyGlobalInstaller(deps) {
 
     return function installGlobals() {
         if (GM._globalsInstalled) return GM._globalsDisposer || (() => {});
-        GM._globalsInstalled = true;
 
         const values = Object.assign({}, COLORS, ALIGN, INPUT, {
             clamp: math.clamp,
@@ -2870,20 +4394,51 @@ function createLegacyGlobalInstaller(deps) {
 
         const names = [...Object.keys(values), ...ACCESSOR_NAMES];
         const previousDescriptors = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(root, name)]));
-        Object.assign(root, values);
+        for (const [name, descriptor] of previousDescriptors) {
+            if (descriptor && descriptor.configurable === false) {
+                throw new TypeError(`Cannot install legacy global '${name}' over a non-configurable host property.`);
+            }
+        }
 
-        installGlobalAccessors(root, GM);
+        /** @type {Map<string, PropertyDescriptor>} */
+        const installedDescriptors = new Map();
+        try {
+            for (const [name, value] of Object.entries(values)) {
+                Object.defineProperty(root, name, {
+                    configurable: true,
+                    enumerable: true,
+                    writable: true,
+                    value
+                });
+            }
+            installGlobalAccessors(root, GM);
+            for (const name of names) {
+                const descriptor = Object.getOwnPropertyDescriptor(root, name);
+                if (descriptor) installedDescriptors.set(name, descriptor);
+            }
+        } catch (error) {
+            for (const [name, descriptor] of previousDescriptors) {
+                if (descriptor) Object.defineProperty(root, name, descriptor);
+                else delete root[name];
+            }
+            throw error;
+        }
+
         let restored = false;
         GM._globalsDisposer = () => {
             if (restored) return;
             restored = true;
             for (const [name, descriptor] of previousDescriptors) {
+                const current = Object.getOwnPropertyDescriptor(root, name);
+                const installed = installedDescriptors.get(name);
+                if (!descriptorsMatch(current, installed)) continue;
                 if (descriptor) Object.defineProperty(root, name, descriptor);
                 else delete root[name];
             }
             GM._globalsInstalled = false;
             GM._globalsDisposer = null;
         };
+        GM._globalsInstalled = true;
         return GM._globalsDisposer;
     };
 }
@@ -2909,18 +4464,30 @@ function createRuntimeState(scene, cfg) {
         screenText: null,
         worldSprites: null,
         worldLayers: new Map(),
+        layerRegistry: new Map(),
         activeWorldLayer: "world",
         activeWorldContainer: null,
         cleanup: [],
+        cleanupErrors: [],
         cleanedUp: false,
         modals: [],
         instances: [],
         nextInstanceId: 1,
         currentInstance: null,
+        stepFrame: 0,
         uiButtons: new Map(),
+        uiPanels: [],
+        uiPanelCursor: 0,
         frameId: 0,
         currentTime: 0,
         deltaMs: 0,
+        simulation: {
+            accumulatorMs: 0,
+            alpha: 0,
+            stepsThisFrame: 0,
+            fixedDeltaSec: 0
+        },
+        pointers: new Map(),
         layout: {
             x: 0,
             y: 0,
@@ -2935,7 +4502,15 @@ function createRuntimeState(scene, cfg) {
             cssHeight: 0,
             width: 0,
             height: 0,
-            resolution: 1
+            resolution: 1,
+            resizeInProgress: false,
+            resizeDiagnostics: {
+                events: 0,
+                applied: 0,
+                reentrySkips: 0,
+                last: null,
+                lastSignature: null
+            }
         },
         draw: {
             color: 0xffffff,
@@ -2958,12 +4533,16 @@ function createRuntimeState(scene, cfg) {
         },
         inputGate: {
             pausedUntil: 0,
+            // pointerId -> owner channel (joystick does not globally block input)
             capturedPointers: Object.create(null),
             transitions: 0
         },
         keysDown: Object.create(null),
         keysPressed: Object.create(null),
+        keysPressedRaw: Object.create(null),
         keysReleased: Object.create(null),
+        physicalKeysDown: Object.create(null),
+        suppressedKeys: Object.create(null),
         curtain: {
             alpha: cfg.curtain ? 1 : 0,
             visible: !!cfg.curtain,
@@ -2985,6 +4564,7 @@ function createRuntimeState(scene, cfg) {
  *   display_width: number,
  *   display_height: number,
  *   mouse_check_button_pressed: (button: unknown) => boolean,
+ *   mouse_check_button_pressed_raw?: (button: unknown) => boolean,
  *   draw_set_alpha: (alpha: number) => unknown,
  *   draw_set_color: (color: unknown) => unknown,
  *   draw_gui_rectangle: (x1: number, y1: number, x2: number, y2: number, outline: boolean) => unknown,
@@ -3022,18 +4602,11 @@ function createRuntimeState(scene, cfg) {
 function curtain(text, fadeMs, state, api, scene, cfg, normalizeDelayMs, COLORS, ALIGN, INPUT) {
     if (!state.curtain.visible && state.curtain.alpha <= 0) return false;
 
-    if (!state.curtain.tweening && api.mouse_check_button_pressed(INPUT.mb_left)) {
-        state.curtain.tweening = true;
-        scene.tweens.add({
-            targets: state.curtain,
-            alpha: 0,
-            duration: normalizeDelayMs(fadeMs, cfg.curtainFadeMs, 0),
-            ease: "Linear",
-            onComplete: () => {
-                state.curtain.visible = false;
-                state.curtain.tweening = false;
-            }
-        });
+    const pressed = typeof api.mouse_check_button_pressed_raw === "function"
+        ? api.mouse_check_button_pressed_raw(INPUT.mb_left)
+        : api.mouse_check_button_pressed(INPUT.mb_left);
+    if (pressed) {
+        dismissCurtain(state, scene, fadeMs, cfg, normalizeDelayMs);
     }
 
     if (state.curtain.alpha > 0) {
@@ -3063,6 +4636,31 @@ function curtain(text, fadeMs, state, api, scene, cfg, normalizeDelayMs, COLORS,
     }
 
     return state.curtain.visible;
+}
+
+/**
+ * Start the curtain dismissal before gameplay step code runs. The draw pass
+ * still owns the visual overlay; this helper only consumes the transition.
+ * @param {CurtainState} state
+ * @param {CurtainScene} scene
+ * @param {unknown} fadeMs
+ * @param {{ curtainFadeMs: number }} cfg
+ * @param {(value: unknown, fallback: number, min: number) => number} normalizeDelayMs
+ */
+function dismissCurtain(state, scene, fadeMs, cfg, normalizeDelayMs) {
+    if (!state.curtain.visible || state.curtain.tweening) return false;
+    state.curtain.tweening = true;
+    scene.tweens.add({
+        targets: state.curtain,
+        alpha: 0,
+        duration: normalizeDelayMs(fadeMs, cfg.curtainFadeMs, 0),
+        ease: "Linear",
+        onComplete: () => {
+            state.curtain.visible = false;
+            state.curtain.tweening = false;
+        }
+    });
+    return true;
 }
 
 /**
@@ -3107,7 +4705,7 @@ function logDebugMessage(message, logger = console) {
 
 /**
  * @typedef {typeof globalThis & Record<string, unknown> & { Phaser?: unknown, GM?: unknown }} RuntimeRoot
- * @typedef {{ Game: new (...args: any[]) => any, Scene: new (...args: any[]) => any, Scale?: Record<string, unknown> }} PhaserRuntime
+ * @typedef {{ Game: new (...args: any[]) => any, Scene: new (...args: any[]) => any, VERSION?: string, Scale?: Record<string, unknown> }} PhaserRuntime
  * @typedef {{ width: number, height: number, curtain?: boolean, [key: string]: any }} RuntimeConfig
  * @typedef {Record<string, any>} DynamicRecord
  * @typedef {object} RuntimeApi
@@ -3137,6 +4735,11 @@ function logDebugMessage(message, logger = console) {
  * @property {(...args: any[]) => any} pause_input
  * @property {(...args: any[]) => any} consume_pointer
  * @property {(...args: any[]) => any} release_pointer
+ * @property {(...args: any[]) => any} get_pointer
+ * @property {(...args: any[]) => any} active_pointers
+ * @property {(...args: any[]) => any} capture_pointer
+ * @property {(...args: any[]) => any} release_pointer_id
+ * @property {(...args: any[]) => any} define_layer
  * @property {(...args: any[]) => any} begin_input_transition
  * @property {(...args: any[]) => any} clear_input_gate
  * @property {(...args: any[]) => any} beginDraw
@@ -3185,10 +4788,12 @@ function logDebugMessage(message, logger = console) {
  * @property {(...args: any[]) => any} alarm_set
  * @property {(...args: any[]) => any} keyboard_check
  * @property {(...args: any[]) => any} keyboard_check_pressed
+ * @property {(...args: any[]) => any} keyboard_check_pressed_raw
  * @property {(...args: any[]) => any} keyboard_check_released
  * @property {(...args: any[]) => any} mouse_check_button
  * @property {(...args: any[]) => any} mouse_check_button_pressed
  * @property {(...args: any[]) => any} mouse_check_button_released
+ * @property {(...args: any[]) => any} mouse_check_button_pressed_raw
  * @property {(...args: any[]) => any} show_debug_message
  * @property {(...args: any[]) => any} tween
  * @property {(...args: any[]) => any} wait
@@ -3198,28 +4803,60 @@ function logDebugMessage(message, logger = console) {
  */
 
 /**
+ * @param {any} Phaser
+ * @returns {PhaserRuntime}
+ */
+function validatePhaserLibrary(Phaser) {
+    if (!Phaser || typeof Phaser.Game !== "function" || typeof Phaser.Scene !== "function") {
+        throw new Error("GM runtime requires a Phaser library with Game and Scene constructors.");
+    }
+    return /** @type {PhaserRuntime} */ (Phaser);
+}
+
+/**
  * @param {RuntimeRoot} root
  * @param {PhaserRuntime} Phaser
+ * @returns {DynamicRecord}
  */
 function installGMRuntime(root, Phaser) {
     "use strict";
 
-    if (!Phaser || typeof Phaser.Game !== "function") {
-        throw new Error("GM runtime requires Phaser before gm-phaser4.js loads.");
+    const PhaserLibrary = validatePhaserLibrary(Phaser);
+
+    const existing = /** @type {DynamicRecord | null} */ (root.GM || null);
+    if (existing && existing.__gmFacadeMarker === true) {
+        if (existing.version !== RUNTIME_VERSION) {
+            throw new Error(
+                `Incompatible GM facade already installed (found ${existing.version}, expected ${RUNTIME_VERSION}).`
+            );
+        }
+        if (existing.__phaserLibrary && existing.__phaserLibrary !== PhaserLibrary) {
+            throw new Error("GM facade already installed against a different Phaser instance.");
+        }
+        return existing;
+    }
+    if (existing && existing.__gmFacadeMarker !== true) {
+        throw new Error("root.GM is already occupied by an incompatible object.");
     }
 
-    root.Phaser = root.Phaser || Phaser;
+    if (root.Phaser && root.Phaser !== PhaserLibrary) {
+        throw new Error("GM runtime received a Phaser instance that conflicts with the host global Phaser.");
+    }
+    root.Phaser = PhaserLibrary;
 
     /** @type {DynamicRecord} */
     const GM = {
-        version: "0.1.0",
+        version: RUNTIME_VERSION,
+        phaserVersion: PhaserLibrary.VERSION || "unknown",
+        __gmFacadeMarker: true,
+        __phaserLibrary: PhaserLibrary,
         _active: null,
         _game: null,
         _globalsInstalled: false,
         _globalsDisposer: null
     };
     const uiToolkit = createUiToolkit();
-    const GMButtonObject = createRuntimeButtonClass(Phaser);
+    const GMButtonObject = createRuntimeButtonClass(PhaserLibrary);
     const mathApi = createMathApi();
 
     /**
@@ -3283,6 +4920,175 @@ function installGMRuntime(root, Phaser) {
         const worldLayers = createWorldLayerManager(scene, state);
         const selectWorldLayer = worldLayers.select;
 
+        function suppressHeldKeys() {
+            for (const key of Object.keys(state.keysDown)) {
+                if (state.keysDown[key]) state.suppressedKeys[key] = true;
+            }
+            state.keysDown = Object.create(null);
+            state.keysPressed = Object.create(null);
+            state.keysPressedRaw = Object.create(null);
+            state.keysReleased = Object.create(null);
+        }
+
+        function clearTransientInput() {
+            state.mouse.down = Object.create(null);
+            state.mouse.pressed = Object.create(null);
+            state.mouse.released = Object.create(null);
+            state.keysDown = Object.create(null);
+            state.keysPressed = Object.create(null);
+            state.keysPressedRaw = Object.create(null);
+            state.keysReleased = Object.create(null);
+            state.physicalKeysDown = Object.create(null);
+            state.suppressedKeys = Object.create(null);
+            if (state.pointers instanceof Map) {
+                for (const pointer of state.pointers.values()) {
+                    pointer.active = false;
+                    pointer.down = false;
+                }
+            }
+        }
+
+        function recoverInputFocus() {
+            state.inputGate.capturedPointers = Object.create(null);
+            state.inputGate.transitions = 0;
+            state.inputGate.pausedUntil = 0;
+            clearTransientInput();
+            if (state.pointers instanceof Map) state.pointers.clear();
+            if (api && typeof api.update_input_blocker === "function") api.update_input_blocker();
+        }
+
+        /**
+         * @param {string | boolean | undefined} owner
+         */
+        function captureBlocksGameplay(owner) {
+            if (owner === true || owner === undefined || owner === null) return true;
+            const channel = String(owner);
+            return channel === "modal" ||
+                channel === "button" ||
+                channel === "system" ||
+                channel === "transition" ||
+                channel === "gameplay";
+        }
+
+        function hasBlockingPointerCapture() {
+            for (const owner of Object.values(state.inputGate.capturedPointers || {})) {
+                if (captureBlocksGameplay(/** @type {any} */ (owner))) return true;
+            }
+            return false;
+        }
+
+        /**
+         * @param {any} pointer
+         * @param {{ down?: boolean, released?: boolean }} [flags]
+         */
+        function trackPointer(pointer, flags = {}) {
+            if (!pointer) return null;
+            const id = pointerGateKey(pointer);
+            const scale = state.layout.scale || 1;
+            const resolution = state.render.resolution || 1;
+            const screenX = Number(pointer.x) / resolution;
+            const screenY = Number(pointer.y) / resolution;
+            const roomX = (screenX - state.layout.x) / scale;
+            const roomY = (screenY - state.layout.y) / scale;
+            let record = state.pointers.get(id);
+            if (!record) {
+                record = {
+                    id,
+                    screenX,
+                    screenY,
+                    x: roomX,
+                    y: roomY,
+                    startX: roomX,
+                    startY: roomY,
+                    button: buttonFromPointer(pointer),
+                    down: false,
+                    active: true,
+                    owner: null,
+                    downTime: state.currentTime
+                };
+                state.pointers.set(id, record);
+            } else {
+                record.screenX = screenX;
+                record.screenY = screenY;
+                record.x = roomX;
+                record.y = roomY;
+                record.button = buttonFromPointer(pointer);
+                record.active = true;
+            }
+            if (flags.down === true) {
+                if (!record.down) {
+                    record.startX = roomX;
+                    record.startY = roomY;
+                    record.downTime = state.currentTime;
+                }
+                record.down = true;
+            }
+            if (flags.released === true) {
+                record.down = false;
+                record.active = false;
+            }
+            return record;
+        }
+
+        function pruneUiButtons() {
+            for (const [id, button] of Array.from(state.uiButtons.entries())) {
+                if (Number(button.configuredFrame || 0) === Number(state.frameId || 0)) continue;
+                try {
+                    if (typeof button.destroy === "function") button.destroy(true);
+                } catch (error) {
+                    recordRuntimeCleanupError(state, error, "button_prune", "end_frame");
+                }
+                state.uiButtons.delete(id);
+            }
+        }
+
+        /**
+         * @param {number} deltaSec
+         * @param {string} phase
+         */
+        function runGameStep(deltaSec, phase) {
+            try {
+                if (typeof cfg.step === "function") cfg.step(api, deltaSec);
+                api.stepInstances();
+            } catch (error) {
+                if (typeof cfg.onError === "function") {
+                    cfg.onError(error, {
+                        phase,
+                        frame: state.frameId,
+                        time: state.currentTime,
+                        instanceId: state.currentInstance ? state.currentInstance.id : null,
+                        objectDefinition: state.currentInstance ? state.currentInstance.object_index : null
+                    });
+                }
+                throw error;
+            } finally {
+                state.currentInstance = null;
+            }
+        }
+
+        function hideUiPanels() {
+            state.uiPanelCursor = 0;
+            for (const panel of state.uiPanels) {
+                if (panel && typeof panel.setVisible === "function") panel.setVisible(false);
+            }
+        }
+
+        /**
+         * @param {string | undefined} reason
+         */
+        function destroyUiPanels(reason) {
+            const panels = state.uiPanels.slice();
+            state.uiPanels = [];
+            state.uiPanelCursor = 0;
+            for (const panel of panels) {
+                try {
+                    if (panel && typeof panel.destroy === "function") panel.destroy(true);
+                } catch (error) {
+                    recordRuntimeCleanupError(state, error, "panel_destroy", reason || "panel_reset");
+                }
+            }
+        }
+
         /** @type {RuntimeApi} */
         const api = {
             state,
@@ -3307,25 +5113,43 @@ function installGMRuntime(root, Phaser) {
                 if (!runRuntimeCleanup(state, reason || "cleanup")) return api;
 
                 for (const modal of state.modals.slice()) {
-                    if (typeof modal.close === "function") {
-                        modal.close(reason || "cleanup");
-                    } else if (typeof modal.destroy === "function") {
-                        modal.destroy(reason || "cleanup");
+                    try {
+                        if (typeof modal.destroy === "function") modal.destroy(reason || "cleanup");
+                    } catch (error) {
+                        recordRuntimeCleanupError(state, error, "modal_destroy", reason || "cleanup");
                     }
                 }
+                state.modals = [];
 
                 for (const inst of state.instances.slice()) {
-                    destroyRuntimeInstance(state, api, inst);
+                    try {
+                        destroyRuntimeInstance(state, api, inst);
+                    } catch (error) {
+                        recordRuntimeCleanupError(state, error, "instance_destroy", reason || "cleanup");
+                    }
                 }
                 state.instances = [];
 
                 for (const buttonObject of state.uiButtons.values()) {
-                    if (buttonObject && typeof buttonObject.destroy === "function") buttonObject.destroy();
+                    try {
+                        if (buttonObject && typeof buttonObject.destroy === "function") buttonObject.destroy();
+                    } catch (error) {
+                        recordRuntimeCleanupError(state, error, "button_destroy", reason || "cleanup");
+                    }
                 }
                 state.uiButtons.clear();
+                destroyUiPanels(reason || "cleanup");
 
-                if (state.world && typeof state.world.destroy === "function") state.world.destroy(true);
-                if (state.screen && typeof state.screen.destroy === "function") state.screen.destroy(true);
+                try {
+                    if (state.world && typeof state.world.destroy === "function") state.world.destroy(true);
+                } catch (error) {
+                    recordRuntimeCleanupError(state, error, "world_destroy", reason || "cleanup");
+                }
+                try {
+                    if (state.screen && typeof state.screen.destroy === "function") state.screen.destroy(true);
+                } catch (error) {
+                    recordRuntimeCleanupError(state, error, "screen_destroy", reason || "cleanup");
+                }
                 state.world = null;
                 state.screen = null;
                 state.worldGfx = null;
@@ -3358,9 +5182,17 @@ function installGMRuntime(root, Phaser) {
                  * @param {any} localX
                  * @param {any} localY
                  * @param {any} event
-                 */
+                */
                 const onBlockerPointerDown = (pointer, localX, localY, event) => {
                     consumeInputEvent(pointer, event);
+                    if (api.curtain_active()) {
+                        api.updatePointer(pointer);
+                        const button = buttonFromPointer(pointer);
+                        state.mouse.down[button] = true;
+                        state.mouse.pressed[button] = true;
+                        api.consume_pointer(undefined, pointer, true);
+                        return;
+                    }
                     api.consume_pointer(undefined, pointer);
                 };
                 /**
@@ -3368,10 +5200,10 @@ function installGMRuntime(root, Phaser) {
                  * @param {any} localX
                  * @param {any} localY
                  * @param {any} event
-                 */
+                */
                 const onBlockerPointerUp = (pointer, localX, localY, event) => {
                     consumeInputEvent(pointer, event);
-                    api.release_pointer(pointer);
+                    api.release_pointer(pointer, undefined, api.curtain_active());
                 };
                 onRuntimeEvent(state, state.inputBlocker, "pointerdown", onBlockerPointerDown);
                 onRuntimeEvent(state, state.inputBlocker, "pointerup", onBlockerPointerUp);
@@ -3388,7 +5220,7 @@ function installGMRuntime(root, Phaser) {
                     scene.input.topOnly = true;
                 }
 
-                onRuntimeEvent(state, scene.scale, "resize", () => api.layout());
+                onRuntimeEvent(state, scene.scale, "resize", () => api.layout("phaser-scale-resize"));
 
                 onRuntimeEvent(state, scene.input, "pointermove", (
                     /** @param {any} pointer */
@@ -3397,12 +5229,19 @@ function installGMRuntime(root, Phaser) {
                 onRuntimeEvent(state, scene.input, "pointerdown", (
                     /** @param {any} pointer */
                     (pointer) => {
+                    trackPointer(pointer, { down: true });
                     api.updatePointer(pointer);
-                    if (api.input_blocked()) {
-                        api.consume_pointer(undefined, pointer);
+                    const button = buttonFromPointer(pointer);
+                    if (api.curtain_active()) {
+                        state.mouse.down[button] = true;
+                        state.mouse.pressed[button] = true;
+                        api.consume_pointer(undefined, pointer, true, "system");
                         return;
                     }
-                    const button = buttonFromPointer(pointer);
+                    if (api.input_blocked()) {
+                        api.consume_pointer(undefined, pointer, false, "system");
+                        return;
+                    }
                     state.mouse.down[button] = true;
                     state.mouse.pressed[button] = true;
                     }
@@ -3410,22 +5249,53 @@ function installGMRuntime(root, Phaser) {
                 onRuntimeEvent(state, scene.input, "pointerup", (
                     /** @param {any} pointer */
                     (pointer) => {
+                    trackPointer(pointer, { released: true });
                     api.updatePointer(pointer);
-                    if (api.input_blocked()) {
-                        api.release_pointer(pointer);
-                        return;
-                    }
                     const button = buttonFromPointer(pointer);
                     state.mouse.down[button] = false;
                     state.mouse.released[button] = true;
+                    if (api.input_blocked()) {
+                        api.release_pointer(pointer, undefined, api.curtain_active());
+                        return;
+                    }
                     }
                 ));
+                onRuntimeEvent(state, scene.input, "pointerupoutside", (
+                    /** @param {any} pointer */
+                    (pointer) => {
+                    trackPointer(pointer, { released: true });
+                    api.updatePointer(pointer);
+                    const button = buttonFromPointer(pointer);
+                    state.mouse.down[button] = false;
+                    state.mouse.released[button] = true;
+                    api.release_pointer(pointer, undefined, true);
+                    }
+                ));
+                onRuntimeEvent(state, scene.input, "pointercancel", (
+                    /** @param {any} pointer */
+                    (pointer) => {
+                    if (pointer) {
+                        trackPointer(pointer, { released: true });
+                        api.release_pointer(pointer, undefined, true);
+                    } else {
+                        recoverInputFocus();
+                    }
+                    }
+                ));
+                onRuntimeEvent(state, scene.input, "gameout", () => recoverInputFocus());
 
                 if (scene.input.keyboard) {
                     onRuntimeEvent(state, scene.input.keyboard, "keydown", (
                         /** @param {any} event */
                         (event) => {
                         const key = normalizeKey(event);
+                        if (!state.physicalKeysDown[key]) state.keysPressedRaw[key] = true;
+                        state.physicalKeysDown[key] = true;
+                        if (api.input_blocked()) {
+                            state.suppressedKeys[key] = true;
+                            state.keysDown[key] = false;
+                            return;
+                        }
                         if (!state.keysDown[key]) state.keysPressed[key] = true;
                         state.keysDown[key] = true;
                         }
@@ -3435,21 +5305,39 @@ function installGMRuntime(root, Phaser) {
                         /** @param {any} event */
                         (event) => {
                         const key = normalizeKey(event);
+                        delete state.physicalKeysDown[key];
+                        if (state.suppressedKeys[key]) {
+                            delete state.suppressedKeys[key];
+                            state.keysDown[key] = false;
+                            return;
+                        }
                         state.keysDown[key] = false;
                         state.keysReleased[key] = true;
                         }
                     ));
                 }
 
+                onRuntimeDomEvent(state, root, "blur", () => recoverInputFocus());
+                const documentTarget = /** @type {any} */ (root).document;
+                onRuntimeDomEvent(state, documentTarget, "visibilitychange", () => {
+                    if (documentTarget.hidden) {
+                        recoverInputFocus();
+                        return;
+                    }
+                    // Drop accumulated simulation time after backgrounding so catch-up
+                    // cannot explode when the tab becomes visible again.
+                    state.simulation.accumulatorMs = 0;
+                });
+
                 onceRuntimeEvent(state, scene.events, "shutdown", () => api.cleanup("scene_shutdown"));
                 onceRuntimeEvent(state, scene.events, "destroy", () => api.cleanup("scene_destroy"));
 
-                api.layout();
+                api.layout("mount");
                 return api;
             },
 
-            layout() {
-                const render = syncRenderResolution(scene, state, cfg, /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (root)));
+            layout(source = "api") {
+                const render = syncRenderResolution(scene, state, cfg, /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (root)), source);
                 const resolution = render.resolution || 1;
                 const w = render.cssWidth || scene.scale.width;
                 const h = render.cssHeight || scene.scale.height;
@@ -3483,23 +5371,21 @@ function installGMRuntime(root, Phaser) {
             },
 
             updatePointer(pointer) {
-                const scale = state.layout.scale || 1;
-                const resolution = state.render.resolution || 1;
-                const screenX = pointer.x / resolution;
-                const screenY = pointer.y / resolution;
-
-                state.mouse.screenX = screenX;
-                state.mouse.screenY = screenY;
-                state.mouse.x = (screenX - state.layout.x) / scale;
-                state.mouse.y = (screenY - state.layout.y) / scale;
+                const record = trackPointer(pointer);
+                if (!record) return api;
+                state.mouse.screenX = record.screenX;
+                state.mouse.screenY = record.screenY;
+                state.mouse.x = record.x;
+                state.mouse.y = record.y;
                 return api;
             },
 
             input_blocked() {
                 return state.modals.length > 0 ||
                     state.inputGate.transitions > 0 ||
-                    hasObjectKeys(state.inputGate.capturedPointers) ||
-                    state.currentTime < state.inputGate.pausedUntil;
+                    hasBlockingPointerCapture() ||
+                    state.currentTime < state.inputGate.pausedUntil ||
+                    curtain_active(/** @type {any} */ (state));
             },
 
             update_input_blocker() {
@@ -3515,23 +5401,82 @@ function installGMRuntime(root, Phaser) {
                 return api;
             },
 
-            pause_input(ms) {
+            pause_input(ms, preservePointerState) {
                 const blockMs = normalizeDelayMs(ms, 120, 0);
                 state.inputGate.pausedUntil = Math.max(state.inputGate.pausedUntil, state.currentTime + blockMs);
-                api.clear_pointer_state();
+                suppressHeldKeys();
+                if (!preservePointerState) api.clear_pointer_state();
                 api.update_input_blocker();
                 return api;
             },
 
-            consume_pointer(ms, pointer) {
-                if (pointer) state.inputGate.capturedPointers[pointerGateKey(pointer)] = true;
-                api.pause_input(ms);
+            consume_pointer(ms, pointer, preservePointerState, owner) {
+                if (pointer) {
+                    const id = pointerGateKey(pointer);
+                    const channel = owner === undefined || owner === null ? "system" : owner;
+                    state.inputGate.capturedPointers[id] = channel === true ? "system" : String(channel);
+                    const record = trackPointer(pointer, { down: true });
+                    if (record) record.owner = state.inputGate.capturedPointers[id];
+                }
+                api.pause_input(ms, preservePointerState);
                 return api;
             },
 
-            release_pointer(pointer, ms) {
-                if (pointer) delete state.inputGate.capturedPointers[pointerGateKey(pointer)];
-                api.pause_input(ms);
+            release_pointer(pointer, ms, preservePointerState, owner) {
+                if (pointer) {
+                    const id = pointerGateKey(pointer);
+                    const current = state.inputGate.capturedPointers[id];
+                    if (owner === undefined || owner === null || !current || current === String(owner) || owner === true) {
+                        delete state.inputGate.capturedPointers[id];
+                    }
+                    trackPointer(pointer, { released: true });
+                }
+                api.pause_input(ms, preservePointerState);
+                return api;
+            },
+
+            get_pointer(id) {
+                if (id === undefined || id === null) return null;
+                return state.pointers.get(String(id)) || null;
+            },
+
+            active_pointers() {
+                return Array.from(state.pointers.values()).filter((pointer) => pointer && pointer.active);
+            },
+
+            capture_pointer(id, owner) {
+                const key = String(id);
+                const channel = owner === undefined || owner === null ? "system" : String(owner);
+                state.inputGate.capturedPointers[key] = channel;
+                const record = state.pointers.get(key);
+                if (record) record.owner = channel;
+                api.update_input_blocker();
+                return api;
+            },
+
+            release_pointer_id(id, owner) {
+                const key = String(id);
+                const current = state.inputGate.capturedPointers[key];
+                if (owner === undefined || owner === null || !current || current === String(owner)) {
+                    delete state.inputGate.capturedPointers[key];
+                }
+                const record = state.pointers.get(key);
+                if (record) {
+                    record.owner = null;
+                    record.down = false;
+                    record.active = false;
+                }
+                api.update_input_blocker();
+                return api;
+            },
+
+            define_layer(name, depth) {
+                const layerName = String(name || "").trim();
+                if (!layerName) throw new TypeError("GM.layer.define requires a non-empty layer name.");
+                const layerDepth = Number(depth);
+                if (!Number.isFinite(layerDepth)) throw new TypeError("GM.layer.define requires a finite depth.");
+                state.layerRegistry.set(layerName, layerDepth);
+                worldLayers.ensure(layerName, layerDepth);
                 return api;
             },
 
@@ -3549,19 +5494,17 @@ function installGMRuntime(root, Phaser) {
             },
 
             clear_input_gate() {
-                state.inputGate.capturedPointers = Object.create(null);
-                state.inputGate.transitions = 0;
-                api.clear_pointer_state();
-                api.update_input_blocker();
+                recoverInputFocus();
                 return api;
             },
 
             beginDraw() {
                 worldLayers.beginFrame();
                 state.screenGfx.clear();
+                hideUiPanels();
                 for (const button of state.uiButtons.values()) button.beginFrame();
                 state.screenText.begin();
-                selectWorldLayer("world", 0);
+                selectWorldLayer("world");
                 api.resetDrawState();
 
                 if (cfg.stage) {
@@ -3575,7 +5518,9 @@ function installGMRuntime(root, Phaser) {
                 state.mouse.pressed = Object.create(null);
                 state.mouse.released = Object.create(null);
                 state.keysPressed = Object.create(null);
+                state.keysPressedRaw = Object.create(null);
                 state.keysReleased = Object.create(null);
+                pruneUiButtons();
                 return api;
             },
 
@@ -3602,36 +5547,89 @@ function installGMRuntime(root, Phaser) {
             tick(time, delta) {
                 if (state.cleanedUp) return api;
                 state.frameId += 1;
-                beginRuntimePerfFrame(state);
                 state.currentTime = time;
-                state.deltaMs = delta;
+                const maxDelta = Number.isFinite(Number(cfg.maxFrameDeltaMs)) ? Number(cfg.maxFrameDeltaMs) : 100;
+                const clampedDelta = Math.min(Math.max(0, Number(delta) || 0), Math.max(0, maxDelta));
+                state.deltaMs = clampedDelta;
+                state.simulation.stepsThisFrame = 0;
+                beginRuntimePerfFrame(state, clampedDelta);
                 api.update_input_blocker();
+                try {
+                    // Consume the startup curtain before gameplay step code can
+                    // observe the same pointer press.
+                    if (cfg.curtain && api.curtain_active() && state.mouse.pressed[INPUT.mb_left]) {
+                        dismissCurtain(/** @type {any} */ (state), scene, cfg.curtainFadeMs, /** @type {any} */ (cfg), normalizeDelayMs);
+                    }
 
-                beginRuntimePerfSection(state, "step");
-                if (typeof cfg.step === "function") cfg.step(api, delta / 1000);
-                api.stepInstances();
-                endRuntimePerfSection(state, "step");
+                    beginRuntimePerfSection(state, "step");
+                    try {
+                        const simulationHz = Number(cfg.simulationHz) || 0;
+                        if (simulationHz > 0) {
+                            const stepMs = 1000 / simulationHz;
+                            const maxSteps = Math.max(1, Number(cfg.maxCatchUpSteps) || 5);
+                            state.simulation.fixedDeltaSec = stepMs / 1000;
+                            state.simulation.accumulatorMs += clampedDelta;
+                            let steps = 0;
+                            while (state.simulation.accumulatorMs >= stepMs && steps < maxSteps) {
+                                state.simulation.accumulatorMs -= stepMs;
+                                runGameStep(stepMs / 1000, "step");
+                                steps += 1;
+                            }
+                            if (steps >= maxSteps) state.simulation.accumulatorMs = 0;
+                            state.simulation.stepsThisFrame = steps;
+                            state.simulation.alpha = stepMs > 0 ? state.simulation.accumulatorMs / stepMs : 0;
+                        } else {
+                            state.simulation.fixedDeltaSec = 0;
+                            state.simulation.alpha = 0;
+                            runGameStep(clampedDelta / 1000, "step");
+                            state.simulation.stepsThisFrame = 1;
+                        }
+                    } finally {
+                        endRuntimePerfSection(state, "step");
+                        state.currentInstance = null;
+                    }
 
-                api.beginDraw();
+                    api.beginDraw();
 
-                beginRuntimePerfSection(state, "draw");
-                if (typeof cfg.draw === "function") cfg.draw(api);
-                selectWorldLayer("world", 0);
-                api.drawInstances();
-                endRuntimePerfSection(state, "draw");
+                    beginRuntimePerfSection(state, "draw");
+                    try {
+                        if (typeof cfg.draw === "function") cfg.draw(api);
+                        selectWorldLayer("world");
+                        api.drawInstances();
+                    } catch (error) {
+                        if (typeof cfg.onError === "function") {
+                            cfg.onError(error, { phase: "draw", frame: state.frameId, time: state.currentTime });
+                        }
+                        throw error;
+                    } finally {
+                        endRuntimePerfSection(state, "draw");
+                        state.currentInstance = null;
+                        selectWorldLayer("world");
+                    }
 
-                beginRuntimePerfSection(state, "ui");
-                if (typeof cfg.ui === "function") cfg.ui(api);
-                if (cfg.curtain) api.curtain(cfg.curtainText);
-                if (typeof cfg.gui === "function") cfg.gui(api);
-                endRuntimePerfSection(state, "ui");
+                    beginRuntimePerfSection(state, "ui");
+                    try {
+                        if (typeof cfg.ui === "function") cfg.ui(api);
+                        if (cfg.curtain) api.curtain(cfg.curtainText);
+                        if (typeof cfg.gui === "function") cfg.gui(api);
+                    } catch (error) {
+                        if (typeof cfg.onError === "function") {
+                            cfg.onError(error, { phase: "ui", frame: state.frameId, time: state.currentTime });
+                        }
+                        throw error;
+                    } finally {
+                        endRuntimePerfSection(state, "ui");
+                        state.currentInstance = null;
+                    }
 
-                // Preserve the legacy diagnostics surface while named layers own
-                // their own text pools internally.
-                worldLayers.publishTextDiagnostics();
-
-                api.endFrame();
-                finalizeRuntimePerfFrame(state);
+                    // Preserve the legacy diagnostics surface while named layers own
+                    // their own text pools internally.
+                    worldLayers.publishTextDiagnostics();
+                } finally {
+                    api.endFrame();
+                    finalizeRuntimePerfFrame(state);
+                    state.currentInstance = null;
+                }
                 return api;
             },
 
@@ -3714,6 +5712,14 @@ function installGMRuntime(root, Phaser) {
                 return drawRuntimeText(state, state.worldText, state.world, x, y, text);
             },
 
+            draw_text_ext(x, y, text, options) {
+                return drawRuntimeTextExt(state, state.worldText, state.world, x, y, text, options);
+            },
+
+            draw_text_fit(x, y, text, options) {
+                return drawRuntimeTextFit(state, state.worldText, state.world, x, y, text, options);
+            },
+
             draw_gui_rectangle(x1, y1, x2, y2, outline) {
                 drawRuntimeRectangle(state, state.screenGfx, x1, y1, x2, y2, outline);
                 return api;
@@ -3721,6 +5727,14 @@ function installGMRuntime(root, Phaser) {
 
             draw_gui_text(x, y, text) {
                 return drawRuntimeText(state, state.screenText, state.screen, x, y, text);
+            },
+
+            draw_gui_text_ext(x, y, text, options) {
+                return drawRuntimeTextExt(state, state.screenText, state.screen, x, y, text, options);
+            },
+
+            draw_gui_text_fit(x, y, text, options) {
+                return drawRuntimeTextFit(state, state.screenText, state.screen, x, y, text, options);
             },
 
             draw_sprite(key, frame, x, y) {
@@ -3763,8 +5777,22 @@ function installGMRuntime(root, Phaser) {
             },
 
             nineslice_window(x, y, w, h, options) {
-                const item = uiToolkit.createNineSliceObject(scene, x, y, w, h, options || {});
-                state.screen.add(item);
+                const panelOptions = options || {};
+                const index = state.uiPanelCursor++;
+                const signature = JSON.stringify(panelOptions);
+                let item = state.uiPanels[index];
+                if (!item || item.__gmNineSliceRuntimeSignature !== signature) {
+                    if (item && typeof item.destroy === "function") item.destroy(true);
+                    item = uiToolkit.createNineSliceObject(scene, x, y, w, h, panelOptions);
+                    item.__gmNineSliceRuntimeSignature = signature;
+                    state.uiPanels[index] = item;
+                    state.screen.add(item);
+                } else {
+                    item.setPosition?.(x, y);
+                    if (typeof item.setSize === "function") item.setSize(w, h);
+                    else if (typeof item.setDisplaySize === "function") item.setDisplaySize(w, h);
+                }
+                item.setVisible?.(true);
                 return item;
             },
 
@@ -3782,6 +5810,7 @@ function installGMRuntime(root, Phaser) {
 
             ui_set_theme(theme) {
                 uiToolkit.setTheme(theme);
+                destroyUiPanels("theme_change");
                 uiToolkit.ensureTextures(scene, true);
                 return api;
             },
@@ -3808,8 +5837,8 @@ function installGMRuntime(root, Phaser) {
                 return curtain_active(/** @type {any} */ (state));
             },
 
-            instance_create_layer(x, y, layer, objectDef) {
-                return createRuntimeInstance(state, api, x, y, layer, objectDef);
+            instance_create_layer(x, y, layer, objectDef, createVars) {
+                return createRuntimeInstance(state, api, x, y, layer, objectDef, createVars);
             },
 
             instance_destroy(inst) {
@@ -3835,14 +5864,21 @@ function installGMRuntime(root, Phaser) {
             },
 
             keyboard_check(key) {
+                if (api.input_blocked()) return false;
                 return !!state.keysDown[normalizeKey(key)];
             },
 
             keyboard_check_pressed(key) {
+                if (api.input_blocked()) return false;
                 return !!state.keysPressed[normalizeKey(key)];
             },
 
+            keyboard_check_pressed_raw(key) {
+                return !!state.keysPressedRaw[normalizeKey(key)];
+            },
+
             keyboard_check_released(key) {
+                if (api.input_blocked()) return false;
                 return !!state.keysReleased[normalizeKey(key)];
             },
 
@@ -3859,6 +5895,10 @@ function installGMRuntime(root, Phaser) {
             mouse_check_button_released(button) {
                 if (api.input_blocked()) return false;
                 return !!state.mouse.released[button || INPUT.mb_left];
+            },
+
+            mouse_check_button_pressed_raw(button) {
+                return !!state.mouse.pressed[button || INPUT.mb_left];
             },
 
             show_debug_message(message) {
@@ -3935,13 +5975,16 @@ function installGMRuntime(root, Phaser) {
         };
     }
 
-    const startGame = createGameStarter({ root, Phaser, makeScene, installGlobals });
+    const startGame = createGameStarter({ root, Phaser: PhaserLibrary, makeScene, installGlobals });
     GM.start = function start(
         /** @type {any} */
         config
     ) {
         if (GM._game) {
             throw new Error("GM.app.start cannot run while another GM game is active; destroy the current game first.");
+        }
+        if (config && config.randomSeed !== undefined && config.randomSeed !== null) {
+            mathApi.setSeed(config.randomSeed);
         }
         const game = startGame(config);
         GM._game = game;
@@ -3978,6 +6021,7 @@ function installGMRuntime(root, Phaser) {
     });
 
     /** @type {any} */ (root).GM = GM;
+    return GM;
 }
 
 

@@ -18,6 +18,14 @@
     },
     "./global": "./dist/gm-phaser4.global.js",
     "./global.min.js": "./dist/gm-phaser4.global.min.js",
+    "./grout13": {
+      "types": "./dist/grout13.d.ts",
+      "import": "./dist/gm-phaser4-grout13.module.js",
+      "default": "./dist/gm-phaser4-grout13.module.js"
+    },
+    "./grout13/global": "./dist/gm-phaser4-grout13.global.js",
+    "./grout13/global.min.js": "./dist/gm-phaser4-grout13.global.min.js",
+    "./legacy-globals": "./types/legacy-globals.d.ts",
     "./types": "./dist/gm-phaser4.d.ts",
     "./package.json": "./package.json"
   },
@@ -34,8 +42,11 @@
   },
   "scripts": {
     "build": "node scripts/build-runtime.mjs",
-    "verify": "npm run build && node scripts/test-runtime-package.mjs",
-    "pack:check": "npm run verify && npm pack --dry-run"
+    "verify:contract": "node scripts/test-runtime-package.mjs && node scripts/test-text-sprite-options.mjs && node scripts/test-grout13-bridge.mjs",
+    "verify:behavior": "node scripts/test-runtime-behavior.mjs",
+    "verify:soak": "node scripts/test-runtime-soak.mjs",
+    "verify": "npm run build && npm run verify:contract && npm run verify:behavior && npm run verify:soak",
+    "pack:check": "npm run verify && node scripts/pack-runtime.mjs"
   },
   "files": [
     "dist/",
@@ -49,6 +60,11 @@
   ],
   "peerDependencies": {
     "phaser": "^4.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10",
+    "playwright-core": "1.60.0",
+    "typescript": "5.8.3"
   },
   "keywords": [
     "phaser",

@@ -1,6 +1,6 @@
 // @ts-check
 
-import { consumeInputEvent } from "./input.js";
+import { consumeInputEvent, pointerGateKey } from "./input.js";
 import {
     point_in_rectangle,
     toColor,
@@ -70,6 +70,8 @@ export function createRuntimeButtonClass(Phaser) {
             this.id = id;
             this.hovered = false;
             this.down = false;
+            /** @type {string | null} */
+            this.activePointerId = null;
             this.pendingPress = false;
             this.activeUntil = 0;
             this.visualScale = 1;
@@ -123,6 +125,7 @@ export function createRuntimeButtonClass(Phaser) {
                 consumeInputEvent(pointer, event);
                 this.hovered = false;
                 this.down = false;
+                this.activePointerId = null;
             });
             this.hitZone.on("pointerdown", (
                 /** @type {unknown} */ pointer,
@@ -132,8 +135,11 @@ export function createRuntimeButtonClass(Phaser) {
             ) => {
                 consumeInputEvent(pointer, event);
                 if (this.api.input_blocked() || this.api.curtain_active()) return;
+                const pointerId = pointerGateKey(pointer);
+                if (this.down && this.activePointerId !== pointerId) return;
                 this.hovered = true;
                 this.down = true;
+                this.activePointerId = pointerId;
             });
             this.hitZone.on("pointerup", (
                 /** @type {unknown} */ pointer,
@@ -142,14 +148,29 @@ export function createRuntimeButtonClass(Phaser) {
                 /** @type {unknown} */ event
             ) => {
                 consumeInputEvent(pointer, event);
-                const canPress = this.down && !this.api.input_blocked() && !this.api.curtain_active();
+                const samePointer = this.activePointerId !== null && this.activePointerId === pointerGateKey(pointer);
+                if (!samePointer) return;
+                const canPress = samePointer && this.down && !this.api.input_blocked() && !this.api.curtain_active();
                 this.down = false;
+                this.activePointerId = null;
                 if (!canPress) return;
                 this.pendingPress = true;
                 const flashMs = Number(this.options.flashMs);
                 const flashDuration = Number.isFinite(flashMs) ? Math.max(0, flashMs) : 100;
                 this.activeUntil = this.state.currentTime + flashDuration;
             });
+            const cancelPointer = (
+                /** @type {unknown} */ pointer,
+                /** @type {unknown} */ localX,
+                /** @type {unknown} */ localY,
+                /** @type {unknown} */ event
+            ) => {
+                consumeInputEvent(pointer, event);
+                this.down = false;
+                this.activePointerId = null;
+            };
+            this.hitZone.on("pointercancel", cancelPointer);
+            this.hitZone.on("pointerupoutside", cancelPointer);
         }
 
         beginFrame() {
@@ -163,6 +184,7 @@ export function createRuntimeButtonClass(Phaser) {
             if (!wasConfiguredLastFrame) {
                 this.hovered = false;
                 this.down = false;
+                this.activePointerId = null;
                 this.pendingPress = false;
                 this.activeUntil = 0;
                 this.visualScale = 1;

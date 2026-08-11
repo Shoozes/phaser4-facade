@@ -3,18 +3,20 @@
 import {
     ALIGN,
     COLORS,
-    INPUT
+    INPUT,
+    RUNTIME_VERSION
 } from "./core/constants.js";
 import {
+    onRuntimeDomEvent,
     onRuntimeEvent,
     onceRuntimeEvent,
+    recordRuntimeCleanupError,
     runRuntimeCleanup
 } from "./core/cleanup.js";
 import { createMathApi } from "./core/math-api.js";
 import {
     buttonFromPointer,
     consumeInputEvent,
-    hasObjectKeys,
     normalizeDelayMs,
     normalizeKey,
     pointerGateKey
@@ -30,6 +32,8 @@ import {
     drawRuntimeSpriteExt,
     drawRuntimeStage,
     drawRuntimeText,
+    drawRuntimeTextExt,
+    drawRuntimeTextFit,
     resetRuntimeDrawState,
     setRuntimeDrawAlpha,
     setRuntimeDrawColor,
@@ -64,12 +68,12 @@ import { installFacadeNamespaces } from "./core/facade-namespaces.js";
 import { createGameStarter } from "./core/game-start.js";
 import { createLegacyGlobalInstaller } from "./core/legacy-globals.js";
 import { createRuntimeState } from "./core/runtime-state.js";
-import { curtain, curtain_active } from "./core/curtain.js";
+import { curtain, curtain_active, dismissCurtain } from "./core/curtain.js";
 import { logDebugMessage } from "./core/debug.js";
 
 /**
  * @typedef {typeof globalThis & Record<string, unknown> & { Phaser?: unknown, GM?: unknown }} RuntimeRoot
- * @typedef {{ Game: new (...args: any[]) => any, Scene: new (...args: any[]) => any, Scale?: Record<string, unknown> }} PhaserRuntime
+ * @typedef {{ Game: new (...args: any[]) => any, Scene: new (...args: any[]) => any, VERSION?: string, Scale?: Record<string, unknown> }} PhaserRuntime
  * @typedef {{ width: number, height: number, curtain?: boolean, [key: string]: any }} RuntimeConfig
  * @typedef {Record<string, any>} DynamicRecord
  * @typedef {object} RuntimeApi
@@ -99,6 +103,11 @@ import { logDebugMessage } from "./core/debug.js";
  * @property {(...args: any[]) => any} pause_input
  * @property {(...args: any[]) => any} consume_pointer
  * @property {(...args: any[]) => any} release_pointer
+ * @property {(...args: any[]) => any} get_pointer
+ * @property {(...args: any[]) => any} active_pointers
+ * @property {(...args: any[]) => any} capture_pointer
+ * @property {(...args: any[]) => any} release_pointer_id
+ * @property {(...args: any[]) => any} define_layer
  * @property {(...args: any[]) => any} begin_input_transition
  * @property {(...args: any[]) => any} clear_input_gate
  * @property {(...args: any[]) => any} beginDraw
@@ -147,10 +156,12 @@ import { logDebugMessage } from "./core/debug.js";
  * @property {(...args: any[]) => any} alarm_set
  * @property {(...args: any[]) => any} keyboard_check
  * @property {(...args: any[]) => any} keyboard_check_pressed
+ * @property {(...args: any[]) => any} keyboard_check_pressed_raw
  * @property {(...args: any[]) => any} keyboard_check_released
  * @property {(...args: any[]) => any} mouse_check_button
  * @property {(...args: any[]) => any} mouse_check_button_pressed
  * @property {(...args: any[]) => any} mouse_check_button_released
+ * @property {(...args: any[]) => any} mouse_check_button_pressed_raw
  * @property {(...args: any[]) => any} show_debug_message
  * @property {(...args: any[]) => any} tween
  * @property {(...args: any[]) => any} wait
@@ -160,28 +171,60 @@ import { logDebugMessage } from "./core/debug.js";
  */
 
 /**
+ * @param {any} Phaser
+ * @returns {PhaserRuntime}
+ */
+function validatePhaserLibrary(Phaser) {
+    if (!Phaser || typeof Phaser.Game !== "function" || typeof Phaser.Scene !== "function") {
+        throw new Error("GM runtime requires a Phaser library with Game and Scene constructors.");
+    }
+    return /** @type {PhaserRuntime} */ (Phaser);
+}
+
+/**
  * @param {RuntimeRoot} root
  * @param {PhaserRuntime} Phaser
+ * @returns {DynamicRecord}
  */
 export function installGMRuntime(root, Phaser) {
     "use strict";
 
-    if (!Phaser || typeof Phaser.Game !== "function") {
-        throw new Error("GM runtime requires Phaser before gm-phaser4.js loads.");
+    const PhaserLibrary = validatePhaserLibrary(Phaser);
+
+    const existing = /** @type {DynamicRecord | null} */ (root.GM || null);
+    if (existing && existing.__gmFacadeMarker === true) {
+        if (existing.version !== RUNTIME_VERSION) {
+            throw new Error(
+                `Incompatible GM facade already installed (found ${existing.version}, expected ${RUNTIME_VERSION}).`
+            );
+        }
+        if (existing.__phaserLibrary && existing.__phaserLibrary !== PhaserLibrary) {
+            throw new Error("GM facade already installed against a different Phaser instance.");
+        }
+        return existing;
+    }
+    if (existing && existing.__gmFacadeMarker !== true) {
+        throw new Error("root.GM is already occupied by an incompatible object.");
     }
 
-    root.Phaser = root.Phaser || Phaser;
+    if (root.Phaser && root.Phaser !== PhaserLibrary) {
+        throw new Error("GM runtime received a Phaser instance that conflicts with the host global Phaser.");
+    }
+    root.Phaser = PhaserLibrary;
 
     /** @type {DynamicRecord} */
     const GM = {
-        version: "0.1.0",
+        version: RUNTIME_VERSION,
+        phaserVersion: PhaserLibrary.VERSION || "unknown",
+        __gmFacadeMarker: true,
+        __phaserLibrary: PhaserLibrary,
         _active: null,
         _game: null,
         _globalsInstalled: false,
         _globalsDisposer: null
     };
     const uiToolkit = createUiToolkit();
-    const GMButtonObject = createRuntimeButtonClass(Phaser);
+    const GMButtonObject = createRuntimeButtonClass(PhaserLibrary);
     const mathApi = createMathApi();
 
     /**
@@ -245,6 +288,175 @@ export function installGMRuntime(root, Phaser) {
         const worldLayers = createWorldLayerManager(scene, state);
         const selectWorldLayer = worldLayers.select;
 
+        function suppressHeldKeys() {
+            for (const key of Object.keys(state.keysDown)) {
+                if (state.keysDown[key]) state.suppressedKeys[key] = true;
+            }
+            state.keysDown = Object.create(null);
+            state.keysPressed = Object.create(null);
+            state.keysPressedRaw = Object.create(null);
+            state.keysReleased = Object.create(null);
+        }
+
+        function clearTransientInput() {
+            state.mouse.down = Object.create(null);
+            state.mouse.pressed = Object.create(null);
+            state.mouse.released = Object.create(null);
+            state.keysDown = Object.create(null);
+            state.keysPressed = Object.create(null);
+            state.keysPressedRaw = Object.create(null);
+            state.keysReleased = Object.create(null);
+            state.physicalKeysDown = Object.create(null);
+            state.suppressedKeys = Object.create(null);
+            if (state.pointers instanceof Map) {
+                for (const pointer of state.pointers.values()) {
+                    pointer.active = false;
+                    pointer.down = false;
+                }
+            }
+        }
+
+        function recoverInputFocus() {
+            state.inputGate.capturedPointers = Object.create(null);
+            state.inputGate.transitions = 0;
+            state.inputGate.pausedUntil = 0;
+            clearTransientInput();
+            if (state.pointers instanceof Map) state.pointers.clear();
+            if (api && typeof api.update_input_blocker === "function") api.update_input_blocker();
+        }
+
+        /**
+         * @param {string | boolean | undefined} owner
+         */
+        function captureBlocksGameplay(owner) {
+            if (owner === true || owner === undefined || owner === null) return true;
+            const channel = String(owner);
+            return channel === "modal" ||
+                channel === "button" ||
+                channel === "system" ||
+                channel === "transition" ||
+                channel === "gameplay";
+        }
+
+        function hasBlockingPointerCapture() {
+            for (const owner of Object.values(state.inputGate.capturedPointers || {})) {
+                if (captureBlocksGameplay(/** @type {any} */ (owner))) return true;
+            }
+            return false;
+        }
+
+        /**
+         * @param {any} pointer
+         * @param {{ down?: boolean, released?: boolean }} [flags]
+         */
+        function trackPointer(pointer, flags = {}) {
+            if (!pointer) return null;
+            const id = pointerGateKey(pointer);
+            const scale = state.layout.scale || 1;
+            const resolution = state.render.resolution || 1;
+            const screenX = Number(pointer.x) / resolution;
+            const screenY = Number(pointer.y) / resolution;
+            const roomX = (screenX - state.layout.x) / scale;
+            const roomY = (screenY - state.layout.y) / scale;
+            let record = state.pointers.get(id);
+            if (!record) {
+                record = {
+                    id,
+                    screenX,
+                    screenY,
+                    x: roomX,
+                    y: roomY,
+                    startX: roomX,
+                    startY: roomY,
+                    button: buttonFromPointer(pointer),
+                    down: false,
+                    active: true,
+                    owner: null,
+                    downTime: state.currentTime
+                };
+                state.pointers.set(id, record);
+            } else {
+                record.screenX = screenX;
+                record.screenY = screenY;
+                record.x = roomX;
+                record.y = roomY;
+                record.button = buttonFromPointer(pointer);
+                record.active = true;
+            }
+            if (flags.down === true) {
+                if (!record.down) {
+                    record.startX = roomX;
+                    record.startY = roomY;
+                    record.downTime = state.currentTime;
+                }
+                record.down = true;
+            }
+            if (flags.released === true) {
+                record.down = false;
+                record.active = false;
+            }
+            return record;
+        }
+
+        function pruneUiButtons() {
+            for (const [id, button] of Array.from(state.uiButtons.entries())) {
+                if (Number(button.configuredFrame || 0) === Number(state.frameId || 0)) continue;
+                try {
+                    if (typeof button.destroy === "function") button.destroy(true);
+                } catch (error) {
+                    recordRuntimeCleanupError(state, error, "button_prune", "end_frame");
+                }
+                state.uiButtons.delete(id);
+            }
+        }
+
+        /**
+         * @param {number} deltaSec
+         * @param {string} phase
+         */
+        function runGameStep(deltaSec, phase) {
+            try {
+                if (typeof cfg.step === "function") cfg.step(api, deltaSec);
+                api.stepInstances();
+            } catch (error) {
+                if (typeof cfg.onError === "function") {
+                    cfg.onError(error, {
+                        phase,
+                        frame: state.frameId,
+                        time: state.currentTime,
+                        instanceId: state.currentInstance ? state.currentInstance.id : null,
+                        objectDefinition: state.currentInstance ? state.currentInstance.object_index : null
+                    });
+                }
+                throw error;
+            } finally {
+                state.currentInstance = null;
+            }
+        }
+
+        function hideUiPanels() {
+            state.uiPanelCursor = 0;
+            for (const panel of state.uiPanels) {
+                if (panel && typeof panel.setVisible === "function") panel.setVisible(false);
+            }
+        }
+
+        /**
+         * @param {string | undefined} reason
+         */
+        function destroyUiPanels(reason) {
+            const panels = state.uiPanels.slice();
+            state.uiPanels = [];
+            state.uiPanelCursor = 0;
+            for (const panel of panels) {
+                try {
+                    if (panel && typeof panel.destroy === "function") panel.destroy(true);
+                } catch (error) {
+                    recordRuntimeCleanupError(state, error, "panel_destroy", reason || "panel_reset");
+                }
+            }
+        }
+
         /** @type {RuntimeApi} */
         const api = {
             state,
@@ -269,25 +481,43 @@ export function installGMRuntime(root, Phaser) {
                 if (!runRuntimeCleanup(state, reason || "cleanup")) return api;
 
                 for (const modal of state.modals.slice()) {
-                    if (typeof modal.close === "function") {
-                        modal.close(reason || "cleanup");
-                    } else if (typeof modal.destroy === "function") {
-                        modal.destroy(reason || "cleanup");
+                    try {
+                        if (typeof modal.destroy === "function") modal.destroy(reason || "cleanup");
+                    } catch (error) {
+                        recordRuntimeCleanupError(state, error, "modal_destroy", reason || "cleanup");
                     }
                 }
+                state.modals = [];
 
                 for (const inst of state.instances.slice()) {
-                    destroyRuntimeInstance(state, api, inst);
+                    try {
+                        destroyRuntimeInstance(state, api, inst);
+                    } catch (error) {
+                        recordRuntimeCleanupError(state, error, "instance_destroy", reason || "cleanup");
+                    }
                 }
                 state.instances = [];
 
                 for (const buttonObject of state.uiButtons.values()) {
-                    if (buttonObject && typeof buttonObject.destroy === "function") buttonObject.destroy();
+                    try {
+                        if (buttonObject && typeof buttonObject.destroy === "function") buttonObject.destroy();
+                    } catch (error) {
+                        recordRuntimeCleanupError(state, error, "button_destroy", reason || "cleanup");
+                    }
                 }
                 state.uiButtons.clear();
+                destroyUiPanels(reason || "cleanup");
 
-                if (state.world && typeof state.world.destroy === "function") state.world.destroy(true);
-                if (state.screen && typeof state.screen.destroy === "function") state.screen.destroy(true);
+                try {
+                    if (state.world && typeof state.world.destroy === "function") state.world.destroy(true);
+                } catch (error) {
+                    recordRuntimeCleanupError(state, error, "world_destroy", reason || "cleanup");
+                }
+                try {
+                    if (state.screen && typeof state.screen.destroy === "function") state.screen.destroy(true);
+                } catch (error) {
+                    recordRuntimeCleanupError(state, error, "screen_destroy", reason || "cleanup");
+                }
                 state.world = null;
                 state.screen = null;
                 state.worldGfx = null;
@@ -320,9 +550,17 @@ export function installGMRuntime(root, Phaser) {
                  * @param {any} localX
                  * @param {any} localY
                  * @param {any} event
-                 */
+                */
                 const onBlockerPointerDown = (pointer, localX, localY, event) => {
                     consumeInputEvent(pointer, event);
+                    if (api.curtain_active()) {
+                        api.updatePointer(pointer);
+                        const button = buttonFromPointer(pointer);
+                        state.mouse.down[button] = true;
+                        state.mouse.pressed[button] = true;
+                        api.consume_pointer(undefined, pointer, true);
+                        return;
+                    }
                     api.consume_pointer(undefined, pointer);
                 };
                 /**
@@ -330,10 +568,10 @@ export function installGMRuntime(root, Phaser) {
                  * @param {any} localX
                  * @param {any} localY
                  * @param {any} event
-                 */
+                */
                 const onBlockerPointerUp = (pointer, localX, localY, event) => {
                     consumeInputEvent(pointer, event);
-                    api.release_pointer(pointer);
+                    api.release_pointer(pointer, undefined, api.curtain_active());
                 };
                 onRuntimeEvent(state, state.inputBlocker, "pointerdown", onBlockerPointerDown);
                 onRuntimeEvent(state, state.inputBlocker, "pointerup", onBlockerPointerUp);
@@ -350,7 +588,7 @@ export function installGMRuntime(root, Phaser) {
                     scene.input.topOnly = true;
                 }
 
-                onRuntimeEvent(state, scene.scale, "resize", () => api.layout());
+                onRuntimeEvent(state, scene.scale, "resize", () => api.layout("phaser-scale-resize"));
 
                 onRuntimeEvent(state, scene.input, "pointermove", (
                     /** @param {any} pointer */
@@ -359,12 +597,19 @@ export function installGMRuntime(root, Phaser) {
                 onRuntimeEvent(state, scene.input, "pointerdown", (
                     /** @param {any} pointer */
                     (pointer) => {
+                    trackPointer(pointer, { down: true });
                     api.updatePointer(pointer);
-                    if (api.input_blocked()) {
-                        api.consume_pointer(undefined, pointer);
+                    const button = buttonFromPointer(pointer);
+                    if (api.curtain_active()) {
+                        state.mouse.down[button] = true;
+                        state.mouse.pressed[button] = true;
+                        api.consume_pointer(undefined, pointer, true, "system");
                         return;
                     }
-                    const button = buttonFromPointer(pointer);
+                    if (api.input_blocked()) {
+                        api.consume_pointer(undefined, pointer, false, "system");
+                        return;
+                    }
                     state.mouse.down[button] = true;
                     state.mouse.pressed[button] = true;
                     }
@@ -372,22 +617,53 @@ export function installGMRuntime(root, Phaser) {
                 onRuntimeEvent(state, scene.input, "pointerup", (
                     /** @param {any} pointer */
                     (pointer) => {
+                    trackPointer(pointer, { released: true });
                     api.updatePointer(pointer);
-                    if (api.input_blocked()) {
-                        api.release_pointer(pointer);
-                        return;
-                    }
                     const button = buttonFromPointer(pointer);
                     state.mouse.down[button] = false;
                     state.mouse.released[button] = true;
+                    if (api.input_blocked()) {
+                        api.release_pointer(pointer, undefined, api.curtain_active());
+                        return;
+                    }
                     }
                 ));
+                onRuntimeEvent(state, scene.input, "pointerupoutside", (
+                    /** @param {any} pointer */
+                    (pointer) => {
+                    trackPointer(pointer, { released: true });
+                    api.updatePointer(pointer);
+                    const button = buttonFromPointer(pointer);
+                    state.mouse.down[button] = false;
+                    state.mouse.released[button] = true;
+                    api.release_pointer(pointer, undefined, true);
+                    }
+                ));
+                onRuntimeEvent(state, scene.input, "pointercancel", (
+                    /** @param {any} pointer */
+                    (pointer) => {
+                    if (pointer) {
+                        trackPointer(pointer, { released: true });
+                        api.release_pointer(pointer, undefined, true);
+                    } else {
+                        recoverInputFocus();
+                    }
+                    }
+                ));
+                onRuntimeEvent(state, scene.input, "gameout", () => recoverInputFocus());
 
                 if (scene.input.keyboard) {
                     onRuntimeEvent(state, scene.input.keyboard, "keydown", (
                         /** @param {any} event */
                         (event) => {
                         const key = normalizeKey(event);
+                        if (!state.physicalKeysDown[key]) state.keysPressedRaw[key] = true;
+                        state.physicalKeysDown[key] = true;
+                        if (api.input_blocked()) {
+                            state.suppressedKeys[key] = true;
+                            state.keysDown[key] = false;
+                            return;
+                        }
                         if (!state.keysDown[key]) state.keysPressed[key] = true;
                         state.keysDown[key] = true;
                         }
@@ -397,21 +673,39 @@ export function installGMRuntime(root, Phaser) {
                         /** @param {any} event */
                         (event) => {
                         const key = normalizeKey(event);
+                        delete state.physicalKeysDown[key];
+                        if (state.suppressedKeys[key]) {
+                            delete state.suppressedKeys[key];
+                            state.keysDown[key] = false;
+                            return;
+                        }
                         state.keysDown[key] = false;
                         state.keysReleased[key] = true;
                         }
                     ));
                 }
 
+                onRuntimeDomEvent(state, root, "blur", () => recoverInputFocus());
+                const documentTarget = /** @type {any} */ (root).document;
+                onRuntimeDomEvent(state, documentTarget, "visibilitychange", () => {
+                    if (documentTarget.hidden) {
+                        recoverInputFocus();
+                        return;
+                    }
+                    // Drop accumulated simulation time after backgrounding so catch-up
+                    // cannot explode when the tab becomes visible again.
+                    state.simulation.accumulatorMs = 0;
+                });
+
                 onceRuntimeEvent(state, scene.events, "shutdown", () => api.cleanup("scene_shutdown"));
                 onceRuntimeEvent(state, scene.events, "destroy", () => api.cleanup("scene_destroy"));
 
-                api.layout();
+                api.layout("mount");
                 return api;
             },
 
-            layout() {
-                const render = syncRenderResolution(scene, state, cfg, /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (root)));
+            layout(source = "api") {
+                const render = syncRenderResolution(scene, state, cfg, /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (root)), source);
                 const resolution = render.resolution || 1;
                 const w = render.cssWidth || scene.scale.width;
                 const h = render.cssHeight || scene.scale.height;
@@ -445,23 +739,21 @@ export function installGMRuntime(root, Phaser) {
             },
 
             updatePointer(pointer) {
-                const scale = state.layout.scale || 1;
-                const resolution = state.render.resolution || 1;
-                const screenX = pointer.x / resolution;
-                const screenY = pointer.y / resolution;
-
-                state.mouse.screenX = screenX;
-                state.mouse.screenY = screenY;
-                state.mouse.x = (screenX - state.layout.x) / scale;
-                state.mouse.y = (screenY - state.layout.y) / scale;
+                const record = trackPointer(pointer);
+                if (!record) return api;
+                state.mouse.screenX = record.screenX;
+                state.mouse.screenY = record.screenY;
+                state.mouse.x = record.x;
+                state.mouse.y = record.y;
                 return api;
             },
 
             input_blocked() {
                 return state.modals.length > 0 ||
                     state.inputGate.transitions > 0 ||
-                    hasObjectKeys(state.inputGate.capturedPointers) ||
-                    state.currentTime < state.inputGate.pausedUntil;
+                    hasBlockingPointerCapture() ||
+                    state.currentTime < state.inputGate.pausedUntil ||
+                    curtain_active(/** @type {any} */ (state));
             },
 
             update_input_blocker() {
@@ -477,23 +769,82 @@ export function installGMRuntime(root, Phaser) {
                 return api;
             },
 
-            pause_input(ms) {
+            pause_input(ms, preservePointerState) {
                 const blockMs = normalizeDelayMs(ms, 120, 0);
                 state.inputGate.pausedUntil = Math.max(state.inputGate.pausedUntil, state.currentTime + blockMs);
-                api.clear_pointer_state();
+                suppressHeldKeys();
+                if (!preservePointerState) api.clear_pointer_state();
                 api.update_input_blocker();
                 return api;
             },
 
-            consume_pointer(ms, pointer) {
-                if (pointer) state.inputGate.capturedPointers[pointerGateKey(pointer)] = true;
-                api.pause_input(ms);
+            consume_pointer(ms, pointer, preservePointerState, owner) {
+                if (pointer) {
+                    const id = pointerGateKey(pointer);
+                    const channel = owner === undefined || owner === null ? "system" : owner;
+                    state.inputGate.capturedPointers[id] = channel === true ? "system" : String(channel);
+                    const record = trackPointer(pointer, { down: true });
+                    if (record) record.owner = state.inputGate.capturedPointers[id];
+                }
+                api.pause_input(ms, preservePointerState);
                 return api;
             },
 
-            release_pointer(pointer, ms) {
-                if (pointer) delete state.inputGate.capturedPointers[pointerGateKey(pointer)];
-                api.pause_input(ms);
+            release_pointer(pointer, ms, preservePointerState, owner) {
+                if (pointer) {
+                    const id = pointerGateKey(pointer);
+                    const current = state.inputGate.capturedPointers[id];
+                    if (owner === undefined || owner === null || !current || current === String(owner) || owner === true) {
+                        delete state.inputGate.capturedPointers[id];
+                    }
+                    trackPointer(pointer, { released: true });
+                }
+                api.pause_input(ms, preservePointerState);
+                return api;
+            },
+
+            get_pointer(id) {
+                if (id === undefined || id === null) return null;
+                return state.pointers.get(String(id)) || null;
+            },
+
+            active_pointers() {
+                return Array.from(state.pointers.values()).filter((pointer) => pointer && pointer.active);
+            },
+
+            capture_pointer(id, owner) {
+                const key = String(id);
+                const channel = owner === undefined || owner === null ? "system" : String(owner);
+                state.inputGate.capturedPointers[key] = channel;
+                const record = state.pointers.get(key);
+                if (record) record.owner = channel;
+                api.update_input_blocker();
+                return api;
+            },
+
+            release_pointer_id(id, owner) {
+                const key = String(id);
+                const current = state.inputGate.capturedPointers[key];
+                if (owner === undefined || owner === null || !current || current === String(owner)) {
+                    delete state.inputGate.capturedPointers[key];
+                }
+                const record = state.pointers.get(key);
+                if (record) {
+                    record.owner = null;
+                    record.down = false;
+                    record.active = false;
+                }
+                api.update_input_blocker();
+                return api;
+            },
+
+            define_layer(name, depth) {
+                const layerName = String(name || "").trim();
+                if (!layerName) throw new TypeError("GM.layer.define requires a non-empty layer name.");
+                const layerDepth = Number(depth);
+                if (!Number.isFinite(layerDepth)) throw new TypeError("GM.layer.define requires a finite depth.");
+                state.layerRegistry.set(layerName, layerDepth);
+                worldLayers.ensure(layerName, layerDepth);
                 return api;
             },
 
@@ -511,19 +862,17 @@ export function installGMRuntime(root, Phaser) {
             },
 
             clear_input_gate() {
-                state.inputGate.capturedPointers = Object.create(null);
-                state.inputGate.transitions = 0;
-                api.clear_pointer_state();
-                api.update_input_blocker();
+                recoverInputFocus();
                 return api;
             },
 
             beginDraw() {
                 worldLayers.beginFrame();
                 state.screenGfx.clear();
+                hideUiPanels();
                 for (const button of state.uiButtons.values()) button.beginFrame();
                 state.screenText.begin();
-                selectWorldLayer("world", 0);
+                selectWorldLayer("world");
                 api.resetDrawState();
 
                 if (cfg.stage) {
@@ -537,7 +886,9 @@ export function installGMRuntime(root, Phaser) {
                 state.mouse.pressed = Object.create(null);
                 state.mouse.released = Object.create(null);
                 state.keysPressed = Object.create(null);
+                state.keysPressedRaw = Object.create(null);
                 state.keysReleased = Object.create(null);
+                pruneUiButtons();
                 return api;
             },
 
@@ -564,36 +915,89 @@ export function installGMRuntime(root, Phaser) {
             tick(time, delta) {
                 if (state.cleanedUp) return api;
                 state.frameId += 1;
-                beginRuntimePerfFrame(state);
                 state.currentTime = time;
-                state.deltaMs = delta;
+                const maxDelta = Number.isFinite(Number(cfg.maxFrameDeltaMs)) ? Number(cfg.maxFrameDeltaMs) : 100;
+                const clampedDelta = Math.min(Math.max(0, Number(delta) || 0), Math.max(0, maxDelta));
+                state.deltaMs = clampedDelta;
+                state.simulation.stepsThisFrame = 0;
+                beginRuntimePerfFrame(state, clampedDelta);
                 api.update_input_blocker();
+                try {
+                    // Consume the startup curtain before gameplay step code can
+                    // observe the same pointer press.
+                    if (cfg.curtain && api.curtain_active() && state.mouse.pressed[INPUT.mb_left]) {
+                        dismissCurtain(/** @type {any} */ (state), scene, cfg.curtainFadeMs, /** @type {any} */ (cfg), normalizeDelayMs);
+                    }
 
-                beginRuntimePerfSection(state, "step");
-                if (typeof cfg.step === "function") cfg.step(api, delta / 1000);
-                api.stepInstances();
-                endRuntimePerfSection(state, "step");
+                    beginRuntimePerfSection(state, "step");
+                    try {
+                        const simulationHz = Number(cfg.simulationHz) || 0;
+                        if (simulationHz > 0) {
+                            const stepMs = 1000 / simulationHz;
+                            const maxSteps = Math.max(1, Number(cfg.maxCatchUpSteps) || 5);
+                            state.simulation.fixedDeltaSec = stepMs / 1000;
+                            state.simulation.accumulatorMs += clampedDelta;
+                            let steps = 0;
+                            while (state.simulation.accumulatorMs >= stepMs && steps < maxSteps) {
+                                state.simulation.accumulatorMs -= stepMs;
+                                runGameStep(stepMs / 1000, "step");
+                                steps += 1;
+                            }
+                            if (steps >= maxSteps) state.simulation.accumulatorMs = 0;
+                            state.simulation.stepsThisFrame = steps;
+                            state.simulation.alpha = stepMs > 0 ? state.simulation.accumulatorMs / stepMs : 0;
+                        } else {
+                            state.simulation.fixedDeltaSec = 0;
+                            state.simulation.alpha = 0;
+                            runGameStep(clampedDelta / 1000, "step");
+                            state.simulation.stepsThisFrame = 1;
+                        }
+                    } finally {
+                        endRuntimePerfSection(state, "step");
+                        state.currentInstance = null;
+                    }
 
-                api.beginDraw();
+                    api.beginDraw();
 
-                beginRuntimePerfSection(state, "draw");
-                if (typeof cfg.draw === "function") cfg.draw(api);
-                selectWorldLayer("world", 0);
-                api.drawInstances();
-                endRuntimePerfSection(state, "draw");
+                    beginRuntimePerfSection(state, "draw");
+                    try {
+                        if (typeof cfg.draw === "function") cfg.draw(api);
+                        selectWorldLayer("world");
+                        api.drawInstances();
+                    } catch (error) {
+                        if (typeof cfg.onError === "function") {
+                            cfg.onError(error, { phase: "draw", frame: state.frameId, time: state.currentTime });
+                        }
+                        throw error;
+                    } finally {
+                        endRuntimePerfSection(state, "draw");
+                        state.currentInstance = null;
+                        selectWorldLayer("world");
+                    }
 
-                beginRuntimePerfSection(state, "ui");
-                if (typeof cfg.ui === "function") cfg.ui(api);
-                if (cfg.curtain) api.curtain(cfg.curtainText);
-                if (typeof cfg.gui === "function") cfg.gui(api);
-                endRuntimePerfSection(state, "ui");
+                    beginRuntimePerfSection(state, "ui");
+                    try {
+                        if (typeof cfg.ui === "function") cfg.ui(api);
+                        if (cfg.curtain) api.curtain(cfg.curtainText);
+                        if (typeof cfg.gui === "function") cfg.gui(api);
+                    } catch (error) {
+                        if (typeof cfg.onError === "function") {
+                            cfg.onError(error, { phase: "ui", frame: state.frameId, time: state.currentTime });
+                        }
+                        throw error;
+                    } finally {
+                        endRuntimePerfSection(state, "ui");
+                        state.currentInstance = null;
+                    }
 
-                // Preserve the legacy diagnostics surface while named layers own
-                // their own text pools internally.
-                worldLayers.publishTextDiagnostics();
-
-                api.endFrame();
-                finalizeRuntimePerfFrame(state);
+                    // Preserve the legacy diagnostics surface while named layers own
+                    // their own text pools internally.
+                    worldLayers.publishTextDiagnostics();
+                } finally {
+                    api.endFrame();
+                    finalizeRuntimePerfFrame(state);
+                    state.currentInstance = null;
+                }
                 return api;
             },
 
@@ -676,6 +1080,14 @@ export function installGMRuntime(root, Phaser) {
                 return drawRuntimeText(state, state.worldText, state.world, x, y, text);
             },
 
+            draw_text_ext(x, y, text, options) {
+                return drawRuntimeTextExt(state, state.worldText, state.world, x, y, text, options);
+            },
+
+            draw_text_fit(x, y, text, options) {
+                return drawRuntimeTextFit(state, state.worldText, state.world, x, y, text, options);
+            },
+
             draw_gui_rectangle(x1, y1, x2, y2, outline) {
                 drawRuntimeRectangle(state, state.screenGfx, x1, y1, x2, y2, outline);
                 return api;
@@ -683,6 +1095,14 @@ export function installGMRuntime(root, Phaser) {
 
             draw_gui_text(x, y, text) {
                 return drawRuntimeText(state, state.screenText, state.screen, x, y, text);
+            },
+
+            draw_gui_text_ext(x, y, text, options) {
+                return drawRuntimeTextExt(state, state.screenText, state.screen, x, y, text, options);
+            },
+
+            draw_gui_text_fit(x, y, text, options) {
+                return drawRuntimeTextFit(state, state.screenText, state.screen, x, y, text, options);
             },
 
             draw_sprite(key, frame, x, y) {
@@ -725,8 +1145,22 @@ export function installGMRuntime(root, Phaser) {
             },
 
             nineslice_window(x, y, w, h, options) {
-                const item = uiToolkit.createNineSliceObject(scene, x, y, w, h, options || {});
-                state.screen.add(item);
+                const panelOptions = options || {};
+                const index = state.uiPanelCursor++;
+                const signature = JSON.stringify(panelOptions);
+                let item = state.uiPanels[index];
+                if (!item || item.__gmNineSliceRuntimeSignature !== signature) {
+                    if (item && typeof item.destroy === "function") item.destroy(true);
+                    item = uiToolkit.createNineSliceObject(scene, x, y, w, h, panelOptions);
+                    item.__gmNineSliceRuntimeSignature = signature;
+                    state.uiPanels[index] = item;
+                    state.screen.add(item);
+                } else {
+                    item.setPosition?.(x, y);
+                    if (typeof item.setSize === "function") item.setSize(w, h);
+                    else if (typeof item.setDisplaySize === "function") item.setDisplaySize(w, h);
+                }
+                item.setVisible?.(true);
                 return item;
             },
 
@@ -744,6 +1178,7 @@ export function installGMRuntime(root, Phaser) {
 
             ui_set_theme(theme) {
                 uiToolkit.setTheme(theme);
+                destroyUiPanels("theme_change");
                 uiToolkit.ensureTextures(scene, true);
                 return api;
             },
@@ -770,8 +1205,8 @@ export function installGMRuntime(root, Phaser) {
                 return curtain_active(/** @type {any} */ (state));
             },
 
-            instance_create_layer(x, y, layer, objectDef) {
-                return createRuntimeInstance(state, api, x, y, layer, objectDef);
+            instance_create_layer(x, y, layer, objectDef, createVars) {
+                return createRuntimeInstance(state, api, x, y, layer, objectDef, createVars);
             },
 
             instance_destroy(inst) {
@@ -797,14 +1232,21 @@ export function installGMRuntime(root, Phaser) {
             },
 
             keyboard_check(key) {
+                if (api.input_blocked()) return false;
                 return !!state.keysDown[normalizeKey(key)];
             },
 
             keyboard_check_pressed(key) {
+                if (api.input_blocked()) return false;
                 return !!state.keysPressed[normalizeKey(key)];
             },
 
+            keyboard_check_pressed_raw(key) {
+                return !!state.keysPressedRaw[normalizeKey(key)];
+            },
+
             keyboard_check_released(key) {
+                if (api.input_blocked()) return false;
                 return !!state.keysReleased[normalizeKey(key)];
             },
 
@@ -821,6 +1263,10 @@ export function installGMRuntime(root, Phaser) {
             mouse_check_button_released(button) {
                 if (api.input_blocked()) return false;
                 return !!state.mouse.released[button || INPUT.mb_left];
+            },
+
+            mouse_check_button_pressed_raw(button) {
+                return !!state.mouse.pressed[button || INPUT.mb_left];
             },
 
             show_debug_message(message) {
@@ -897,13 +1343,16 @@ export function installGMRuntime(root, Phaser) {
         };
     }
 
-    const startGame = createGameStarter({ root, Phaser, makeScene, installGlobals });
+    const startGame = createGameStarter({ root, Phaser: PhaserLibrary, makeScene, installGlobals });
     GM.start = function start(
         /** @type {any} */
         config
     ) {
         if (GM._game) {
             throw new Error("GM.app.start cannot run while another GM game is active; destroy the current game first.");
+        }
+        if (config && config.randomSeed !== undefined && config.randomSeed !== null) {
+            mathApi.setSeed(config.randomSeed);
         }
         const game = startGame(config);
         GM._game = game;
@@ -940,4 +1389,5 @@ export function installGMRuntime(root, Phaser) {
     });
 
     /** @type {any} */ (root).GM = GM;
+    return GM;
 }

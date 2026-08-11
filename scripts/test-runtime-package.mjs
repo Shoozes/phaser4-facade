@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { assertPackageExportTargets } from "./package-export-contracts.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE_ROOT = ROOT;
@@ -35,7 +36,7 @@ function assertSyntax(relativePath) {
 function assertNoUnresolvedRuntimeAliases(relativePath) {
     const filePath = path.join(PACKAGE_ROOT, relativePath);
     const source = fs.readFileSync(filePath, "utf8");
-    if (/\bnormalizeDelayMsFromInput\b/.test(source)) {
+    if (/\b(?:normalizeDelayMsFromInput|computeModalInputBlockMs)\b/.test(source)) {
         fail(`generated runtime artifact contains an unresolved imported alias: ${relativePath}`);
     }
 }
@@ -88,8 +89,14 @@ if (pkg.publishConfig?.access !== "public") fail("facade package must publish wi
 if (pkg.repository?.url !== "git+https://github.com/Shoozes/phaser4-facade.git") {
     fail("facade package repository must point at the public phaser4-facade repository.");
 }
+const constantsSource = fs.readFileSync(path.join(PACKAGE_ROOT, "src", "core", "constants.js"), "utf8");
+const runtimeVersion = constantsSource.match(/RUNTIME_VERSION\s*=\s*["']([^"']+)["']/)?.[1];
+if (!runtimeVersion || runtimeVersion !== pkg.version) {
+    fail(`package version ${pkg.version} must match runtime RUNTIME_VERSION ${runtimeVersion || "<missing>"}.`);
+}
+assertPackageExportTargets(PACKAGE_ROOT, "source runtime package");
 
-const requiredExports = [".", "./global", "./global.min.js", "./types", "./package.json"];
+const requiredExports = [".", "./global", "./global.min.js", "./grout13", "./grout13/global", "./grout13/global.min.js", "./legacy-globals", "./types", "./package.json"];
 for (const exportName of requiredExports) {
     if (!pkg.exports?.[exportName]) fail(`facade package missing export: ${exportName}`);
 }
@@ -99,13 +106,18 @@ for (const relativePath of [
     "README.md",
     "SKILL.md",
     "llms.txt",
+    "types/legacy-globals.d.ts",
     "docs/getting-started.md",
     "docs/how-to-procedural-ui.md",
     "examples/README.md",
     "dist/gm-phaser4.module.js",
     "dist/gm-phaser4.global.js",
     "dist/gm-phaser4.global.min.js",
-    "dist/gm-phaser4.d.ts"
+    "dist/gm-phaser4.d.ts",
+    "dist/gm-phaser4-grout13.module.js",
+    "dist/gm-phaser4-grout13.global.js",
+    "dist/gm-phaser4-grout13.global.min.js",
+    "dist/grout13.d.ts"
 ]) {
     requireFile(relativePath);
 }
@@ -124,8 +136,50 @@ for (const artifact of [
     assertNoUnresolvedRuntimeAliases(artifact);
 }
 
+for (const artifact of [
+    "dist/gm-phaser4-grout13.module.js",
+    "dist/gm-phaser4-grout13.global.js",
+    "dist/gm-phaser4-grout13.global.min.js"
+]) {
+    assertSyntax(artifact);
+}
+
+for (const artifact of [
+    "dist/gm-phaser4.module.js",
+    "dist/gm-phaser4.global.js",
+    "dist/gm-phaser4.global.min.js"
+]) {
+    const source = fs.readFileSync(path.join(PACKAGE_ROOT, artifact), "utf8");
+    if (source.includes("GROUT13") || source.includes("installGrout13Bridge")) {
+        fail(`${artifact} must remain independent of Grout13.`);
+    }
+}
+
 assertNoImageAssets("examples");
 assertNoImageAssets("docs");
 assertNoImageReferences("examples");
 assertNoImageReferences("docs");
+const typeResult = spawnSync(process.execPath, [path.join(ROOT, "scripts", "test-runtime-types.mjs")], {
+    cwd: ROOT,
+    encoding: "utf8"
+});
+if (typeResult.status !== 0) {
+    fail(`runtime package TypeScript consumer contract failed:\n${typeResult.stdout || typeResult.stderr}`);
+}
+
+const fixtureRoot = path.join(PACKAGE_ROOT, "tests", "browser");
+for (const relativePath of [
+    "tests/browser/index.html",
+    "tests/browser/boot.js",
+    "tests/browser/behavioral-fixture.js",
+    "tests/runtime/README.md",
+    "docs/gm-compatibility-matrix.md"
+]) {
+    requireFile(relativePath);
+}
+if (!fs.existsSync(path.join(fixtureRoot, "index.html"))) {
+    fail("runtime package is missing browser behavioral fixture entry.");
+}
+
 console.log("[ok] Public phaser4-facade package contract passed.");
+console.log("[info] Behavioral matrix is stage 2: node scripts/test-runtime-behavior.mjs");

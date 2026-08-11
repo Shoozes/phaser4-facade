@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GM Phaser 4 Runtime Qualification</title>
+    <style>
+        html, body, #game {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #111;
+            overflow: hidden;
+        }
+        canvas { display: block; }
+        #status {
+            position: fixed;
+            left: 8px;
+            top: 8px;
+            z-index: 10;
+            color: #9f9;
+            font: 12px/1.4 monospace;
+            pointer-events: none;
+            white-space: pre-wrap;
+            max-width: 90vw;
+        }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "phaser": "/vendor/phaser.esm.js"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="status">booting…</div>
+    <div id="game"></div>
+    <script type="module" src="./boot.js"></script>
+</body>
+</html>

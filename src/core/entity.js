@@ -1,5 +1,7 @@
 // @ts-check
 
+import { ALARM_COUNT } from "./constants.js";
+
 /**
  * @param {any} state
  * @param {any} api
@@ -7,11 +9,12 @@
  */
 export function stepRuntimeAlarms(state, api, inst) {
     if (!inst.alarm) return;
-    for (let i = 0; i < inst.alarm.length; i += 1) {
-        if (inst.alarm[i] === undefined || inst.alarm[i] < 0) continue;
+    for (let i = 0; i < ALARM_COUNT; i += 1) {
+        const current = Number(inst.alarm[i]);
+        if (!Number.isFinite(current) || current < 0) continue;
         const setFrame = inst.__alarmSetFrame && inst.__alarmSetFrame[i] !== undefined ? inst.__alarmSetFrame[i] : -1;
         if (setFrame === state.stepFrame) continue;
-        if (inst.alarm[i] > 0) inst.alarm[i] -= 1;
+        if (current > 0) inst.alarm[i] = current - 1;
         if (inst.alarm[i] === 0) {
             const fn = inst["alarm" + i];
             inst.alarm[i] = -1;
@@ -28,15 +31,19 @@ export function stepRuntimeAlarms(state, api, inst) {
 export function stepRuntimeInstances(state, api) {
     state.stepFrame = (state.stepFrame || 0) + 1;
     const snapshot = state.instances.slice();
-    for (const inst of snapshot) {
-        if (!inst.__active) continue;
-        state.currentInstance = inst;
-        if (typeof inst.step === "function") inst.step.call(inst, api);
-        if (!inst.__active) continue;
-        stepRuntimeAlarms(state, api, inst);
+    try {
+        for (const inst of snapshot) {
+            if (!inst.__active) continue;
+            state.currentInstance = inst;
+            // GameMaker alarms are evaluated at the start of an instance step.
+            stepRuntimeAlarms(state, api, inst);
+            if (!inst.__active) continue;
+            if (typeof inst.step === "function") inst.step.call(inst, api);
+        }
+    } finally {
+        state.currentInstance = null;
+        state.instances = state.instances.filter((/** @type {any} */ inst) => inst.__active);
     }
-    state.currentInstance = null;
-    state.instances = state.instances.filter((/** @type {any} */ inst) => inst.__active);
 }
 
 /**
@@ -45,12 +52,31 @@ export function stepRuntimeInstances(state, api) {
  */
 export function drawRuntimeInstances(state, api) {
     const snapshot = state.instances.slice();
-    for (const inst of snapshot) {
-        if (!inst.__active || inst.visible === false) continue;
-        state.currentInstance = inst;
-        if (typeof inst.draw === "function") inst.draw.call(inst, api);
+    const previousLayer = state.activeWorldLayer || "world";
+    try {
+        for (const inst of snapshot) {
+            if (!inst.__active || inst.visible === false) continue;
+            const layerName = inst.layer || "Instances";
+            const depth = Number.isFinite(Number(inst.layerDepth))
+                ? Number(inst.layerDepth)
+                : (state.layerRegistry instanceof Map && state.layerRegistry.has(layerName)
+                    ? state.layerRegistry.get(layerName)
+                    : undefined);
+            if (typeof api.render_layer === "function") api.render_layer(layerName, depth);
+            state.currentInstance = inst;
+            try {
+                if (typeof inst.draw === "function") inst.draw.call(inst, api);
+            } finally {
+                state.currentInstance = null;
+                if (typeof api.render_layer === "function") api.render_layer(previousLayer);
+            }
+        }
+    } finally {
+        state.currentInstance = null;
+        if (typeof api.render_layer === "function" && state.activeWorldLayer !== previousLayer) {
+            api.render_layer(previousLayer);
+        }
     }
-    state.currentInstance = null;
 }
 
 /**
@@ -60,25 +86,49 @@ export function drawRuntimeInstances(state, api) {
  * @param {number} y
  * @param {string} layer
  * @param {any} objectDef
+ * @param {Record<string, unknown> | null | undefined} [createVars]
  */
-export function createRuntimeInstance(state, api, x, y, layer, objectDef) {
+export function createRuntimeInstance(state, api, x, y, layer, objectDef, createVars) {
     const source = objectDef || {};
     const inst = Object.assign({}, source);
     inst.id = state.nextInstanceId++;
     inst.object_index = objectDef;
     inst.x = x;
     inst.y = y;
-    inst.layer = layer || "Instances";
+    const layerName = layer || "Instances";
+    if (state.layerRegistry instanceof Map && state.layerRegistry.size > 0 && !state.layerRegistry.has(layerName)) {
+        // Unknown names are still allowed, but registered depths are applied when known.
+    }
+    inst.layer = layerName;
+    if (state.layerRegistry instanceof Map && state.layerRegistry.has(layerName)) {
+        inst.layerDepth = state.layerRegistry.get(layerName);
+    }
     inst.visible = inst.visible !== false;
     inst.__active = true;
-    inst.__alarmSetFrame = [];
-    inst.alarm = Array.isArray(inst.alarm) ? inst.alarm.slice() : [];
+    inst.__alarmSetFrame = Array(ALARM_COUNT).fill(-1);
+    const sourceAlarm = Array.isArray(inst.alarm) ? inst.alarm : [];
+    inst.alarm = Array.from({ length: ALARM_COUNT }, (_, index) => {
+        const value = Number(sourceAlarm[index]);
+        return Number.isFinite(value) ? value : -1;
+    });
+
+    // GameMaker creation structs are applied before the Create event.
+    if (createVars && typeof createVars === "object") {
+        Object.assign(inst, createVars);
+    }
 
     state.instances.push(inst);
 
     state.currentInstance = inst;
-    if (typeof inst.create === "function") inst.create.call(inst, api);
-    state.currentInstance = null;
+    try {
+        if (typeof inst.create === "function") inst.create.call(inst, api);
+    } catch (error) {
+        inst.__active = false;
+        state.instances = state.instances.filter((/** @type {any} */ item) => item !== inst);
+        throw error;
+    } finally {
+        state.currentInstance = null;
+    }
 
     return inst;
 }
@@ -133,9 +183,18 @@ export function findRuntimeInstance(state, objectDef, index) {
 export function setRuntimeAlarm(state, index, frames, inst) {
     const target = inst || state.currentInstance;
     if (!target) return;
+    const numericIndex = Number(index);
+    if (!Number.isInteger(numericIndex) || numericIndex < 0 || numericIndex >= ALARM_COUNT) return;
     const numericFrames = Number(frames);
-    const nextFrames = Number.isFinite(numericFrames) ? Math.floor(numericFrames) : -1;
-    target.alarm[index] = nextFrames < 0 ? -1 : nextFrames;
-    target.__alarmSetFrame = Array.isArray(target.__alarmSetFrame) ? target.__alarmSetFrame : [];
-    target.__alarmSetFrame[index] = state.stepFrame || 0;
+    const nextFrames = Number.isFinite(numericFrames) && numericFrames >= 0
+        ? Math.round(numericFrames)
+        : -1;
+    if (!Array.isArray(target.alarm) || target.alarm.length !== ALARM_COUNT) {
+        target.alarm = Array.from({ length: ALARM_COUNT }, (_, alarmIndex) => Number(target.alarm?.[alarmIndex]) || -1);
+    }
+    target.alarm[numericIndex] = nextFrames;
+    target.__alarmSetFrame = Array.isArray(target.__alarmSetFrame) && target.__alarmSetFrame.length === ALARM_COUNT
+        ? target.__alarmSetFrame
+        : Array(ALARM_COUNT).fill(-1);
+    target.__alarmSetFrame[numericIndex] = state.stepFrame || 0;
 }

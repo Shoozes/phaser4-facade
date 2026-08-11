@@ -26,9 +26,24 @@ function installGlobalAccessors(target, GM) {
     for (const [name, getter] of Object.entries(getters)) {
         Object.defineProperty(target, name, {
             configurable: true,
+            enumerable: true,
             get: getter
         });
     }
+}
+
+/**
+ * @param {PropertyDescriptor | undefined} left
+ * @param {PropertyDescriptor | undefined} right
+ */
+function descriptorsMatch(left, right) {
+    if (!left || !right) return left === right;
+    return left.value === right.value &&
+        left.get === right.get &&
+        left.set === right.set &&
+        left.enumerable === right.enumerable &&
+        left.configurable === right.configurable &&
+        left.writable === right.writable;
 }
 
 /**
@@ -55,7 +70,6 @@ export function createLegacyGlobalInstaller(deps) {
 
     return function installGlobals() {
         if (GM._globalsInstalled) return GM._globalsDisposer || (() => {});
-        GM._globalsInstalled = true;
 
         const values = Object.assign({}, COLORS, ALIGN, INPUT, {
             clamp: math.clamp,
@@ -141,20 +155,51 @@ export function createLegacyGlobalInstaller(deps) {
 
         const names = [...Object.keys(values), ...ACCESSOR_NAMES];
         const previousDescriptors = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(root, name)]));
-        Object.assign(root, values);
+        for (const [name, descriptor] of previousDescriptors) {
+            if (descriptor && descriptor.configurable === false) {
+                throw new TypeError(`Cannot install legacy global '${name}' over a non-configurable host property.`);
+            }
+        }
 
-        installGlobalAccessors(root, GM);
+        /** @type {Map<string, PropertyDescriptor>} */
+        const installedDescriptors = new Map();
+        try {
+            for (const [name, value] of Object.entries(values)) {
+                Object.defineProperty(root, name, {
+                    configurable: true,
+                    enumerable: true,
+                    writable: true,
+                    value
+                });
+            }
+            installGlobalAccessors(root, GM);
+            for (const name of names) {
+                const descriptor = Object.getOwnPropertyDescriptor(root, name);
+                if (descriptor) installedDescriptors.set(name, descriptor);
+            }
+        } catch (error) {
+            for (const [name, descriptor] of previousDescriptors) {
+                if (descriptor) Object.defineProperty(root, name, descriptor);
+                else delete root[name];
+            }
+            throw error;
+        }
+
         let restored = false;
         GM._globalsDisposer = () => {
             if (restored) return;
             restored = true;
             for (const [name, descriptor] of previousDescriptors) {
+                const current = Object.getOwnPropertyDescriptor(root, name);
+                const installed = installedDescriptors.get(name);
+                if (!descriptorsMatch(current, installed)) continue;
                 if (descriptor) Object.defineProperty(root, name, descriptor);
                 else delete root[name];
             }
             GM._globalsInstalled = false;
             GM._globalsDisposer = null;
         };
+        GM._globalsInstalled = true;
         return GM._globalsDisposer;
     };
 }

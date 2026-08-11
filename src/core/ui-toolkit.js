@@ -1,6 +1,6 @@
 // @ts-check
 
-import { consumeInputEvent } from "./input.js";
+import { consumeInputEvent, pointerGateKey } from "./input.js";
 import { toColor } from "./math.js";
 
 /** @typedef {Record<string, any>} PlainObject */
@@ -21,8 +21,8 @@ const DEFAULT_UI_THEME = {
         shadow: "rgba(0, 0, 0, 0.45)",
         shadowBlur: 10,
         shadowOffsetY: 4,
-        fallbackFill: 0x24466f,
-        fallbackStroke: 0x76b8f3,
+        fallbackFill: "#24466f",
+        fallbackStroke: "#76b8f3",
         slice: 18
     },
     button: {
@@ -37,8 +37,8 @@ const DEFAULT_UI_THEME = {
         innerStroke: "#7a3f17",
         innerStrokeWidth: 2,
         textColor: "#3a210d",
-        hoverTint: 0xfff0ba,
-        downTint: 0xffd071,
+        hoverTint: "#fff0ba",
+        downTint: "#ffd071",
         slice: 18
     },
     modal: {
@@ -307,9 +307,28 @@ export function createUiToolkit() {
             resolution: options.resolution || 1
         }).setOrigin(0.5);
         const hitZone = scene.add.zone(0, 0, w, h).setOrigin(0.5);
+        /** @type {string | null} */
+        let activePointerId = null;
 
         container.add([back, text, hitZone]);
         container.setSize(w, h);
+        /**
+         * @param {unknown} nextWidth
+         * @param {unknown} nextHeight
+         * @param {unknown} nextTextSize
+         */
+        container.__gmLayout = (nextWidth, nextHeight, nextTextSize) => {
+            const width = Math.max(1, Number(nextWidth) || 1);
+            const height = Math.max(1, Number(nextHeight) || 1);
+            container.setSize(width, height);
+            if (typeof back.setSize === "function") back.setSize(width, height);
+            else if (typeof back.setDisplaySize === "function") back.setDisplaySize(width, height);
+            if (typeof hitZone.setSize === "function") hitZone.setSize(width, height);
+            if (Number.isFinite(Number(nextTextSize)) && typeof text.setFontSize === "function") {
+                text.setFontSize(`${Number(nextTextSize)}px`);
+            }
+            return container;
+        };
         hitZone.setInteractive();
         hitZone.input.cursor = "pointer";
 
@@ -354,6 +373,9 @@ export function createUiToolkit() {
          */
         const onPointerDown = (pointer, localX, localY, event) => {
             consumeInputEvent(pointer, event);
+            const pointerId = pointerGateKey(pointer);
+            if (activePointerId !== null && activePointerId !== pointerId) return;
+            activePointerId = pointerId;
             if (typeof options.onPointerDown === "function") options.onPointerDown(pointer);
             tweenButton(downScale, downTint, 70, "Quad.Out");
         };
@@ -365,6 +387,9 @@ export function createUiToolkit() {
          */
         const onPointerUp = (pointer, localX, localY, event) => {
             consumeInputEvent(pointer, event);
+            const samePointer = activePointerId !== null && activePointerId === pointerGateKey(pointer);
+            if (!samePointer) return;
+            activePointerId = null;
             if (typeof options.onPointerUp === "function") options.onPointerUp(pointer);
             tweenButton(hoverScale, hoverTint, 90, "Back.Out");
             if (typeof onPress === "function") onPress(pointer);
@@ -377,6 +402,7 @@ export function createUiToolkit() {
          */
         const onPointerOut = (pointer, localX, localY, event) => {
             consumeInputEvent(pointer, event);
+            activePointerId = null;
             if (typeof options.onPointerCancel === "function") options.onPointerCancel(pointer);
             tweenButton(1, normalTint, 90, "Back.Out");
         };
@@ -385,6 +411,8 @@ export function createUiToolkit() {
         hitZone.on("pointerdown", onPointerDown);
         hitZone.on("pointerup", onPointerUp);
         hitZone.on("pointerout", onPointerOut);
+        hitZone.on("pointercancel", onPointerOut);
+        hitZone.on("pointerupoutside", onPointerOut);
         return container;
     }
 

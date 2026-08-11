@@ -25,6 +25,7 @@
  *   _stepStartedAt: number,
  *   _drawStartedAt: number,
  *   _uiStartedAt: number,
+ *   _frameDeltaMs: number,
  *   _labels: Map<string, number>
  * }} RuntimePerfState
  */
@@ -86,20 +87,23 @@ export function createRuntimePerfState() {
         _stepStartedAt: 0,
         _drawStartedAt: 0,
         _uiStartedAt: 0,
+        _frameDeltaMs: 0,
         _labels: new Map()
     };
 }
 
 /**
  * @param {any} state
+ * @param {number} [deltaMs]
  */
-export function beginRuntimePerfFrame(state) {
+export function beginRuntimePerfFrame(state, deltaMs) {
     const perf = /** @type {RuntimePerfState | null | undefined} */ (state?.perf);
     if (!perf?.enabled) return;
     perf.counts = createCounts();
     perf.topLabels = [];
     perf._labels.clear();
     perf._frameStartedAt = nowMs();
+    perf._frameDeltaMs = Number.isFinite(Number(deltaMs)) ? Math.max(0, Number(deltaMs)) : 0;
     perf.frame.stepMs = 0;
     perf.frame.drawMs = 0;
     perf.frame.uiMs = 0;
@@ -164,7 +168,8 @@ export function finalizeRuntimePerfFrame(state) {
     if (!perf?.enabled) return;
     const elapsed = Math.max(0, nowMs() - perf._frameStartedAt);
     perf.frame.totalMs = elapsed;
-    perf.frame.fpsEstimate = elapsed > 0 ? 1000 / elapsed : 0;
+    // This is frame cadence, not the reciprocal of facade CPU work.
+    perf.frame.fpsEstimate = perf._frameDeltaMs > 0 ? 1000 / perf._frameDeltaMs : 0;
     perf.topLabels = Array.from(perf._labels.entries())
         .sort((a, b) => b[1] - a[1])
         .slice(0, 12)

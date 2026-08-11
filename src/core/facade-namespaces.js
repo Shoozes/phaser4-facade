@@ -1,5 +1,15 @@
 // @ts-check
 
+import {
+    addAtlasTexture,
+    addCanvasTexture,
+    addRgbaTexture,
+    removeTexture,
+    textureExists,
+    textureFrameExists
+} from "./assets.js";
+import { createVirtualStick } from "./virtual-stick.js";
+
 /**
  * @typedef {{
  *   GM: Record<string, any> & {
@@ -100,6 +110,14 @@ export function installFacadeNamespaces(deps) {
     defineReadonly(runtime, "currentTime", () => activeOrNull() ? GM._active.current_time : 0);
     defineReadonly(runtime, "deltaMs", () => activeOrNull() ? GM._active.delta_time : 0);
     defineReadonly(runtime, "deltaSec", () => activeOrNull() ? GM._active.delta_sec : 0);
+    defineReadonly(runtime, "simulationAlpha", () => {
+        const activeRuntime = activeOrNull();
+        return activeRuntime ? Number(activeRuntime.state.simulation?.alpha || 0) : 0;
+    });
+    defineReadonly(runtime, "simulationSteps", () => {
+        const activeRuntime = activeOrNull();
+        return activeRuntime ? Number(activeRuntime.state.simulation?.stepsThisFrame || 0) : 0;
+    });
     defineReadonly(GM, "perf", () => {
         const perf = activeOrNull() ? GM._active.state.perf : null;
         if (!perf?.enabled) return null;
@@ -123,39 +141,63 @@ export function installFacadeNamespaces(deps) {
         circle: function () { return callActive("draw_circle", arguments); },
         line: function () { return callActive("draw_line", arguments); },
         text: function () { return callActive("draw_text", arguments); },
+        textExt: function () { return callActive("draw_text_ext", arguments); },
+        textFit: function () { return callActive("draw_text_fit", arguments); },
         sprite: function () { return callActive("draw_sprite", arguments); },
         spriteExt: function () { return callActive("draw_sprite_ext", arguments); }
     };
 
     const gui = {
         rect: function () { return callActive("draw_gui_rectangle", arguments); },
-        text: function () { return callActive("draw_gui_text", arguments); }
+        text: function () { return callActive("draw_gui_text", arguments); },
+        textExt: function () { return callActive("draw_gui_text_ext", arguments); },
+        textFit: function () { return callActive("draw_gui_text_fit", arguments); }
     };
 
     const input = Object.assign({}, INPUT, {
         keyDown: function () { return callActive("keyboard_check", arguments); },
         keyPressed: function () { return callActive("keyboard_check_pressed", arguments); },
+        keyPressedRaw: function () { return callActive("keyboard_check_pressed_raw", arguments); },
         keyReleased: function () { return callActive("keyboard_check_released", arguments); },
         pointerDown: function () { return callActive("mouse_check_button", arguments); },
         pointerPressed: function () { return callActive("mouse_check_button_pressed", arguments); },
-        pointerReleased: function () { return callActive("mouse_check_button_released", arguments); }
+        pointerReleased: function () { return callActive("mouse_check_button_released", arguments); },
+        getPointer: function () { return callActive("get_pointer", arguments); },
+        activePointers: function () { return callActive("active_pointers", arguments); },
+        capturePointer: function () { return callActive("capture_pointer", arguments); },
+        releasePointer: function () { return callActive("release_pointer_id", arguments); },
+        /**
+         * @param {any} options
+         */
+        createVirtualStick(options) {
+            return createVirtualStick(options, {
+                capturePointer(id, owner) {
+                    return active().capture_pointer(id, owner);
+                },
+                releasePointer(id, owner) {
+                    return active().release_pointer_id(id, owner);
+                }
+            });
+        }
     });
 
     const entity = {
         /**
          * @param {unknown} objectDef
-         * @param {{ x?: unknown, y?: unknown, layer?: string, name?: unknown }} [options]
+         * @param {{ x?: unknown, y?: unknown, layer?: string, name?: unknown, vars?: Record<string, unknown> }} [options]
          */
         spawn(objectDef, options) {
             options = options || {};
-            const inst = active().instance_create_layer(
+            /** @type {Record<string, unknown>} */
+            const createVars = Object.assign({}, options.vars || {});
+            if (options.name !== undefined) createVars.name = options.name;
+            return active().instance_create_layer(
                 options.x === undefined ? 0 : options.x,
                 options.y === undefined ? 0 : options.y,
                 options.layer || "Instances",
-                objectDef
+                objectDef,
+                createVars
             );
-            if (options.name !== undefined) inst.name = options.name;
-            return inst;
         },
         spawnLayer: function () { return callActive("instance_create_layer", arguments); },
         destroy: function () { return callActive("instance_destroy", arguments); },
@@ -164,10 +206,64 @@ export function installFacadeNamespaces(deps) {
         find: function () { return callActive("instance_find", arguments); }
     };
 
+    const layer = {
+        define: function () { return callActive("define_layer", arguments); }
+    };
+
     const asset = {
         loadImage: function () { return callActive("load_sprite", arguments); },
         loadSound: function () { return callActive("load_sound", arguments); },
-        loadSheet: function () { return callActive("load_spritesheet", arguments); }
+        loadSheet: function () { return callActive("load_spritesheet", arguments); },
+        /**
+         * @param {string} key
+         * @param {HTMLCanvasElement | OffscreenCanvas} canvas
+         * @param {{ replace?: boolean }} [options]
+         */
+        addCanvas(key, canvas, options) {
+            return addCanvasTexture(active().scene, key, canvas, options);
+        },
+        /**
+         * @param {string} key
+         * @param {number} width
+         * @param {number} height
+         * @param {ArrayLike<number> | ArrayBufferView} rgba
+         * @param {{ replace?: boolean }} [options]
+         */
+        addRgba(key, width, height, rgba, options) {
+            return addRgbaTexture(active().scene, key, width, height, rgba, options);
+        },
+        /**
+         * @param {string} key
+         * @param {HTMLCanvasElement | OffscreenCanvas | string} source
+         * @param {unknown} frames
+         * @param {{ replace?: boolean }} [options]
+         */
+        addAtlas(key, source, frames, options) {
+            return addAtlasTexture(active().scene, key, source, frames, options);
+        },
+        /**
+         * @param {string} key
+         */
+        remove(key) {
+            return removeTexture(active().scene, key);
+        },
+        /**
+         * @param {string} key
+         */
+        exists(key) {
+            const activeRuntime = activeOrNull();
+            if (!activeRuntime) return false;
+            return textureExists(activeRuntime.scene, key);
+        },
+        /**
+         * @param {string} key
+         * @param {string | number} frame
+         */
+        frameExists(key, frame) {
+            const activeRuntime = activeOrNull();
+            if (!activeRuntime) return false;
+            return textureFrameExists(activeRuntime.scene, key, frame);
+        }
     };
 
     const audio = {
@@ -184,12 +280,11 @@ export function installFacadeNamespaces(deps) {
          * @param {unknown} theme
          */
         setTheme(theme) {
-            uiToolkit.setTheme(theme);
             const activeRuntime = activeOrNull();
             if (activeRuntime) {
-                uiToolkit.ensureTextures(activeRuntime.scene, true);
-                return activeRuntime;
+                return activeRuntime.ui_set_theme(theme);
             }
+            uiToolkit.setTheme(theme);
             return GM;
         },
         getTheme() {
@@ -243,6 +338,7 @@ export function installFacadeNamespaces(deps) {
     GM.gui = gui;
     GM.input = input;
     GM.entity = entity;
+    GM.layer = layer;
     GM.asset = asset;
     GM.audio = audio;
     GM.ui = ui;
