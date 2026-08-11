@@ -87,8 +87,9 @@ npm run pack:check
 ```
 
 `verify` builds the core and bridge artifacts, checks package exports and
-syntax, runs text/sprite and bridge contract tests, compiles TypeScript
-consumers, runs the packed browser matrix, and runs the deterministic soak.
+syntax, checks deterministic dist reproducibility, runs text/sprite and bridge
+contract tests, compiles TypeScript consumers, runs the packed browser matrix,
+and runs the deterministic soak.
 The repository is locally qualified; npm publication, tags, and hosted CI are
 separate release decisions.
 

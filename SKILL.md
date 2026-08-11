@@ -54,7 +54,8 @@ The package build is generated from `src/` and checked in two stages:
 1. `scripts/test-runtime-package.mjs` — package shape, syntax, types, fixture presence
 2. `scripts/test-runtime-behavior.mjs` — packed consumer install + browser matrix
    (module/global/minified × WebGL/Canvas × Phaser 4.1.0 and 4.2.1)
+3. `scripts/test-runtime-reproducibility.mjs` — deterministic dist drift check
 
-Run `npm run verify` from this package for both stages. Browser fixtures live
+Run `npm run verify` from this package for all stages. Browser fixtures live
 under `tests/browser/`. The host template remains the integration consumer and
 must continue to pass the repository verification gate.

@@ -43,9 +43,10 @@
   "scripts": {
     "build": "node scripts/build-runtime.mjs",
     "verify:contract": "node scripts/test-runtime-package.mjs && node scripts/test-text-sprite-options.mjs && node scripts/test-grout13-bridge.mjs",
+    "verify:repro": "node scripts/test-runtime-reproducibility.mjs",
     "verify:behavior": "node scripts/test-runtime-behavior.mjs",
     "verify:soak": "node scripts/test-runtime-soak.mjs",
-    "verify": "npm run build && npm run verify:contract && npm run verify:behavior && npm run verify:soak",
+    "verify": "npm run build && npm run verify:contract && npm run verify:repro && npm run verify:behavior && npm run verify:soak",
     "pack:check": "npm run verify && node scripts/pack-runtime.mjs"
   },
   "files": [

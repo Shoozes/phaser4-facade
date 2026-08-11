@@ -13,3 +13,4 @@
 - docs/migrations/0.2.0.md: compatibility notes for the promoted runtime.
 - docs/text-and-sprite-options.md: extended text, text-fit, and sprite option contracts.
 - examples/fruit-shot.html: focused cross-feature procedural proof.
+- scripts/test-runtime-reproducibility.mjs: deterministic dist drift check.
