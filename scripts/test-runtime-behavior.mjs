@@ -23,7 +23,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE_ROOT = ROOT;
 const FIXTURE_ROOT = path.join(PACKAGE_ROOT, "tests", "browser");
 const FRONTEND_ROOT = ROOT;
-const WORK_ROOT = path.join(ROOT, "runtime-data", "runtime-behavior");
+const WORK_ROOT_BASE = path.join(ROOT, "runtime-data", "runtime-behavior");
+const WORK_ROOT = process.argv.includes("--skip-install")
+    ? WORK_ROOT_BASE
+    : path.join(WORK_ROOT_BASE, `run-${Date.now()}-${process.pid}`);
 const CACHE_ROOT = path.join(WORK_ROOT, "cache");
 const NPM_CACHE = path.join(ROOT, "runtime-data", "npm-cache");
 const DEFAULT_START_PORT = 4310;
@@ -58,6 +61,17 @@ function ensureDir(dirPath) {
 function rimraf(target) {
     fs.rmSync(target, { recursive: true, force: true });
 }
+
+function cleanupWorkRoot() {
+    if (WORK_ROOT === WORK_ROOT_BASE || !fs.existsSync(WORK_ROOT)) return;
+    try {
+        fs.rmSync(WORK_ROOT, { recursive: true, force: true });
+    } catch (error) {
+        console.warn(`[warn] Runtime behavior cleanup deferred for ${path.relative(ROOT, WORK_ROOT)}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+process.on("exit", cleanupWorkRoot);
 
 function copyFile(from, to) {
     ensureDir(path.dirname(to));
