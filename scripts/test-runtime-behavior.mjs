@@ -31,6 +31,7 @@ const CACHE_ROOT = path.join(WORK_ROOT, "cache");
 const NPM_CACHE = path.join(ROOT, "runtime-data", "npm-cache");
 const DEFAULT_START_PORT = 4310;
 const PAGE_TIMEOUT_MS = 20000;
+const NPM_TIMEOUT_MS = 120000;
 
 const PHASER_VERSIONS = ["4.1.0", "4.2.1"];
 const ARTIFACTS = ["module", "global", "global.min"];
@@ -108,8 +109,13 @@ function runNpm(args, cwd, label) {
             npm_config_fund: "false",
             npm_config_update_notifier: "false",
             npm_config_progress: "false"
-        }
+        },
+        timeout: NPM_TIMEOUT_MS,
+        killSignal: "SIGTERM"
     });
+    if (result.error?.code === "ETIMEDOUT" || result.signal) {
+        fail(`${label} timed out after ${NPM_TIMEOUT_MS}ms.`);
+    }
     if (result.status !== 0) {
         fail(`${label} failed:\n${result.stdout || ""}\n${result.stderr || ""}`);
     }
