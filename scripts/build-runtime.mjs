@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
 import { minifyJavaScript } from "./runtime-minifier.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -12,8 +13,6 @@ const DIST_DIR = path.join(ROOT, "dist");
 const TYPES_SOURCE = path.join(ROOT, "types", "gm-phaser4.d.ts");
 const PACKAGE_JSON = path.join(ROOT, "package.json");
 
-const CORE_IMPORT = /^\s*import\s+\{\s*installGMRuntime\s*\}\s+from\s+["']\.\/gm-phaser4\.js["'];?\s*$/m;
-const LOCAL_IMPORT = /^\s*import\s+\{[\s\S]*?\}\s+from\s+["'](\.\/[^"']+\.js)["'];?\s*$/gm;
 const PHASER_DEFAULT_IMPORT = 'import Phaser from "phaser"';
 const PHASER_NS_IMPORT = /import\s+\*\s+as\s+\w+\s+from\s+["']phaser["']/;
 
@@ -36,63 +35,20 @@ function normalizeLineEndings(text) {
     return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
-function stripCoreImport(entryPoint) {
-    if (!CORE_IMPORT.test(entryPoint)) {
-        throw new Error("module entry point must import installGMRuntime from ./gm-phaser4.js.");
-    }
-    return entryPoint.replace(CORE_IMPORT, "").trim();
-}
-
-function stripExports(source) {
-    return source
-        .replace(/^\s*export\s+(const|let|var|class)\s+/gm, "$1 ")
-        .replace(/^\s*export\s+function\s+/gm, "function ")
-        .replace(/^\s*export\s+\{[\s\S]*?\};?\s*$/gm, "")
-        .replace(/^\s*export\s+default\s+/gm, "");
-}
-
-function inlineRuntimeImports(filePath, seen = new Set()) {
-    const normalized = normalizeLineEndings(read(filePath));
-    let prelude = "";
-    const withoutImports = normalized.replace(LOCAL_IMPORT, (match, specifier) => {
-        const dependency = path.resolve(path.dirname(filePath), specifier);
-        if (!dependency.startsWith(SRC_DIR)) {
-            throw new Error(`runtime build can only inline local source imports: ${specifier}`);
-        }
-        if (seen.has(dependency)) return "";
-        seen.add(dependency);
-        prelude += `${stripExports(inlineRuntimeImports(dependency, seen)).trim()}\n\n`;
-        return "";
-    });
-
-    return `${prelude}${withoutImports}`;
-}
-
-function bundleCore(core) {
-    const normalized = normalizeLineEndings(core);
-    if (!/^\s*export\s+function\s+installGMRuntime\s*\(/m.test(normalized)) {
-        throw new Error("runtime core must export installGMRuntime(root, Phaser).");
-    }
-    const bundled = normalized.replace(/^\s*export\s+function\s+installGMRuntime\s*\(/m, "function installGMRuntime(");
-    if (/\bimport\s+/.test(bundled) || /\bexport\s+/.test(bundled)) {
-        throw new Error("runtime bundle still contains import/export syntax after inlining local modules.");
-    }
-    return bundled;
-}
-
 function ensureNoPhaserImport(text, label) {
     ensure(!text.includes(PHASER_DEFAULT_IMPORT), `${label} must not default-import Phaser.`);
     ensure(!PHASER_NS_IMPORT.test(text), `${label} must not import Phaser directly.`);
 }
 
 function syncRuntimeVersion(source, version) {
-    if (!/export const RUNTIME_VERSION\s*=\s*["'][^"']+["']/.test(source) &&
-        !/const RUNTIME_VERSION\s*=\s*["'][^"']+["']/.test(source)) {
+    const pattern = /(?:export\s+)?(?:const|let|var)\s+RUNTIME_VERSION\s*=\s*["'][^"']+["']/;
+    if (!pattern.test(source)) {
         throw new Error("runtime constants are missing RUNTIME_VERSION.");
     }
-    return source
-        .replace(/export const RUNTIME_VERSION\s*=\s*["'][^"']+["']/, `export const RUNTIME_VERSION = "${version}"`)
-        .replace(/const RUNTIME_VERSION\s*=\s*["'][^"']+["']/, `const RUNTIME_VERSION = "${version}"`);
+    return source.replace(pattern, (match) => {
+        const declaration = match.match(/^(?:export\s+)?(?:const|let|var)/)?.[0] || "const";
+        return `${declaration} RUNTIME_VERSION = "${version}"`;
+    });
 }
 
 function buildArtifact(fileName, content) {
@@ -118,12 +74,56 @@ function checkInputs() {
 
     ensureNoPhaserImport(globalEntry, "src/index.global.js");
     ensureNoPhaserImport(coreEntry, "src/gm-phaser4.js");
-    ensure(CORE_IMPORT.test(moduleEntry), "src/index.module.js missing installGMRuntime import.");
     ensure(PHASER_NS_IMPORT.test(moduleEntry), "src/index.module.js must use import * as Phaser from \"phaser\".");
     ensure(!moduleEntry.includes(PHASER_DEFAULT_IMPORT), "source/runtime/gm-phaser4/src/index.module.js must not default-import Phaser.");
     ensure(globalEntry.includes("installGMRuntime(root, Phaser)"), "source/runtime/gm-phaser4/src/index.global.js should install the runtime after validating root.Phaser.");
-    ensure(moduleEntry.includes("export { installGMRuntime }"), "module entry must re-export installGMRuntime.");
-    ensure(moduleEntry.includes("export const GM"), "module entry must export installed GM.");
+    ensure(moduleEntry.includes("installGMRuntime"), "module entry must install and re-export the runtime.");
+}
+
+async function bundleWithEsbuild(contents, sourcefile, format, externalPhaser) {
+    const runtimeNamespace = "phaser4-facade-runtime";
+    const result = await build({
+        absWorkingDir: ROOT,
+        bundle: true,
+        format,
+        legalComments: "none",
+        platform: "browser",
+        plugins: [{
+            name: "local-runtime-source",
+            setup(pluginBuild) {
+                pluginBuild.onResolve({ filter: /.*/ }, (args) => {
+                    if (externalPhaser && args.path === "phaser") {
+                        return { external: true, path: args.path };
+                    }
+                    if (!args.path.startsWith(".")) return { external: true, path: args.path };
+                    const importer = path.isAbsolute(args.importer)
+                        ? args.importer
+                        : path.resolve(ROOT, args.importer || sourcefile);
+                    const resolved = path.resolve(path.dirname(importer), args.path);
+                    if (!resolved.startsWith(`${SRC_DIR}${path.sep}`)) {
+                        throw new Error(`runtime build cannot resolve outside src/: ${args.path}`);
+                    }
+                    return { namespace: runtimeNamespace, path: resolved };
+                });
+                pluginBuild.onLoad({ filter: /.*/, namespace: runtimeNamespace }, (args) => ({
+                    contents: read(args.path),
+                    loader: "js",
+                    resolveDir: path.dirname(args.path)
+                }));
+            }
+        }],
+        stdin: {
+            contents: normalizeLineEndings(contents),
+            loader: "js",
+            resolveDir: ".",
+            sourcefile
+        },
+        target: "es2020",
+        write: false
+    });
+    const output = result.outputFiles?.[0]?.text;
+    ensure(typeof output === "string" && output.length > 0, `esbuild produced no output for ${sourcefile}.`);
+    return output;
 }
 
 async function main() {
@@ -141,18 +141,17 @@ async function main() {
         write(constantsPath, syncedConstants);
     }
 
-    const moduleEntry = stripCoreImport(read(path.join(SRC_DIR, "index.module.js")));
+    const moduleEntry = read(path.join(SRC_DIR, "index.module.js"));
     const globalEntry = read(path.join(SRC_DIR, "index.global.js"));
-    let core = bundleCore(inlineRuntimeImports(path.join(SRC_DIR, "gm-phaser4.js")));
-    core = syncRuntimeVersion(core, packageVersion);
+    const coreSource = read(path.join(SRC_DIR, "gm-phaser4.js"));
 
     fs.mkdirSync(DIST_DIR, { recursive: true });
 
-    const moduleBundle = `${normalizeLineEndings(core)}\n\n${moduleEntry}\n`;
-    const globalBundle = `${normalizeLineEndings(core)}\n\n${normalizeLineEndings(globalEntry)}\n`;
+    const moduleBundle = await bundleWithEsbuild(moduleEntry, "src/index.module.js", "esm", true);
+    const globalBundle = await bundleWithEsbuild(`${coreSource}\n\n${globalEntry}`, "src/index.global.js", "iife", false);
 
-    buildArtifact("gm-phaser4.module.js", moduleBundle);
-    buildArtifact("gm-phaser4.global.js", globalBundle);
+    buildArtifact("gm-phaser4.module.js", syncRuntimeVersion(moduleBundle, packageVersion));
+    buildArtifact("gm-phaser4.global.js", syncRuntimeVersion(globalBundle, packageVersion));
     buildArtifact("gm-phaser4.global.min.js", await minifyJavaScript(globalBundle, "gm-phaser4.global.js"));
     fs.copyFileSync(TYPES_SOURCE, path.join(DIST_DIR, "gm-phaser4.d.ts"));
 
@@ -173,8 +172,7 @@ async function main() {
     // Module artifact must keep a Phaser peer import for consumers.
     const moduleOut = read(path.join(DIST_DIR, "gm-phaser4.module.js"));
     ensure(PHASER_NS_IMPORT.test(moduleOut), "module dist must retain import * as ... from \"phaser\".");
-    ensure(moduleOut.includes("export { installGMRuntime }"), "module dist must export installGMRuntime.");
-    ensure(moduleOut.includes("export const GM"), "module dist must export GM.");
+    ensure(moduleOut.includes("installGMRuntime"), "module dist must retain installGMRuntime.");
     for (const name of ["gm-phaser4.module.js", "gm-phaser4.global.js", "gm-phaser4.global.min.js"]) {
         const coreArtifact = read(path.join(DIST_DIR, name));
         ensure(!coreArtifact.includes("installGrout13Bridge"), `${name} must not include the optional Grout13 bridge.`);

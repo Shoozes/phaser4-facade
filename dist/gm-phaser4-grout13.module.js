@@ -8,7 +8,6 @@ function requireObject(value, label) {
     }
     return value;
 }
-
 function requireFunction(value, label) {
     if (typeof value !== "function") {
         throw new TypeError(`${label} must be a function.`);
