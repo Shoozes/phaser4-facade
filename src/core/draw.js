@@ -113,27 +113,55 @@ export function setRuntimeDrawVAlign(state, value) {
 }
 
 /**
- * @param {any} state
- * @param {any} gfx
- * @param {number} x1
- * @param {number} y1
- * @param {number} x2
- * @param {number} y2
- * @param {boolean=} outline
+ * @typedef {object} RuntimePrimitiveDrawOptions
+ * @property {unknown=} color
+ * @property {number=} alpha
+ * @property {boolean=} outline
+ * @property {number=} lineWidth
+ * @property {boolean=} closed
  */
-export function drawRuntimeRectangle(state, gfx, x1, y1, x2, y2, outline) {
-    const x = Math.min(x1, x2);
-    const y = Math.min(y1, y2);
-    const w = Math.abs(x2 - x1);
-    const h = Math.abs(y2 - y1);
 
-    if (outline) {
-        applyRuntimeStroke(state, gfx);
-        gfx.strokeRect(x, y, w, h);
-    } else {
-        applyRuntimeFill(state, gfx);
-        gfx.fillRect(x, y, w, h);
-    }
+/**
+ * Resolve per-call primitive presentation without changing the persistent
+ * draw state. Legacy boolean outline arguments remain supported.
+ * @param {any} state
+ * @param {boolean | RuntimePrimitiveDrawOptions | undefined} candidate
+ * @param {boolean} fallbackOutline
+ */
+function normalizePrimitiveOptions(state, candidate, fallbackOutline = false) {
+    const options = candidate && typeof candidate === "object" ? candidate : {};
+    const outline = typeof candidate === "boolean"
+        ? candidate
+        : options.outline === undefined ? fallbackOutline : !!options.outline;
+    const lineWidth = positiveDrawValue(
+        options.lineWidth === undefined ? state.draw.lineWidth : options.lineWidth,
+        1,
+        "draw lineWidth"
+    );
+    return {
+        color: options.color === undefined ? state.draw.color : options.color,
+        alpha: clampDrawAlpha(options.alpha === undefined ? state.draw.alpha : options.alpha, 1),
+        outline,
+        lineWidth,
+        closed: options.closed === true
+    };
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} label
+ */
+function requiredPrimitiveValue(value, label) {
+    return finiteDrawValue(value, 0, label, true);
+}
+
+/**
+ * @param {any} gfx
+ * @param {RuntimePrimitiveDrawOptions & { color: unknown, alpha: number, lineWidth: number }} options
+ */
+function applyPrimitiveStyle(gfx, options) {
+    if (options.outline) gfx.lineStyle(options.lineWidth, toColor(options.color), options.alpha);
+    else gfx.fillStyle(toColor(options.color), options.alpha);
 }
 
 /**
@@ -143,22 +171,63 @@ export function drawRuntimeRectangle(state, gfx, x1, y1, x2, y2, outline) {
  * @param {number} y1
  * @param {number} x2
  * @param {number} y2
- * @param {number=} radius
- * @param {boolean=} outline
+ * @param {boolean | RuntimePrimitiveDrawOptions=} outline
+ */
+export function drawRuntimeRectangle(state, gfx, x1, y1, x2, y2, outline) {
+    const options = normalizePrimitiveOptions(state, outline);
+    const firstX = requiredPrimitiveValue(x1, "draw rectangle x1");
+    const firstY = requiredPrimitiveValue(y1, "draw rectangle y1");
+    const secondX = requiredPrimitiveValue(x2, "draw rectangle x2");
+    const secondY = requiredPrimitiveValue(y2, "draw rectangle y2");
+    const x = Math.min(firstX, secondX);
+    const y = Math.min(firstY, secondY);
+    const w = Math.abs(secondX - firstX);
+    const h = Math.abs(secondY - firstY);
+
+    applyPrimitiveStyle(gfx, options);
+    if (options.outline) {
+        gfx.strokeRect(x, y, w, h);
+    }
+    else gfx.fillRect(x, y, w, h);
+}
+
+/**
+ * @param {any} state
+ * @param {any} gfx
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ * @param {number | (RuntimePrimitiveDrawOptions & { radius?: number })=} radius
+ * @param {boolean | RuntimePrimitiveDrawOptions=} outline
  */
 export function drawRuntimeRoundRect(state, gfx, x1, y1, x2, y2, radius, outline) {
-    const x = Math.min(x1, x2);
-    const y = Math.min(y1, y2);
-    const w = Math.abs(x2 - x1);
-    const h = Math.abs(y2 - y1);
-    const r = Math.max(0, radius || 0);
+    const radiusOptions = radius && typeof radius === "object" ? radius : null;
+    const optionCandidate = radiusOptions
+        ? {
+            ...radiusOptions,
+            ...(outline && typeof outline === "object" ? outline : {}),
+            ...(typeof outline === "boolean" ? { outline } : {})
+        }
+        : outline;
+    const options = normalizePrimitiveOptions(state, optionCandidate);
+    const firstX = requiredPrimitiveValue(x1, "draw roundRect x1");
+    const firstY = requiredPrimitiveValue(y1, "draw roundRect y1");
+    const secondX = requiredPrimitiveValue(x2, "draw roundRect x2");
+    const secondY = requiredPrimitiveValue(y2, "draw roundRect y2");
+    const x = Math.min(firstX, secondX);
+    const y = Math.min(firstY, secondY);
+    const w = Math.abs(secondX - firstX);
+    const h = Math.abs(secondY - firstY);
+    const requestedRadius = radiusOptions?.radius === undefined ? radius : radiusOptions.radius;
+    const r = Math.max(0, finiteDrawValue(requestedRadius, 0, "draw roundRect radius"));
 
-    if (outline) {
-        applyRuntimeStroke(state, gfx);
+    applyPrimitiveStyle(gfx, options);
+    if (options.outline) {
         if (gfx.strokeRoundedRect) gfx.strokeRoundedRect(x, y, w, h, r);
         else gfx.strokeRect(x, y, w, h);
-    } else {
-        applyRuntimeFill(state, gfx);
+    }
+    else {
         if (gfx.fillRoundedRect) gfx.fillRoundedRect(x, y, w, h, r);
         else gfx.fillRect(x, y, w, h);
     }
@@ -170,16 +239,19 @@ export function drawRuntimeRoundRect(state, gfx, x1, y1, x2, y2, radius, outline
  * @param {number} x
  * @param {number} y
  * @param {number} radius
- * @param {boolean=} outline
+ * @param {boolean | RuntimePrimitiveDrawOptions=} outline
  */
 export function drawRuntimeCircle(state, gfx, x, y, radius, outline) {
-    if (outline) {
-        applyRuntimeStroke(state, gfx);
-        gfx.strokeCircle(x, y, radius);
-    } else {
-        applyRuntimeFill(state, gfx);
-        gfx.fillCircle(x, y, radius);
+    const options = normalizePrimitiveOptions(state, outline);
+    const centerX = requiredPrimitiveValue(x, "draw circle x");
+    const centerY = requiredPrimitiveValue(y, "draw circle y");
+    const circleRadius = finiteDrawValue(radius, 0, "draw circle radius", true);
+    if (circleRadius < 0) throw new RangeError("draw circle radius must be non-negative.");
+    applyPrimitiveStyle(gfx, options);
+    if (options.outline) {
+        gfx.strokeCircle(centerX, centerY, circleRadius);
     }
+    else gfx.fillCircle(centerX, centerY, circleRadius);
 }
 
 /**
@@ -189,12 +261,59 @@ export function drawRuntimeCircle(state, gfx, x, y, radius, outline) {
  * @param {number} y1
  * @param {number} x2
  * @param {number} y2
+ * @param {RuntimePrimitiveDrawOptions=} options
  */
-export function drawRuntimeLine(state, gfx, x1, y1, x2, y2) {
-    applyRuntimeStroke(state, gfx);
+export function drawRuntimeLine(state, gfx, x1, y1, x2, y2, options) {
+    const style = normalizePrimitiveOptions(state, {
+        ...(options || {}),
+        outline: true
+    }, true);
+    const firstX = requiredPrimitiveValue(x1, "draw line x1");
+    const firstY = requiredPrimitiveValue(y1, "draw line y1");
+    const secondX = requiredPrimitiveValue(x2, "draw line x2");
+    const secondY = requiredPrimitiveValue(y2, "draw line y2");
+    applyPrimitiveStyle(gfx, style);
     gfx.beginPath();
-    gfx.moveTo(x1, y1);
-    gfx.lineTo(x2, y2);
+    gfx.moveTo(firstX, firstY);
+    gfx.lineTo(secondX, secondY);
+    gfx.strokePath();
+}
+
+/**
+ * Draw a connected line through object points or a flat [x, y, ...] array.
+ * @param {any} state
+ * @param {any} gfx
+ * @param {Array<{x: number, y: number} | [number, number] | number>} points
+ * @param {RuntimePrimitiveDrawOptions=} options
+ */
+export function drawRuntimePolyline(state, gfx, points, options = {}) {
+    if (!Array.isArray(points)) throw new TypeError("draw polyline points must be an array.");
+    const coordinates = [];
+    if (points.length > 0 && typeof points[0] === "number") {
+        if (points.length < 4 || points.length % 2 !== 0) {
+            throw new TypeError("draw polyline flat points require at least two x/y pairs.");
+        }
+        for (const value of points) coordinates.push(requiredPrimitiveValue(value, "draw polyline coordinate"));
+    } else {
+        if (points.length < 2) throw new TypeError("draw polyline requires at least two points.");
+        for (const point of points) {
+            const x = Array.isArray(point) ? point[0] : point && typeof point === "object" ? point.x : undefined;
+            const y = Array.isArray(point) ? point[1] : point && typeof point === "object" ? point.y : undefined;
+            coordinates.push(requiredPrimitiveValue(x, "draw polyline point x"));
+            coordinates.push(requiredPrimitiveValue(y, "draw polyline point y"));
+        }
+    }
+    const style = normalizePrimitiveOptions(state, {
+        ...options,
+        outline: true
+    }, true);
+    applyPrimitiveStyle(gfx, style);
+    gfx.beginPath();
+    gfx.moveTo(coordinates[0], coordinates[1]);
+    for (let index = 2; index < coordinates.length; index += 2) {
+        gfx.lineTo(coordinates[index], coordinates[index + 1]);
+    }
+    if (style.closed) gfx.lineTo(coordinates[0], coordinates[1]);
     gfx.strokePath();
 }
 
@@ -245,6 +364,8 @@ const V_ALIGNMENTS = new Set(["top", "middle", "bottom"]);
  * @property {number=} scale
  * @property {number=} scaleX
  * @property {number=} scaleY
+ * @property {number=} width
+ * @property {number=} height
  * @property {number=} rotation
  * @property {unknown=} color
  * @property {number=} alpha
@@ -544,6 +665,49 @@ function assertSpriteSource(state, key, frame) {
 }
 
 /**
+ * Read the logical source dimensions Phaser keeps for a frame. `sourceSize`
+ * is intentionally preferred so trimmed atlas frames retain their original
+ * display aspect ratio.
+ * @param {any} state
+ * @param {any} item
+ * @param {string} key
+ * @param {any} frame
+ * @returns {{ width: number, height: number }}
+ */
+function resolveSpriteSourceSize(state, item, key, frame) {
+    /** @type {any[]} */
+    const candidates = [item?.frame];
+    const textures = state.scene?.textures;
+    const texture = textures && typeof textures.get === "function" ? textures.get(key) : null;
+    if (texture && typeof texture.get === "function") {
+        try { candidates.push(texture.get(frame === undefined || frame === null ? "__BASE" : frame)); } catch { /* optional lookup */ }
+    }
+    if (texture?.source?.[0]) candidates.push(texture.source[0].image || texture.source[0].source);
+
+    /** @param {any} candidate @param {"width"|"height"} dimension */
+    const readDimension = (candidate, dimension) => {
+        if (!candidate || typeof candidate !== "object") return 0;
+        const sourceSize = candidate.sourceSize;
+        const sourceValue = sourceSize?.[dimension === "width" ? "w" : "h"] ?? sourceSize?.[dimension];
+        const values = [sourceValue, candidate[dimension], candidate[dimension === "width" ? "realWidth" : "realHeight"], candidate[dimension === "width" ? "cutWidth" : "cutHeight"]];
+        for (const value of values) {
+            const numeric = Number(value);
+            if (Number.isFinite(numeric) && numeric > 0) return numeric;
+        }
+        return 0;
+    };
+
+    let width = 0;
+    let height = 0;
+    for (const candidate of candidates) {
+        if (!width) width = readDimension(candidate, "width");
+        if (!height) height = readDimension(candidate, "height");
+        if (width > 0 && height > 0) return { width, height };
+    }
+    throw new Error(`draw_sprite_ext display sizing could not resolve source dimensions for ${String(key)}:${String(frame)}`);
+}
+
+/**
  * @param {any} state
  * @param {any} pool
  * @param {string} key
@@ -564,13 +728,34 @@ export function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, ysca
         ? /** @type {RuntimeSpriteOptions} */ (xscale)
         : null;
     assertSpriteSource(state, key, frame);
-    const baseScale = finiteOr(options?.scale, 1, "scale");
-    const scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");
-    const scaleY = finiteOr(options ? options.scaleY : yscale, baseScale, "yscale");
+    const hasWidth = options?.width !== undefined;
+    const hasHeight = options?.height !== undefined;
+    const hasDisplaySize = hasWidth || hasHeight;
+    const hasExplicitScale = options && (options.scale !== undefined || options.scaleX !== undefined || options.scaleY !== undefined);
+    if (hasDisplaySize && hasExplicitScale) {
+        throw new TypeError("draw_sprite_ext display width/height cannot be combined with scale, scaleX, or scaleY.");
+    }
+    let scaleX;
+    let scaleY;
+    if (hasDisplaySize) {
+        scaleX = 1;
+        scaleY = 1;
+    } else {
+        const baseScale = finiteOr(options?.scale, 1, "scale");
+        scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");
+        scaleY = finiteOr(options ? options.scaleY : yscale, baseScale, "yscale");
+    }
     const requestedRotation = options ? options.rotation : rotation;
     const requestedColor = options ? options.color : color;
     const requestedAlpha = options ? options.alpha : alpha;
     const item = pool.take(key, frame);
+    if (hasDisplaySize) {
+        const sourceSize = resolveSpriteSourceSize(state, item, key, frame);
+        const width = hasWidth ? positiveDrawValue(options.width, 0, "draw_sprite_ext width") : sourceSize.width * (hasHeight ? positiveDrawValue(options.height, 0, "draw_sprite_ext height") / sourceSize.height : 1);
+        const height = hasHeight ? positiveDrawValue(options.height, 0, "draw_sprite_ext height") : sourceSize.height * (hasWidth ? positiveDrawValue(options.width, 0, "draw_sprite_ext width") / sourceSize.width : 1);
+        scaleX = width / sourceSize.width;
+        scaleY = height / sourceSize.height;
+    }
     item.setPosition(posX, posY);
     if (options?.originX !== undefined || options?.originY !== undefined) {
         item.setOrigin(

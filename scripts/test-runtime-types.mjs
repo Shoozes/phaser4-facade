@@ -74,12 +74,19 @@ if (legacyResult.status !== 0) {
 const bridgeConsumer = writeConsumer("grout13-consumer.ts", [
     "import { GM } from \"phaser4-facade\";",
     "import { installGrout13Bridge } from \"phaser4-facade/grout13\";",
+    "GM.draw.rect(0, 0, 10, 10, { color: \"#fff\", alpha: 0.5, outline: true, lineWidth: 2 });",
+    "GM.draw.polyline([{ x: 0, y: 0 }, [2, 2]], { closed: false });",
+    "GM.layer.define({ background: -100, actors: 100 });",
+    "const center: number = GM.runtime.centerX + GM.runtime.centerY;",
+    "const vector = GM.math.normalize2(3, 4);",
+    "const damped: number = GM.math.dampFactor(0.9, 1 / 60) + GM.math.distanceSq(0, 0, vector.x, vector.y);",
     "const bridge = installGrout13Bridge(GM, {",
     "  compileGrout13Atlas: (assets) => ({ payload: assets }),",
     "  decodeGrout13Atlas: () => ({ width: 1, height: 1, canvas: {}, frames: { fruit: { x: 0, y: 0, w: 1, h: 1 } } })",
     "});",
     "GM.grout13.addPayload(\"fruit-payload\", []);",
-    "bridge.addAtlas(\"fruit\", [{ name: \"fruit\" }], { replace: true });"
+    "bridge.addAtlas(\"fruit\", [{ name: \"fruit\" }], { replace: true });",
+    "bridge.addCompiled(\"compiled\", { payload: [], atlas: { width: 1, height: 1, rgba: [0, 0, 0, 0] }, frames: [{ name: \"fruit\", x: 0, y: 0, width: 1, height: 1 }] });"
 ].join("\n"));
 const bridgeResult = runTsc(bridgeConsumer);
 if (bridgeResult.status !== 0) {

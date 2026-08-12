@@ -30,8 +30,9 @@ before installing `GM`.
 - Seeded randomness is opt-in through `randomSeed` or `GM.math.setSeed`; it does
   not replace `Math.random`.
 - Generated textures and atlases use `GM.asset.addCanvas`, `addRgba`, and
-  `addAtlas`. Null-prototype maps, `Map` instances, tuples, and ordinary frame
-  objects are normalized.
+  `addAtlas`. `addAtlas` also accepts a `{ width, height, rgba }` source.
+  Null-prototype maps, `Map` instances, tuples, and ordinary frame objects are
+  normalized.
 - Pointer ownership is explicit through `GM.input` helpers; a joystick does
   not globally block unrelated pointers.
 
@@ -44,8 +45,11 @@ required `maxWidth` and optional `maxHeight`, searching down to `minSize` with
 a bounded loop. They do not enable wrapping or rich text.
 
 `GM.draw.spriteExt` preserves its positional overload and also accepts an
-options object for scale, rotation, tint, alpha, origin, and flips. The object
-overload is recognized only when the fifth argument is a non-null object.
+options object for scale, rotation, tint, alpha, origin, flips, and display
+`width`/`height`. A single display dimension preserves aspect ratio; display
+sizing cannot be combined with scale options, and trimmed-frame source-size
+metadata is preferred. Primitive draw calls also accept stateless presentation
+options, and `GM.draw.polyline` validates object or flat points.
 
 See [`docs/text-and-sprite-options.md`](docs/text-and-sprite-options.md) and
 [`docs/migrations/0.2.0.md`](docs/migrations/0.2.0.md).
@@ -53,10 +57,12 @@ See [`docs/text-and-sprite-options.md`](docs/text-and-sprite-options.md) and
 ## Optional Grout13 bridge
 
 The optional `phaser4-facade/grout13` entrypoint accepts an injected object
-with `compileGrout13Atlas()` and `decodeGrout13Atlas()` functions. It validates
-decoded canvas/frame data and delegates to the existing `GM.asset.addAtlas`
-API. The core facade never imports Grout13, executes generated scripts, fetches
-data, or adds a model/network boundary.
+with `compileGrout13Atlas()` and `decodeGrout13Atlas()` functions plus the
+`GM.asset.frameExists` contract. It supports `preset: "pixel"`, direct
+compiled RGBA atlas registration through `addCompiled`, normalized frame and
+payload metadata, and cleanup when Phaser frame parity fails. The core facade
+never imports Grout13, executes generated scripts, fetches data, or adds a
+model/network boundary.
 
 ```js
 import { GM } from "phaser4-facade";
@@ -65,7 +71,7 @@ import * as GROUT13 from "grout13";
 
 installGrout13Bridge(GM, GROUT13);
 GM.grout13.addAtlas("fruit-atlas", assets, {
-    compileOptions: { runtimeTarget: "canvas" }
+    preset: "pixel"
 });
 ```
 
@@ -88,8 +94,8 @@ npm run pack:check
 
 `verify` builds the core and bridge artifacts, checks package exports and
 syntax, checks deterministic dist reproducibility, runs text/sprite and bridge
-contract tests, compiles TypeScript consumers, runs the packed browser matrix,
-and runs the deterministic soak.
+contract tests including primitive/display-size coverage, compiles TypeScript
+consumers, runs the packed browser matrix, and runs the deterministic soak.
 The repository is locally qualified; npm publication, tags, and hosted CI are
 separate release decisions.
 

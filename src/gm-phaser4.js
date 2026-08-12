@@ -27,6 +27,7 @@ import {
     applyRuntimeStroke,
     drawRuntimeCircle,
     drawRuntimeLine,
+    drawRuntimePolyline,
     drawRuntimeRectangle,
     drawRuntimeRoundRect,
     drawRuntimeSpriteExt,
@@ -132,6 +133,7 @@ import { logDebugMessage } from "./core/debug.js";
  * @property {(...args: any[]) => any} draw_roundrect
  * @property {(...args: any[]) => any} draw_circle
  * @property {(...args: any[]) => any} draw_line
+ * @property {(...args: any[]) => any} draw_polyline
  * @property {(...args: any[]) => any} draw_text
  * @property {(...args: any[]) => any} draw_text_ext
  * @property {(...args: any[]) => any} draw_text_fit
@@ -843,6 +845,23 @@ export function installGMRuntime(root, Phaser) {
             },
 
             define_layer(name, depth) {
+                if (name && typeof name === "object" && !Array.isArray(name) && depth === undefined) {
+                    const pending = Object.entries(name).map(([rawName, rawDepth]) => {
+                        const layerName = String(rawName || "").trim();
+                        if (!layerName) throw new TypeError("GM.layer.define requires non-empty layer names.");
+                        const layerDepth = Number(rawDepth);
+                        if (!Number.isFinite(layerDepth)) {
+                            throw new TypeError(`GM.layer.define requires a finite depth for ${layerName}.`);
+                        }
+                        return /** @type {[string, number]} */ ([layerName, layerDepth]);
+                    });
+                    if (pending.length === 0) throw new TypeError("GM.layer.define requires at least one layer.");
+                    for (const [layerName, layerDepth] of pending) {
+                        state.layerRegistry.set(layerName, layerDepth);
+                        worldLayers.ensure(layerName, layerDepth);
+                    }
+                    return api;
+                }
                 const layerName = String(name || "").trim();
                 if (!layerName) throw new TypeError("GM.layer.define requires a non-empty layer name.");
                 const layerDepth = Number(depth);
@@ -1077,6 +1096,11 @@ export function installGMRuntime(root, Phaser) {
 
             draw_line(x1, y1, x2, y2) {
                 drawRuntimeLine(state, state.worldGfx, x1, y1, x2, y2);
+                return api;
+            },
+
+            draw_polyline(points, options) {
+                drawRuntimePolyline(state, state.worldGfx, points, options);
                 return api;
             },
 

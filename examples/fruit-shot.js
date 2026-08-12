@@ -148,8 +148,8 @@ try {
                     const fruitState = /** @type {any} */ (this);
                     fruitState.fruit = GM.math.choose("strawberry", "lemon", "lime") || "strawberry";
                     fruitState.spin = GM.math.random_range(-18, 18);
-                    fruitState.x = GM.runtime.roomWidth / 2;
-                    fruitState.y = GM.runtime.roomHeight / 2 + 80;
+                    fruitState.x = GM.runtime.centerX;
+                    fruitState.y = GM.runtime.centerY + 80;
                 },
                 step() {
                     const fruitState = /** @type {any} */ (this);
@@ -159,7 +159,7 @@ try {
                 draw() {
                     const fruitState = /** @type {any} */ (this);
                     const sprite = /** @type {any} */ (GM.draw.spriteExt("fruit-atlas", fruitState.fruit, fruitState.x, fruitState.y, {
-                        scale: 1.5,
+                        width: 96,
                         rotation: fruitState.spin * GM.runtime.currentTime / 1000,
                         originX: 0.5,
                         originY: 0.5
@@ -178,16 +178,23 @@ try {
             setStatus(`Fruit Shot running: ${proof.frames} fixed steps`);
         },
         draw() {
-            GM.draw.setColor("#073b4c");
-            GM.draw.rect(0, 0, GM.runtime.roomWidth, GM.runtime.roomHeight, false);
-            const heading = GM.draw.textExt(GM.runtime.roomWidth / 2, 80, "Fruit Shot", {
+            GM.draw.rect(0, 0, GM.runtime.roomWidth, GM.runtime.roomHeight, {
+                color: "#073b4c",
+                alpha: 1
+            });
+            GM.draw.polyline([
+                { x: 48, y: 220 },
+                { x: GM.runtime.centerX, y: 190 },
+                { x: GM.runtime.roomWidth - 48, y: 220 }
+            ], { color: "#ffd166", lineWidth: 2 });
+            const heading = GM.draw.textExt(GM.runtime.centerX, 80, "Fruit Shot", {
                 size: 46,
                 bold: true,
                 color: GM.color.WHITE,
                 hAlign: "center",
                 vAlign: "middle"
             });
-            const fitted = GM.draw.textFit(GM.runtime.roomWidth / 2, 150, "Fixed-step motion, seeded choice, and reusable presentation options", {
+            const fitted = GM.draw.textFit(GM.runtime.centerX, 150, "Fixed-step motion, seeded choice, and reusable presentation options", {
                 size: 28,
                 minSize: 16,
                 maxWidth: GM.runtime.roomWidth - 80,

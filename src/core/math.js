@@ -101,6 +101,49 @@ export function lerp(a, b, t) {
 }
 
 /**
+ * Return a stable multiplicative damping factor for a frame delta. `factor`
+ * is the factor applied at `referenceHz` and may be zero, but not negative.
+ * @param {number} factor
+ * @param {number} deltaSeconds
+ * @param {number} [referenceHz=60]
+ */
+export function dampFactor(factor, deltaSeconds, referenceHz = 60) {
+    if (!Number.isFinite(factor) || factor < 0) throw new RangeError("dampFactor factor must be finite and non-negative.");
+    if (!Number.isFinite(deltaSeconds) || deltaSeconds < 0) throw new RangeError("dampFactor deltaSeconds must be finite and non-negative.");
+    if (!Number.isFinite(referenceHz) || referenceHz <= 0) throw new RangeError("dampFactor referenceHz must be finite and greater than zero.");
+    return Math.pow(factor, deltaSeconds * referenceHz);
+}
+
+/**
+ * @param {number} dx
+ * @param {number} dy
+ * @param {{ x?: number, y?: number, length?: number }} [out]
+ * @returns {{ x: number, y: number, length: number }}
+ */
+export function normalize2(dx, dy, out) {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new TypeError("normalize2 components must be finite numbers.");
+    const length = Math.hypot(dx, dy);
+    const target = out || {};
+    target.x = length === 0 ? 0 : dx / length;
+    target.y = length === 0 ? 0 : dy / length;
+    target.length = length;
+    return /** @type {{ x: number, y: number, length: number }} */ (target);
+}
+
+/**
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ */
+export function distanceSq(x1, y1, x2, y2) {
+    if (![x1, y1, x2, y2].every(Number.isFinite)) throw new TypeError("distanceSq coordinates must be finite numbers.");
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    return dx * dx + dy * dy;
+}
+
+/**
  * @typedef {object} ActiveRng
  * @property {() => number} next
  * @property {(...items: unknown[]) => unknown} choose

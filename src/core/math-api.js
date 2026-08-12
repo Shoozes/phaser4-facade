@@ -2,6 +2,8 @@
 
 import {
     clamp,
+    dampFactor,
+    distanceSq,
     choose,
     degtorad,
     dsin,
@@ -15,6 +17,7 @@ import {
     point_distance,
     point_direction,
     point_in_rectangle,
+    normalize2,
     radtodeg,
     random,
     random_range,
@@ -28,6 +31,8 @@ export function createMathApi() {
 
     return {
         clamp,
+        dampFactor,
+        distanceSq,
         lerp,
         choose,
         random,
@@ -44,6 +49,7 @@ export function createMathApi() {
         lengthdir_x,
         lengthdir_y,
         point_in_rectangle,
+        normalize2,
         /**
          * Seed facade random helpers without replacing global Math.random.
          * @param {number | string | null | undefined} seed

@@ -100,6 +100,8 @@ export function installFacadeNamespaces(deps) {
     };
     defineReadonly(runtime, "roomWidth", () => activeOrNull() ? GM._active.room_width : 0);
     defineReadonly(runtime, "roomHeight", () => activeOrNull() ? GM._active.room_height : 0);
+    defineReadonly(runtime, "centerX", () => (activeOrNull() ? GM._active.room_width : 0) / 2);
+    defineReadonly(runtime, "centerY", () => (activeOrNull() ? GM._active.room_height : 0) / 2);
     defineReadonly(runtime, "displayWidth", () => activeOrNull() ? GM._active.display_width : 0);
     defineReadonly(runtime, "displayHeight", () => activeOrNull() ? GM._active.display_height : 0);
     defineReadonly(runtime, "profile", () => activeOrNull() ? GM._active.layout_profile : "fixed");
@@ -140,6 +142,7 @@ export function installFacadeNamespaces(deps) {
         roundRect: function () { return callActive("draw_roundrect", arguments); },
         circle: function () { return callActive("draw_circle", arguments); },
         line: function () { return callActive("draw_line", arguments); },
+        polyline: function () { return callActive("draw_polyline", arguments); },
         text: function () { return callActive("draw_text", arguments); },
         textExt: function () { return callActive("draw_text_ext", arguments); },
         textFit: function () { return callActive("draw_text_fit", arguments); },
@@ -234,7 +237,7 @@ export function installFacadeNamespaces(deps) {
         },
         /**
          * @param {string} key
-         * @param {HTMLCanvasElement | OffscreenCanvas | string} source
+         * @param {HTMLCanvasElement | OffscreenCanvas | string | { width: number, height: number, rgba: ArrayLike<number> | ArrayBufferView }} source
          * @param {unknown} frames
          * @param {{ replace?: boolean }} [options]
          */

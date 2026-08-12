@@ -185,6 +185,39 @@ function ensureReplaceable(textures, key, replace) {
 }
 
 /**
+ * @param {number} width
+ * @param {number} height
+ * @param {ArrayLike<number> | ArrayBufferView} rgba
+ * @param {string} label
+ * @returns {HTMLCanvasElement}
+ */
+function rgbaToCanvas(width, height, rgba, label) {
+    const w = requireNonNegativeInt(width, `${label} width`);
+    const h = requireNonNegativeInt(height, `${label} height`);
+    if (w <= 0 || h <= 0) throw new TypeError(`GM.asset.${label} requires positive width and height.`);
+    const expected = w * h * 4;
+    const source = rgba && typeof rgba === "object" && "buffer" in /** @type {any} */ (rgba)
+        ? new Uint8ClampedArray(/** @type {ArrayBufferView} */ (rgba).buffer, /** @type {ArrayBufferView} */ (rgba).byteOffset, /** @type {ArrayBufferView} */ (rgba).byteLength)
+        : new Uint8ClampedArray(/** @type {ArrayLike<number>} */ (rgba));
+    if (source.length < expected) {
+        throw new TypeError(`GM.asset.${label} expected at least ${expected} bytes, got ${source.length}.`);
+    }
+    if (typeof document === "undefined" || typeof document.createElement !== "function") {
+        throw new Error(`GM.asset.${label} requires a document canvas factory.`);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error(`GM.asset.${label} could not create a 2d canvas context.`);
+    const imageBytes = new Uint8ClampedArray(expected);
+    imageBytes.set(source.subarray(0, expected));
+    const imageData = new ImageData(imageBytes, w, h);
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+}
+
+/**
  * @param {any} scene
  * @param {string} key
  * @param {HTMLCanvasElement | OffscreenCanvas} canvas
@@ -219,33 +252,14 @@ export function addCanvasTexture(scene, key, canvas, options = {}) {
  * @param {{ replace?: boolean }} [options]
  */
 export function addRgbaTexture(scene, key, width, height, rgba, options = {}) {
-    const w = requireNonNegativeInt(width, "width");
-    const h = requireNonNegativeInt(height, "height");
-    if (w <= 0 || h <= 0) throw new TypeError("GM.asset.addRgba requires positive width and height.");
-    const expected = w * h * 4;
-    const source = rgba && typeof rgba === "object" && "buffer" in /** @type {any} */ (rgba)
-        ? new Uint8ClampedArray(/** @type {ArrayBufferView} */ (rgba).buffer, /** @type {ArrayBufferView} */ (rgba).byteOffset, /** @type {ArrayBufferView} */ (rgba).byteLength)
-        : new Uint8ClampedArray(/** @type {ArrayLike<number>} */ (rgba));
-    if (source.length < expected) {
-        throw new TypeError(`GM.asset.addRgba expected at least ${expected} bytes, got ${source.length}.`);
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("GM.asset.addRgba could not create a 2d canvas context.");
-    const imageBytes = new Uint8ClampedArray(expected);
-    imageBytes.set(source.subarray(0, expected));
-    const imageData = new ImageData(imageBytes, w, h);
-    ctx.putImageData(imageData, 0, 0);
+    const canvas = rgbaToCanvas(width, height, rgba, "addRgba");
     return addCanvasTexture(scene, key, canvas, options);
 }
 
 /**
  * @param {any} scene
  * @param {string} key
- * @param {HTMLCanvasElement | OffscreenCanvas | string} source
+ * @param {HTMLCanvasElement | OffscreenCanvas | string | { width: number, height: number, rgba: ArrayLike<number> | ArrayBufferView }} source
  * @param {unknown} frames
  * @param {{ replace?: boolean }} [options]
  */
@@ -268,8 +282,13 @@ export function addAtlasTexture(scene, key, source, frames, options = {}) {
         atlasSource = baseSource;
     }
 
+    if (atlasSource && typeof atlasSource === "object" && "rgba" in atlasSource) {
+        const rgbaSource = /** @type {{ width: number, height: number, rgba: ArrayLike<number> | ArrayBufferView }} */ (atlasSource);
+        atlasSource = rgbaToCanvas(rgbaSource.width, rgbaSource.height, rgbaSource.rgba, "addAtlas");
+    }
+
     if (!atlasSource || typeof atlasSource !== "object") {
-        throw new TypeError("GM.asset.addAtlas source must be a canvas or existing texture key.");
+        throw new TypeError("GM.asset.addAtlas source must be a canvas, RGBA source, or existing texture key.");
     }
 
     try {

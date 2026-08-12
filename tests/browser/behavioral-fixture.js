@@ -233,6 +233,14 @@ export async function runQualification(options) {
         recordCheck("atlasStringManifest", Boolean(stringAtlasManifest && stringAtlasManifest.source === "gm_qual_canvas"), JSON.stringify(stringAtlasManifest && stringAtlasManifest.frames));
         const rgbaManifest = GM.asset.addRgba("gm_qual_rgba", 1, 1, [252, 224, 168, 255], { replace: true });
         recordCheck("rgbaAsset", GM.asset.exists("gm_qual_rgba") && rgbaManifest.key === "gm_qual_rgba", null);
+        const rgbaAtlasManifest = GM.asset.addAtlas("gm_qual_rgba_atlas", {
+            width: 1,
+            height: 1,
+            rgba: [252, 224, 168, 255]
+        }, {
+            pixel: { frame: { x: 0, y: 0, w: 1, h: 1 } }
+        }, { replace: true });
+        recordCheck("rgbaAtlasAsset", GM.asset.frameExists("gm_qual_rgba_atlas", "pixel") && rgbaAtlasManifest.width === 1, null);
     }
 
     /**

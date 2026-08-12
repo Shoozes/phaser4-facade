@@ -214,6 +214,30 @@ function clamp(value, min, max) {
 function lerp(a, b, t) {
   return a + (b - a) * t;
 }
+function dampFactor(factor, deltaSeconds, referenceHz = 60) {
+  if (!Number.isFinite(factor) || factor < 0) throw new RangeError("dampFactor factor must be finite and non-negative.");
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds < 0) throw new RangeError("dampFactor deltaSeconds must be finite and non-negative.");
+  if (!Number.isFinite(referenceHz) || referenceHz <= 0) throw new RangeError("dampFactor referenceHz must be finite and greater than zero.");
+  return Math.pow(factor, deltaSeconds * referenceHz);
+}
+function normalize2(dx, dy, out) {
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new TypeError("normalize2 components must be finite numbers.");
+  const length = Math.hypot(dx, dy);
+  const target = out || {};
+  target.x = length === 0 ? 0 : dx / length;
+  target.y = length === 0 ? 0 : dy / length;
+  target.length = length;
+  return (
+    /** @type {{ x: number, y: number, length: number }} */
+    target
+  );
+}
+function distanceSq(x1, y1, x2, y2) {
+  if (![x1, y1, x2, y2].every(Number.isFinite)) throw new TypeError("distanceSq coordinates must be finite numbers.");
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  return dx * dx + dy * dy;
+}
 var activeRng = null;
 function setActiveRng(rng) {
   activeRng = rng || null;
@@ -354,6 +378,8 @@ function createMathApi() {
   let boundRng = null;
   return {
     clamp,
+    dampFactor,
+    distanceSq,
     lerp,
     choose,
     random,
@@ -370,6 +396,7 @@ function createMathApi() {
     lengthdir_x,
     lengthdir_y,
     point_in_rectangle,
+    normalize2,
     /**
      * Seed facade random helpers without replacing global Math.random.
      * @param {number | string | null | undefined} seed
@@ -853,49 +880,125 @@ function setRuntimeDrawHAlign(state, value) {
 function setRuntimeDrawVAlign(state, value) {
   state.draw.valign = normalizeAlignment(value, V_ALIGNMENTS, "top");
 }
+function normalizePrimitiveOptions(state, candidate, fallbackOutline = false) {
+  const options = candidate && typeof candidate === "object" ? candidate : {};
+  const outline = typeof candidate === "boolean" ? candidate : options.outline === void 0 ? fallbackOutline : !!options.outline;
+  const lineWidth = positiveDrawValue(
+    options.lineWidth === void 0 ? state.draw.lineWidth : options.lineWidth,
+    1,
+    "draw lineWidth"
+  );
+  return {
+    color: options.color === void 0 ? state.draw.color : options.color,
+    alpha: clampDrawAlpha(options.alpha === void 0 ? state.draw.alpha : options.alpha, 1),
+    outline,
+    lineWidth,
+    closed: options.closed === true
+  };
+}
+function requiredPrimitiveValue(value, label) {
+  return finiteDrawValue(value, 0, label, true);
+}
+function applyPrimitiveStyle(gfx, options) {
+  if (options.outline) gfx.lineStyle(options.lineWidth, toColor(options.color), options.alpha);
+  else gfx.fillStyle(toColor(options.color), options.alpha);
+}
 function drawRuntimeRectangle(state, gfx, x1, y1, x2, y2, outline) {
-  const x = Math.min(x1, x2);
-  const y = Math.min(y1, y2);
-  const w = Math.abs(x2 - x1);
-  const h = Math.abs(y2 - y1);
-  if (outline) {
-    applyRuntimeStroke(state, gfx);
+  const options = normalizePrimitiveOptions(state, outline);
+  const firstX = requiredPrimitiveValue(x1, "draw rectangle x1");
+  const firstY = requiredPrimitiveValue(y1, "draw rectangle y1");
+  const secondX = requiredPrimitiveValue(x2, "draw rectangle x2");
+  const secondY = requiredPrimitiveValue(y2, "draw rectangle y2");
+  const x = Math.min(firstX, secondX);
+  const y = Math.min(firstY, secondY);
+  const w = Math.abs(secondX - firstX);
+  const h = Math.abs(secondY - firstY);
+  applyPrimitiveStyle(gfx, options);
+  if (options.outline) {
     gfx.strokeRect(x, y, w, h);
-  } else {
-    applyRuntimeFill(state, gfx);
-    gfx.fillRect(x, y, w, h);
-  }
+  } else gfx.fillRect(x, y, w, h);
 }
 function drawRuntimeRoundRect(state, gfx, x1, y1, x2, y2, radius, outline) {
-  const x = Math.min(x1, x2);
-  const y = Math.min(y1, y2);
-  const w = Math.abs(x2 - x1);
-  const h = Math.abs(y2 - y1);
-  const r = Math.max(0, radius || 0);
-  if (outline) {
-    applyRuntimeStroke(state, gfx);
+  const radiusOptions = radius && typeof radius === "object" ? radius : null;
+  const optionCandidate = radiusOptions ? {
+    ...radiusOptions,
+    ...outline && typeof outline === "object" ? outline : {},
+    ...typeof outline === "boolean" ? { outline } : {}
+  } : outline;
+  const options = normalizePrimitiveOptions(state, optionCandidate);
+  const firstX = requiredPrimitiveValue(x1, "draw roundRect x1");
+  const firstY = requiredPrimitiveValue(y1, "draw roundRect y1");
+  const secondX = requiredPrimitiveValue(x2, "draw roundRect x2");
+  const secondY = requiredPrimitiveValue(y2, "draw roundRect y2");
+  const x = Math.min(firstX, secondX);
+  const y = Math.min(firstY, secondY);
+  const w = Math.abs(secondX - firstX);
+  const h = Math.abs(secondY - firstY);
+  const requestedRadius = radiusOptions?.radius === void 0 ? radius : radiusOptions.radius;
+  const r = Math.max(0, finiteDrawValue(requestedRadius, 0, "draw roundRect radius"));
+  applyPrimitiveStyle(gfx, options);
+  if (options.outline) {
     if (gfx.strokeRoundedRect) gfx.strokeRoundedRect(x, y, w, h, r);
     else gfx.strokeRect(x, y, w, h);
   } else {
-    applyRuntimeFill(state, gfx);
     if (gfx.fillRoundedRect) gfx.fillRoundedRect(x, y, w, h, r);
     else gfx.fillRect(x, y, w, h);
   }
 }
 function drawRuntimeCircle(state, gfx, x, y, radius, outline) {
-  if (outline) {
-    applyRuntimeStroke(state, gfx);
-    gfx.strokeCircle(x, y, radius);
-  } else {
-    applyRuntimeFill(state, gfx);
-    gfx.fillCircle(x, y, radius);
-  }
+  const options = normalizePrimitiveOptions(state, outline);
+  const centerX = requiredPrimitiveValue(x, "draw circle x");
+  const centerY = requiredPrimitiveValue(y, "draw circle y");
+  const circleRadius = finiteDrawValue(radius, 0, "draw circle radius", true);
+  if (circleRadius < 0) throw new RangeError("draw circle radius must be non-negative.");
+  applyPrimitiveStyle(gfx, options);
+  if (options.outline) {
+    gfx.strokeCircle(centerX, centerY, circleRadius);
+  } else gfx.fillCircle(centerX, centerY, circleRadius);
 }
-function drawRuntimeLine(state, gfx, x1, y1, x2, y2) {
-  applyRuntimeStroke(state, gfx);
+function drawRuntimeLine(state, gfx, x1, y1, x2, y2, options) {
+  const style = normalizePrimitiveOptions(state, {
+    ...options || {},
+    outline: true
+  }, true);
+  const firstX = requiredPrimitiveValue(x1, "draw line x1");
+  const firstY = requiredPrimitiveValue(y1, "draw line y1");
+  const secondX = requiredPrimitiveValue(x2, "draw line x2");
+  const secondY = requiredPrimitiveValue(y2, "draw line y2");
+  applyPrimitiveStyle(gfx, style);
   gfx.beginPath();
-  gfx.moveTo(x1, y1);
-  gfx.lineTo(x2, y2);
+  gfx.moveTo(firstX, firstY);
+  gfx.lineTo(secondX, secondY);
+  gfx.strokePath();
+}
+function drawRuntimePolyline(state, gfx, points, options = {}) {
+  if (!Array.isArray(points)) throw new TypeError("draw polyline points must be an array.");
+  const coordinates = [];
+  if (points.length > 0 && typeof points[0] === "number") {
+    if (points.length < 4 || points.length % 2 !== 0) {
+      throw new TypeError("draw polyline flat points require at least two x/y pairs.");
+    }
+    for (const value of points) coordinates.push(requiredPrimitiveValue(value, "draw polyline coordinate"));
+  } else {
+    if (points.length < 2) throw new TypeError("draw polyline requires at least two points.");
+    for (const point of points) {
+      const x = Array.isArray(point) ? point[0] : point && typeof point === "object" ? point.x : void 0;
+      const y = Array.isArray(point) ? point[1] : point && typeof point === "object" ? point.y : void 0;
+      coordinates.push(requiredPrimitiveValue(x, "draw polyline point x"));
+      coordinates.push(requiredPrimitiveValue(y, "draw polyline point y"));
+    }
+  }
+  const style = normalizePrimitiveOptions(state, {
+    ...options,
+    outline: true
+  }, true);
+  applyPrimitiveStyle(gfx, style);
+  gfx.beginPath();
+  gfx.moveTo(coordinates[0], coordinates[1]);
+  for (let index = 2; index < coordinates.length; index += 2) {
+    gfx.lineTo(coordinates[index], coordinates[index + 1]);
+  }
+  if (style.closed) gfx.lineTo(coordinates[0], coordinates[1]);
   gfx.strokePath();
 }
 var H_ALIGNMENTS = /* @__PURE__ */ new Set(["left", "center", "right"]);
@@ -1103,6 +1206,37 @@ function assertSpriteSource(state, key, frame) {
     throw new Error(`[phaser4-facade] draw_sprite_ext frame not found: ${String(key)}:${String(frame)}`);
   }
 }
+function resolveSpriteSourceSize(state, item, key, frame) {
+  const candidates = [item?.frame];
+  const textures = state.scene?.textures;
+  const texture = textures && typeof textures.get === "function" ? textures.get(key) : null;
+  if (texture && typeof texture.get === "function") {
+    try {
+      candidates.push(texture.get(frame === void 0 || frame === null ? "__BASE" : frame));
+    } catch {
+    }
+  }
+  if (texture?.source?.[0]) candidates.push(texture.source[0].image || texture.source[0].source);
+  const readDimension = (candidate, dimension) => {
+    if (!candidate || typeof candidate !== "object") return 0;
+    const sourceSize = candidate.sourceSize;
+    const sourceValue = sourceSize?.[dimension === "width" ? "w" : "h"] ?? sourceSize?.[dimension];
+    const values = [sourceValue, candidate[dimension], candidate[dimension === "width" ? "realWidth" : "realHeight"], candidate[dimension === "width" ? "cutWidth" : "cutHeight"]];
+    for (const value of values) {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    }
+    return 0;
+  };
+  let width = 0;
+  let height = 0;
+  for (const candidate of candidates) {
+    if (!width) width = readDimension(candidate, "width");
+    if (!height) height = readDimension(candidate, "height");
+    if (width > 0 && height > 0) return { width, height };
+  }
+  throw new Error(`draw_sprite_ext display sizing could not resolve source dimensions for ${String(key)}:${String(frame)}`);
+}
 function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rotation, color, alpha) {
   const posX = finiteOr(x, 0, "x");
   const posY = finiteOr(y, 0, "y");
@@ -1111,13 +1245,34 @@ function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rot
     xscale
   ) : null;
   assertSpriteSource(state, key, frame);
-  const baseScale = finiteOr(options?.scale, 1, "scale");
-  const scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");
-  const scaleY = finiteOr(options ? options.scaleY : yscale, baseScale, "yscale");
+  const hasWidth = options?.width !== void 0;
+  const hasHeight = options?.height !== void 0;
+  const hasDisplaySize = hasWidth || hasHeight;
+  const hasExplicitScale = options && (options.scale !== void 0 || options.scaleX !== void 0 || options.scaleY !== void 0);
+  if (hasDisplaySize && hasExplicitScale) {
+    throw new TypeError("draw_sprite_ext display width/height cannot be combined with scale, scaleX, or scaleY.");
+  }
+  let scaleX;
+  let scaleY;
+  if (hasDisplaySize) {
+    scaleX = 1;
+    scaleY = 1;
+  } else {
+    const baseScale = finiteOr(options?.scale, 1, "scale");
+    scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");
+    scaleY = finiteOr(options ? options.scaleY : yscale, baseScale, "yscale");
+  }
   const requestedRotation = options ? options.rotation : rotation;
   const requestedColor = options ? options.color : color;
   const requestedAlpha = options ? options.alpha : alpha;
   const item = pool.take(key, frame);
+  if (hasDisplaySize) {
+    const sourceSize = resolveSpriteSourceSize(state, item, key, frame);
+    const width = hasWidth ? positiveDrawValue(options.width, 0, "draw_sprite_ext width") : sourceSize.width * (hasHeight ? positiveDrawValue(options.height, 0, "draw_sprite_ext height") / sourceSize.height : 1);
+    const height = hasHeight ? positiveDrawValue(options.height, 0, "draw_sprite_ext height") : sourceSize.height * (hasWidth ? positiveDrawValue(options.width, 0, "draw_sprite_ext width") / sourceSize.width : 1);
+    scaleX = width / sourceSize.width;
+    scaleY = height / sourceSize.height;
+  }
   item.setPosition(posX, posY);
   if (options?.originX !== void 0 || options?.originY !== void 0) {
     item.setOrigin(
@@ -2299,6 +2454,40 @@ function ensureReplaceable(textures, key, replace) {
   }
   if (typeof textures.remove === "function") textures.remove(key);
 }
+function rgbaToCanvas(width, height, rgba, label) {
+  const w = requireNonNegativeInt(width, `${label} width`);
+  const h = requireNonNegativeInt(height, `${label} height`);
+  if (w <= 0 || h <= 0) throw new TypeError(`GM.asset.${label} requires positive width and height.`);
+  const expected = w * h * 4;
+  const source = rgba && typeof rgba === "object" && "buffer" in /** @type {any} */
+  rgba ? new Uint8ClampedArray(
+    /** @type {ArrayBufferView} */
+    rgba.buffer,
+    /** @type {ArrayBufferView} */
+    rgba.byteOffset,
+    /** @type {ArrayBufferView} */
+    rgba.byteLength
+  ) : new Uint8ClampedArray(
+    /** @type {ArrayLike<number>} */
+    rgba
+  );
+  if (source.length < expected) {
+    throw new TypeError(`GM.asset.${label} expected at least ${expected} bytes, got ${source.length}.`);
+  }
+  if (typeof document === "undefined" || typeof document.createElement !== "function") {
+    throw new Error(`GM.asset.${label} requires a document canvas factory.`);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error(`GM.asset.${label} could not create a 2d canvas context.`);
+  const imageBytes = new Uint8ClampedArray(expected);
+  imageBytes.set(source.subarray(0, expected));
+  const imageData = new ImageData(imageBytes, w, h);
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
 function addCanvasTexture(scene, key, canvas, options = {}) {
   const textureKey = normalizeTextureKey(key);
   const textures = requireTextures(scene);
@@ -2325,34 +2514,7 @@ function addCanvasTexture(scene, key, canvas, options = {}) {
   };
 }
 function addRgbaTexture(scene, key, width, height, rgba, options = {}) {
-  const w = requireNonNegativeInt(width, "width");
-  const h = requireNonNegativeInt(height, "height");
-  if (w <= 0 || h <= 0) throw new TypeError("GM.asset.addRgba requires positive width and height.");
-  const expected = w * h * 4;
-  const source = rgba && typeof rgba === "object" && "buffer" in /** @type {any} */
-  rgba ? new Uint8ClampedArray(
-    /** @type {ArrayBufferView} */
-    rgba.buffer,
-    /** @type {ArrayBufferView} */
-    rgba.byteOffset,
-    /** @type {ArrayBufferView} */
-    rgba.byteLength
-  ) : new Uint8ClampedArray(
-    /** @type {ArrayLike<number>} */
-    rgba
-  );
-  if (source.length < expected) {
-    throw new TypeError(`GM.asset.addRgba expected at least ${expected} bytes, got ${source.length}.`);
-  }
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("GM.asset.addRgba could not create a 2d canvas context.");
-  const imageBytes = new Uint8ClampedArray(expected);
-  imageBytes.set(source.subarray(0, expected));
-  const imageData = new ImageData(imageBytes, w, h);
-  ctx.putImageData(imageData, 0, 0);
+  const canvas = rgbaToCanvas(width, height, rgba, "addRgba");
   return addCanvasTexture(scene, key, canvas, options);
 }
 function addAtlasTexture(scene, key, source, frames, options = {}) {
@@ -2372,8 +2534,15 @@ function addAtlasTexture(scene, key, source, frames, options = {}) {
     }
     atlasSource = baseSource;
   }
+  if (atlasSource && typeof atlasSource === "object" && "rgba" in atlasSource) {
+    const rgbaSource = (
+      /** @type {{ width: number, height: number, rgba: ArrayLike<number> | ArrayBufferView }} */
+      atlasSource
+    );
+    atlasSource = rgbaToCanvas(rgbaSource.width, rgbaSource.height, rgbaSource.rgba, "addAtlas");
+  }
   if (!atlasSource || typeof atlasSource !== "object") {
-    throw new TypeError("GM.asset.addAtlas source must be a canvas or existing texture key.");
+    throw new TypeError("GM.asset.addAtlas source must be a canvas, RGBA source, or existing texture key.");
   }
   try {
     if (typeof textures.addAtlasJSONHash !== "function") {
@@ -2643,6 +2812,8 @@ function installFacadeNamespaces(deps) {
   };
   defineReadonly(runtime, "roomWidth", () => activeOrNull() ? GM2._active.room_width : 0);
   defineReadonly(runtime, "roomHeight", () => activeOrNull() ? GM2._active.room_height : 0);
+  defineReadonly(runtime, "centerX", () => (activeOrNull() ? GM2._active.room_width : 0) / 2);
+  defineReadonly(runtime, "centerY", () => (activeOrNull() ? GM2._active.room_height : 0) / 2);
   defineReadonly(runtime, "displayWidth", () => activeOrNull() ? GM2._active.display_width : 0);
   defineReadonly(runtime, "displayHeight", () => activeOrNull() ? GM2._active.display_height : 0);
   defineReadonly(runtime, "profile", () => activeOrNull() ? GM2._active.layout_profile : "fixed");
@@ -2703,6 +2874,9 @@ function installFacadeNamespaces(deps) {
     },
     line: function() {
       return callActive("draw_line", arguments);
+    },
+    polyline: function() {
+      return callActive("draw_polyline", arguments);
     },
     text: function() {
       return callActive("draw_text", arguments);
@@ -2850,7 +3024,7 @@ function installFacadeNamespaces(deps) {
     },
     /**
      * @param {string} key
-     * @param {HTMLCanvasElement | OffscreenCanvas | string} source
+     * @param {HTMLCanvasElement | OffscreenCanvas | string | { width: number, height: number, rgba: ArrayLike<number> | ArrayBufferView }} source
      * @param {unknown} frames
      * @param {{ replace?: boolean }} [options]
      */
@@ -4176,6 +4350,26 @@ function installGMRuntime(root, Phaser) {
         return api;
       },
       define_layer(name, depth) {
+        if (name && typeof name === "object" && !Array.isArray(name) && depth === void 0) {
+          const pending = Object.entries(name).map(([rawName, rawDepth]) => {
+            const layerName2 = String(rawName || "").trim();
+            if (!layerName2) throw new TypeError("GM.layer.define requires non-empty layer names.");
+            const layerDepth2 = Number(rawDepth);
+            if (!Number.isFinite(layerDepth2)) {
+              throw new TypeError(`GM.layer.define requires a finite depth for ${layerName2}.`);
+            }
+            return (
+              /** @type {[string, number]} */
+              [layerName2, layerDepth2]
+            );
+          });
+          if (pending.length === 0) throw new TypeError("GM.layer.define requires at least one layer.");
+          for (const [layerName2, layerDepth2] of pending) {
+            state.layerRegistry.set(layerName2, layerDepth2);
+            worldLayers.ensure(layerName2, layerDepth2);
+          }
+          return api;
+        }
         const layerName = String(name || "").trim();
         if (!layerName) throw new TypeError("GM.layer.define requires a non-empty layer name.");
         const layerDepth = Number(depth);
@@ -4382,6 +4576,10 @@ function installGMRuntime(root, Phaser) {
       },
       draw_line(x1, y1, x2, y2) {
         drawRuntimeLine(state, state.worldGfx, x1, y1, x2, y2);
+        return api;
+      },
+      draw_polyline(points, options) {
+        drawRuntimePolyline(state, state.worldGfx, points, options);
         return api;
       },
       draw_text(x, y, text) {

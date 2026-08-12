@@ -3,6 +3,23 @@ type GMMouseButton = "left" | "right" | "middle";
 type GMHorizontalAlign = "left" | "center" | "right";
 type GMVerticalAlign = "top" | "middle" | "bottom";
 
+interface GMPrimitiveDrawOptions {
+    color?: GMColorValue;
+    alpha?: number;
+    outline?: boolean;
+    lineWidth?: number;
+}
+
+interface GMRoundRectDrawOptions extends GMPrimitiveDrawOptions {
+    radius?: number;
+}
+
+type GMPolylinePoint = { x: number; y: number } | [number, number];
+
+interface GMPolylineOptions extends GMPrimitiveDrawOptions {
+    closed?: boolean;
+}
+
 interface GMTextDrawOptions {
     font?: string;
     size?: number;
@@ -29,6 +46,8 @@ interface GMSpriteDrawOptions {
     scale?: number;
     scaleX?: number;
     scaleY?: number;
+    width?: number;
+    height?: number;
     rotation?: number;
     color?: GMColorValue;
     alpha?: number;
@@ -62,10 +81,11 @@ interface GMRuntime {
     draw_set_font(font?: string, size?: number, bold?: boolean): GMRuntime;
     draw_set_halign(value: GMHorizontalAlign): GMRuntime;
     draw_set_valign(value: GMVerticalAlign): GMRuntime;
-    draw_rectangle(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
-    draw_roundrect(x1: number, y1: number, x2: number, y2: number, radius?: number, outline?: boolean): GMRuntime;
-    draw_circle(x: number, y: number, radius: number, outline?: boolean): GMRuntime;
-    draw_line(x1: number, y1: number, x2: number, y2: number): GMRuntime;
+    draw_rectangle(x1: number, y1: number, x2: number, y2: number, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    draw_roundrect(x1: number, y1: number, x2: number, y2: number, radius?: number | GMRoundRectDrawOptions, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    draw_circle(x: number, y: number, radius: number, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    draw_line(x1: number, y1: number, x2: number, y2: number, options?: GMPrimitiveDrawOptions): GMRuntime;
+    draw_polyline(points: Array<GMPolylinePoint> | number[], options?: GMPolylineOptions): GMRuntime;
     draw_text(x: number, y: number, text: unknown): unknown;
     draw_text_ext(x: number, y: number, text: unknown, options?: GMTextDrawOptions): unknown;
     draw_text_fit(x: number, y: number, text: unknown, options: GMTextFitOptions): unknown;
@@ -359,6 +379,8 @@ interface GMRuntimeInfo {
     readonly state: unknown;
     readonly roomWidth: number;
     readonly roomHeight: number;
+    readonly centerX: number;
+    readonly centerY: number;
     readonly displayWidth: number;
     readonly displayHeight: number;
     readonly profile: string;
@@ -415,10 +437,11 @@ interface GMDrawFacade {
     setFont(font?: string, size?: number, bold?: boolean): GMRuntime;
     setHAlign(value: GMHorizontalAlign): GMRuntime;
     setVAlign(value: GMVerticalAlign): GMRuntime;
-    rect(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
-    roundRect(x1: number, y1: number, x2: number, y2: number, radius?: number, outline?: boolean): GMRuntime;
-    circle(x: number, y: number, radius: number, outline?: boolean): GMRuntime;
-    line(x1: number, y1: number, x2: number, y2: number): GMRuntime;
+    rect(x1: number, y1: number, x2: number, y2: number, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    roundRect(x1: number, y1: number, x2: number, y2: number, radius?: number | GMRoundRectDrawOptions, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    circle(x: number, y: number, radius: number, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    line(x1: number, y1: number, x2: number, y2: number, options?: GMPrimitiveDrawOptions): GMRuntime;
+    polyline(points: Array<GMPolylinePoint> | number[], options?: GMPolylineOptions): GMRuntime;
     text(x: number, y: number, text: unknown): unknown;
     textExt(x: number, y: number, text: unknown, options?: GMTextDrawOptions): unknown;
     textFit(x: number, y: number, text: unknown, options: GMTextFitOptions): unknown;
@@ -526,6 +549,13 @@ interface GMEntityFacade {
 
 interface GMLayerFacade {
     define(name: string, depth: number): GMRuntime;
+    define(layers: Record<string, number>): GMRuntime;
+}
+
+interface GMAtlasRgbaSource {
+    width: number;
+    height: number;
+    rgba: ArrayLike<number> | ArrayBufferView;
 }
 
 interface GMAssetRegistrationManifest {
@@ -544,7 +574,7 @@ interface GMAssetFacade {
     loadSheet(key: string, url: string, frameWidth: number, frameHeight: number): GMRuntime;
     addCanvas(key: string, canvas: HTMLCanvasElement | OffscreenCanvas, options?: { replace?: boolean }): GMAssetRegistrationManifest;
     addRgba(key: string, width: number, height: number, rgba: ArrayLike<number> | ArrayBufferView, options?: { replace?: boolean }): GMAssetRegistrationManifest;
-    addAtlas(key: string, source: HTMLCanvasElement | OffscreenCanvas | string, frames: object | Map<string, unknown> | unknown[], options?: { replace?: boolean }): GMAssetRegistrationManifest;
+    addAtlas(key: string, source: HTMLCanvasElement | OffscreenCanvas | string | GMAtlasRgbaSource, frames: object | Map<string, unknown> | unknown[], options?: { replace?: boolean }): GMAssetRegistrationManifest;
     remove(key: string): boolean;
     exists(key: string): boolean;
     frameExists(key: string, frame: string | number): boolean;
@@ -594,6 +624,9 @@ interface GMSeededRng {
 interface GMMathFacade {
     clamp(value: number, min: number, max: number): number;
     lerp(a: number, b: number, t: number): number;
+    dampFactor(factor: number, deltaSeconds: number, referenceHz?: number): number;
+    distanceSq(x1: number, y1: number, x2: number, y2: number): number;
+    normalize2(dx: number, dy: number, out?: { x?: number; y?: number; length?: number }): { x: number; y: number; length: number };
     choose<T>(...items: T[]): T | undefined;
     random(max: number): number;
     random_range(min: number, max: number): number;
