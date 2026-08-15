@@ -104,5 +104,9 @@ separate release decisions.
 - `examples/prototype-module.html`: module boot proof.
 - `examples/prototype-cdn.html`: plain-script/global boot proof.
 - `examples/single-html-cdn/index.html`: downloaded global bundle proof.
-- `examples/fruit-shot.html`: focused fixed-step, seeded RNG, generated atlas,
-  `spriteExt`, `textExt`, and `textFit` proof.
+- `examples/fruit-shot-grout13.html`: recommended all-in-one CDN proof with
+  Phaser, the facade, injected Grout13 atlas compilation, fixed-step motion,
+  seeded RNG, pixel-art rendering, and Grout13 bitmap text.
+- `examples/fruit-shot.html`: all-in-one core CDN proof without Grout13.
+- `examples/fruit-shot-modular.html`: import-map module architecture with its
+  game source in `examples/fruit-shot-modular.js`.

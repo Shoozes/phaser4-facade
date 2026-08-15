@@ -4,11 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#073b4c">
-    <title>Phaser 4 Facade Fruit Shot Core CDN</title>
+    <title>Phaser 4 Facade Fruit Shot Grout13 CDN</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css">
 </head>
 <body data-gm-app-shell="locked">
-    <div id="status" class="gm-app-status" role="status">Fruit Shot Core CDN booting...</div>
+    <div id="status" class="gm-app-status" role="status">Fruit Shot Grout13 CDN booting...</div>
     <div id="proof-error" class="gm-app-error" role="alert" hidden></div>
     <div class="gm-app-shell">
         <div id="game" class="gm-app-surface gm-app-safe-area gm-app-surface--pixel-art"></div>
@@ -21,8 +21,8 @@
             const renderType = new URLSearchParams(window.location.search).get("render") === "canvas"
                 ? "CANVAS"
                 : "WEBGL";
-            const proof = window.__fruitShotProof = {
-                architecture: "all-in-one-core",
+            const proof = window.__fruitShotGrout13Proof = {
+                architecture: "all-in-one-grout13",
                 phase: "booting",
                 complete: false,
                 failed: false,
@@ -32,18 +32,18 @@
                 render: renderType,
                 phaserSource: "",
                 runtimeSource: "",
-                textExtSeen: false,
-                textFitSeen: false,
-                guiTextExtSeen: false,
-                guiTextFitSeen: false,
+                groutSource: "",
+                bridgeSource: "",
+                grout13: false,
+                grout13PayloadBytes: 0,
+                pixelTextSeen: false,
+                pixelTextFlipY: false,
+                pixelTextDraws: 0,
                 spriteOptionsSeen: false,
                 fixedStepsSeen: false,
                 headingDraws: 0,
                 summaryDraws: 0,
-                sprite: null,
-                text: null,
-                guiText: null,
-                grout13: false
+                sprite: null
             };
             const SCRIPT_TIMEOUT_MS = 8000;
             const phaserCandidates = [
@@ -54,6 +54,15 @@
                 "../dist/gm-phaser4.global.min.js",
                 "../main-files/runtime/gm-phaser4/gm-phaser4.global.min.js",
                 "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/gm-phaser4.global.min.js"
+            ];
+            const groutCandidates = [
+                "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.global.min.js"
+            ];
+            const bridgeCandidates = [
+                "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4-grout13.global.min.js",
+                "../dist/gm-phaser4-grout13.global.min.js",
+                "../main-files/runtime/gm-phaser4/gm-phaser4-grout13.global.min.js",
+                "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/gm-phaser4-grout13.global.min.js"
             ];
             let launched = false;
             let errorHandlersInstalled = false;
@@ -76,7 +85,7 @@
                 proof.complete = false;
                 proof.phase = "failed";
                 proof.errors.push(message);
-                setStatus(`Fruit Shot Core CDN failed: ${message}`);
+                setStatus("Fruit Shot Grout13 CDN failed: " + message);
                 const errorNode = document.getElementById("proof-error");
                 if (errorNode) {
                     errorNode.hidden = false;
@@ -102,6 +111,23 @@
                     window.GM.version === RUNTIME_VERSION &&
                     window.GM.app &&
                     typeof window.GM.app.start === "function"
+                );
+            }
+
+            function validateGrout13() {
+                return Boolean(
+                    window.GROUT13 &&
+                    typeof window.GROUT13.compileGrout13Atlas === "function" &&
+                    typeof window.GROUT13.decodeGrout13Atlas === "function"
+                );
+            }
+
+            function validateBridge() {
+                return Boolean(
+                    validateRuntime() &&
+                    validateGrout13() &&
+                    window.GM.grout13 &&
+                    typeof window.GM.grout13.addAtlas === "function"
                 );
             }
 
@@ -141,35 +167,85 @@
                 tryNext();
             }
 
-            function createFruitAtlas() {
-                const canvas = document.createElement("canvas");
-                canvas.width = 192;
-                canvas.height = 64;
-                const context = canvas.getContext("2d");
-                if (!context) throw new Error("Fruit Shot CDN requires a 2D canvas context.");
-
-                const fruit = [
-                    [32, "#ef476f"],
-                    [96, "#ffd166"],
-                    [160, "#06d6a0"]
-                ];
-                for (const [x, color] of fruit) {
-                    context.fillStyle = color;
-                    context.beginPath();
-                    context.arc(x, 32, 24, 0, Math.PI * 2);
-                    context.fill();
-                    context.fillStyle = "#073b4c";
-                    context.fillRect(x - 8, 4, 16, 8);
-                }
-
-                return {
-                    canvas,
-                    frames: {
-                        strawberry: { x: 0, y: 0, w: 64, h: 64 },
-                        lemon: { x: 64, y: 0, w: 64, h: 64 },
-                        lime: { x: 128, y: 0, w: 64, h: 64 }
+            function createFruitSpecs() {
+                return [
+                    {
+                        name: "strawberry",
+                        spec: {
+                            w: 16,
+                            h: 16,
+                            steps: [
+                                { type: "heart_filled", x: 2, y: 2, w: 12, h: 12, col: 0xef476f },
+                                { type: "rect_filled", x: 6, y: 0, w: 4, h: 4, col: 0x06d6a0 },
+                                { type: "plot", x: 6, y: 7, col: 0xffd166 },
+                                { type: "plot", x: 10, y: 9, col: 0xffd166 }
+                            ]
+                        }
+                    },
+                    {
+                        name: "lemon",
+                        spec: {
+                            w: 16,
+                            h: 16,
+                            steps: [
+                                { type: "circle_filled", x: 1, y: 3, w: 14, h: 10, col: 0xffd166 },
+                                { type: "rect_filled", x: 6, y: 1, w: 4, h: 3, col: 0x06d6a0 }
+                            ]
+                        }
+                    },
+                    {
+                        name: "lime",
+                        spec: {
+                            w: 16,
+                            h: 16,
+                            steps: [
+                                { type: "circle_filled", x: 1, y: 2, w: 14, h: 14, col: 0x06d6a0 },
+                                { type: "circle", x: 3, y: 4, w: 10, h: 10, col: 0xffffff },
+                                { type: "rect_filled", x: 7, y: 0, w: 2, h: 3, col: 0x118ab2 }
+                            ]
+                        }
+                    },
+                    {
+                        name: "fruit-shot-title",
+                        spec: {
+                            w: 180,
+                            h: 21,
+                            steps: [
+                                { type: "bitmap_text", x: 0, y: 0, w: 180, align: "center", text: "FRUIT SHOT", col: 0xffffff, scale: 3 }
+                            ]
+                        }
+                    },
+                    {
+                        name: "fruit-shot-subtitle",
+                        spec: {
+                            w: 180,
+                            h: 14,
+                            steps: [
+                                { type: "bitmap_text", x: 0, y: 0, w: 180, align: "center", text: "GROUT13 CDN", col: 0xffd166, scale: 2 }
+                            ]
+                        }
+                    },
+                    {
+                        name: "fruit-shot-caption",
+                        spec: {
+                            w: 84,
+                            h: 7,
+                            steps: [
+                                { type: "bitmap_text", x: 0, y: 0, text: "GROUT13 ATLAS", col: 0xffffff }
+                            ]
+                        }
+                    },
+                    {
+                        name: "fruit-shot-proof",
+                        spec: {
+                            w: 72,
+                            h: 7,
+                            steps: [
+                                { type: "bitmap_text", x: 0, y: 0, text: "CANVAS WEBGL", col: 0xffd166 }
+                            ]
+                        }
                     }
-                };
+                ];
             }
 
             function observeSprite(sprite) {
@@ -182,12 +258,12 @@
                 } : null;
             }
 
-            function observeText(text, target) {
-                proof[target] = text ? {
-                    width: Number(text.width),
-                    height: Number(text.height),
-                    fontSize: String(text.style?.fontSize || "")
-                } : null;
+            function drawPixelLabel(GM, frame, x, y, options) {
+                const sprite = GM.draw.spriteExt("fruit-atlas", frame, x, y, { ...options, flipY: true });
+                proof.pixelTextSeen = proof.pixelTextSeen || Boolean(sprite);
+                proof.pixelTextFlipY = proof.pixelTextFlipY || sprite?.flipY === true;
+                proof.pixelTextDraws += 1;
+                return sprite;
             }
 
             function startFruitShot() {
@@ -211,9 +287,12 @@
                         roundPixels: true,
                         type: renderType,
                         create() {
-                            const atlas = createFruitAtlas();
-                            GM.asset.addAtlas("fruit-atlas", atlas.canvas, atlas.frames);
-                            proof.atlasFrames = Object.keys(atlas.frames);
+                            const atlas = GM.grout13.addAtlas("fruit-atlas", createFruitSpecs(), {
+                                preset: "pixel"
+                            });
+                            proof.atlasFrames = [...atlas.frameNames];
+                            proof.grout13 = atlas.frameCount === proof.atlasFrames.length;
+                            proof.grout13PayloadBytes = Number(atlas.payloadBytes || 0);
                             GM.layer.define("fruit", 100);
                             GM.entity.spawn({
                                 create() {
@@ -227,9 +306,10 @@
                                     if (this.x < 80 || this.x > GM.runtime.roomWidth - 80) this.spin *= -1;
                                 },
                                 draw() {
+                                    const rotation = Math.round((this.spin * GM.runtime.currentTime / 1000) / 15) * 15;
                                     const sprite = GM.draw.spriteExt("fruit-atlas", this.fruit, this.x, this.y, {
                                         width: 96,
-                                        rotation: this.spin * GM.runtime.currentTime / 1000,
+                                        rotation,
                                         originX: 0.5,
                                         originY: 0.5
                                     });
@@ -250,49 +330,33 @@
                                 { x: GM.runtime.centerX, y: 190 },
                                 { x: GM.runtime.roomWidth - 48, y: 220 }
                             ], { color: "#ffd166", lineWidth: 2 });
-                            const heading = GM.draw.textExt(GM.runtime.centerX, 80, "Fruit Shot CDN", {
-                                size: 46,
-                                bold: true,
-                                color: GM.color.WHITE,
-                                hAlign: "center",
-                                vAlign: "middle"
+                            const heading = drawPixelLabel(GM, "fruit-shot-title", GM.runtime.centerX, 82, {
+                                scale: 1,
+                                originX: 0.5,
+                                originY: 0.5
                             });
                             proof.headingDraws += 1;
-                            const summary = GM.draw.textFit(
-                                GM.runtime.centerX,
-                                150,
-                                "All-in-one core CDN: fixed-step, seeded atlas, and global facade",
-                                {
-                                    size: 28,
-                                    minSize: 16,
-                                    maxWidth: GM.runtime.roomWidth - 80,
-                                    hAlign: "center",
-                                    vAlign: "middle",
-                                    color: "#ffd166"
-                                }
-                            );
+                            const summary = drawPixelLabel(GM, "fruit-shot-subtitle", GM.runtime.centerX, 152, {
+                                scale: 1,
+                                originX: 0.5,
+                                originY: 0.5
+                            });
                             proof.summaryDraws += 1;
-                            proof.textExtSeen = proof.textExtSeen || Boolean(heading);
-                            proof.textFitSeen = proof.textFitSeen || Boolean(summary);
-                            observeText(summary, "text");
+                            drawPixelLabel(GM, "fruit-shot-caption", 28, GM.runtime.roomHeight - 76, {
+                                scale: 2,
+                                originX: 0,
+                                originY: 0
+                            });
+                            drawPixelLabel(GM, "fruit-shot-proof", GM.runtime.roomWidth - 28, GM.runtime.roomHeight - 76, {
+                                scale: 2,
+                                originX: 1,
+                                originY: 0
+                            });
                             if (proof.frames >= 8 && !proof.failed) {
                                 proof.phase = "complete";
                                 proof.complete = true;
                                 hideStatus();
                             }
-                        },
-                        gui() {
-                            const guiY = GM.runtime.roomHeight - 64;
-                            const guiHeading = GM.gui.textExt(20, guiY, "Core facade atlas", { size: 16, color: "#ffffff" });
-                            const guiSummary = GM.gui.textFit(20, guiY + 24, "No Grout13 dependency", {
-                                size: 16,
-                                minSize: 10,
-                                maxWidth: 220,
-                                color: "#ffd166"
-                            });
-                            proof.guiTextExtSeen = proof.guiTextExtSeen || Boolean(guiHeading);
-                            proof.guiTextFitSeen = proof.guiTextFitSeen || Boolean(guiSummary);
-                            observeText(guiSummary, "guiText");
                         },
                         onError(error) {
                             failProof(error);
@@ -304,19 +368,37 @@
             }
 
             installErrorHandlers();
-            setStatus("Fruit Shot Core CDN loading Phaser...");
+            setStatus("Fruit Shot Grout13 CDN loading Phaser...");
             loadScriptCandidates(
                 phaserCandidates,
                 validatePhaser,
-                (source) => {
-                    proof.phaserSource = source;
-                    setStatus("Fruit Shot Core CDN loading facade...");
+                (phaserSource) => {
+                    proof.phaserSource = phaserSource;
+                    setStatus("Fruit Shot Grout13 CDN loading facade...");
                     loadScriptCandidates(
                         runtimeCandidates,
                         validateRuntime,
                         (runtimeSource) => {
                             proof.runtimeSource = runtimeSource;
-                            startFruitShot();
+                            setStatus("Fruit Shot Grout13 CDN loading Grout13...");
+                            loadScriptCandidates(
+                                groutCandidates,
+                                validateGrout13,
+                                (groutSource) => {
+                                    proof.groutSource = groutSource;
+                                    setStatus("Fruit Shot Grout13 CDN loading bridge...");
+                                    loadScriptCandidates(
+                                        bridgeCandidates,
+                                        validateBridge,
+                                        (bridgeSource) => {
+                                            proof.bridgeSource = bridgeSource;
+                                            startFruitShot();
+                                        },
+                                        () => failProof("Unable to load the gm-phaser4 Grout13 bridge.")
+                                    );
+                                },
+                                () => failProof("Unable to load the Grout13 CDN runtime.")
+                            );
                         },
                         () => failProof("Unable to load the gm-phaser4 CDN runtime.")
                     );

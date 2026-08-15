@@ -34,6 +34,9 @@ if (!runtimeMatch || runtimeMatch[1] !== version) {
 const versionedReferences = [
     "docs/getting-started.md",
     "examples/prototype-cdn.html",
+    "examples/fruit-shot.html",
+    "examples/fruit-shot-grout13.html",
+    "examples/fruit-shot-modular.html",
     "examples/single-html-cdn/index.html",
     "examples/single-html-cdn/README.md"
 ];

@@ -2,11 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>GM Phaser 4 Prototype</title>
+    <link rel="stylesheet" href="../native-app-shell.css">
 </head>
-<body>
-    <div id="game"></div>
+<body data-gm-app-shell="locked">
+    <div class="gm-app-shell">
+        <div id="game" class="gm-app-surface gm-app-safe-area"></div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"></script>
     <script>

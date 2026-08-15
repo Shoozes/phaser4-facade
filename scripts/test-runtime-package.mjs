@@ -110,6 +110,11 @@ for (const relativePath of [
     "docs/getting-started.md",
     "docs/how-to-procedural-ui.md",
     "examples/README.md",
+    "examples/native-app-shell.css",
+    "examples/fruit-shot.html",
+    "examples/fruit-shot-grout13.html",
+    "examples/fruit-shot-modular.html",
+    "examples/fruit-shot-modular.js",
     "dist/gm-phaser4.module.js",
     "dist/gm-phaser4.global.js",
     "dist/gm-phaser4.global.min.js",
@@ -127,6 +132,20 @@ if (!moduleExample.includes('import "../dist/gm-phaser4.module.js"')) {
     fail("module example must use the packaged dist module entrypoint.");
 }
 
+for (const [relativePath, stylesheet] of [
+    ["examples/prototype-module.html", "./native-app-shell.css"],
+    ["examples/prototype-cdn.html", "./native-app-shell.css"],
+    ["examples/fruit-shot.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
+    ["examples/fruit-shot-grout13.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
+    ["examples/fruit-shot-modular.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
+    ["examples/single-html-cdn/index.html", "../native-app-shell.css"]
+]) {
+    const source = fs.readFileSync(path.join(PACKAGE_ROOT, relativePath), "utf8");
+    if (!source.includes(`href=\"${stylesheet}\"`) || !source.includes('data-gm-app-shell="locked"')) {
+        fail(`${relativePath} must consume the shared locked native app shell.`);
+    }
+}
+
 for (const artifact of [
     "dist/gm-phaser4.module.js",
     "dist/gm-phaser4.global.js",
@@ -135,6 +154,8 @@ for (const artifact of [
     assertSyntax(artifact);
     assertNoUnresolvedRuntimeAliases(artifact);
 }
+
+assertSyntax("examples/fruit-shot-modular.js");
 
 for (const artifact of [
     "dist/gm-phaser4-grout13.module.js",

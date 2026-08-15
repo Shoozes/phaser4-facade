@@ -1,0 +1,140 @@
+:root {
+    --gm-native-app-shell-version: 1;
+    --gm-app-width: 100vw;
+    --gm-app-height: 100vh;
+    --gm-app-safe-area-top: env(safe-area-inset-top, 0px);
+    --gm-app-safe-area-right: env(safe-area-inset-right, 0px);
+    --gm-app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --gm-app-safe-area-left: env(safe-area-inset-left, 0px);
+    --gm-app-background: #000;
+    color-scheme: dark;
+}
+
+@supports (width: 100dvw) {
+    :root {
+        --gm-app-width: 100dvw;
+    }
+}
+
+@supports (height: 100dvh) {
+    :root {
+        --gm-app-height: 100dvh;
+    }
+}
+
+html,
+body {
+    width: 100%;
+    min-width: 100%;
+    height: 100%;
+    min-height: 100%;
+    background: var(--gm-app-background);
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    overflow: clip;
+    overscroll-behavior: none;
+}
+
+body[data-gm-app-shell="locked"] {
+    position: fixed;
+    inset: 0;
+    width: var(--gm-app-width);
+    height: var(--gm-app-height);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.gm-app-shell {
+    position: fixed;
+    inset: 0;
+    box-sizing: border-box;
+    width: var(--gm-app-width);
+    height: var(--gm-app-height);
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    overflow: clip;
+    isolation: isolate;
+    background: var(--gm-app-background);
+}
+
+.gm-app-safe-area {
+    position: absolute;
+    top: var(--gm-app-safe-area-top);
+    right: var(--gm-app-safe-area-right);
+    bottom: var(--gm-app-safe-area-bottom);
+    left: var(--gm-app-safe-area-left);
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.gm-app-surface,
+.gm-app-surface canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.gm-app-surface canvas {
+    touch-action: none;
+    image-rendering: auto;
+}
+
+.gm-app-surface--pixel-art canvas {
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+}
+
+.gm-app-scroll-region {
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+}
+
+body[data-gm-app-shell="locked"] .gm-app-scroll-region,
+body[data-gm-app-shell="locked"] input,
+body[data-gm-app-shell="locked"] textarea,
+body[data-gm-app-shell="locked"] [contenteditable="true"] {
+    user-select: text;
+    -webkit-user-select: text;
+    touch-action: manipulation;
+}
+
+.gm-app-status,
+.gm-app-error {
+    position: fixed;
+    z-index: 10;
+    left: max(12px, var(--gm-app-safe-area-left));
+    right: max(12px, var(--gm-app-safe-area-right));
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+    pointer-events: none;
+}
+
+.gm-app-status {
+    top: max(12px, var(--gm-app-safe-area-top));
+    left: auto;
+    width: min(50vw, 320px);
+    text-align: right;
+    color: #fff;
+}
+
+.gm-app-error {
+    bottom: max(12px, var(--gm-app-safe-area-bottom));
+    padding: 8px;
+    color: #fff;
+    background: #a4161a;
+}

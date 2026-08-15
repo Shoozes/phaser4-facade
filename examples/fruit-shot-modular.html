@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#073b4c">
+    <title>Phaser 4 Facade Fruit Shot Modular CDN</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css">
+</head>
+<body data-gm-app-shell="locked">
+    <div id="status" class="gm-app-status" role="status">Fruit Shot modular CDN booting...</div>
+    <div id="proof-error" class="gm-app-error" role="alert" hidden></div>
+    <div class="gm-app-shell">
+        <div id="game" class="gm-app-surface gm-app-safe-area gm-app-surface--pixel-art"></div>
+    </div>
+    <script type="importmap">
+        {
+            "imports": {
+                "phaser": "https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.esm.js",
+                "phaser4-facade": "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.module.js",
+                "phaser4-facade/grout13": "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4-grout13.module.js",
+                "grout13": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.mjs"
+            }
+        }
+    </script>
+    <script type="module" src="./fruit-shot-modular.js"></script>
+</body>
+</html>

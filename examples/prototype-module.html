@@ -4,29 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>GM Phaser 4 Prototype</title>
-    <style>
-        html,
-        body,
-        #game {
-            margin: 0;
-            padding: 0;
-            width: 100vw;
-            height: 100vh;
-            width: 100dvw;
-            height: 100dvh;
-            background: #000;
-            overflow: hidden;
-            touch-action: none;
-            user-select: none;
-        }
-
-        canvas {
-            display: block;
-        }
-    </style>
+    <link rel="stylesheet" href="./native-app-shell.css">
 </head>
-<body>
-    <div id="game"></div>
+<body data-gm-app-shell="locked">
+    <div class="gm-app-shell">
+        <div id="game" class="gm-app-surface gm-app-safe-area"></div>
+    </div>
 
     <script type="module">
         import "../dist/gm-phaser4.module.js";

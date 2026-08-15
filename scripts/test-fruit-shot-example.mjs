@@ -1,133 +1,159 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const EXAMPLE = path.join(ROOT, "examples", "fruit-shot.js");
-const HTML = path.join(ROOT, "examples", "fruit-shot.html");
+const SHELL_CSS = path.join(ROOT, "examples", "native-app-shell.css");
+const CSS_CDN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css";
+const CORE_HTML = "examples/fruit-shot.html";
+const GROUT_HTML = "examples/fruit-shot-grout13.html";
+const MODULAR_HTML = "examples/fruit-shot-modular.html";
+const MODULAR_JS = "examples/fruit-shot-modular.js";
 
 function fail(message) {
     throw new Error(message);
 }
 
-function checkTypeScript() {
-    const tsc = path.join(ROOT, "node_modules", "typescript", "bin", "tsc");
-    if (!fs.existsSync(tsc)) fail("Fruit Shot type check requires the package TypeScript dependency.");
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "phaser4-fruit-shot-types-"));
-    try {
-        const source = fs.readFileSync(EXAMPLE, "utf8")
-            .replaceAll("../dist/gm-phaser4.module.js", "phaser4-facade")
-            .replaceAll("../dist/gm-phaser4-grout13.module.js", "phaser4-facade/grout13");
-        fs.writeFileSync(path.join(tempRoot, "fruit-shot.js"), source, "utf8");
-        fs.writeFileSync(path.join(tempRoot, "tsconfig.json"), JSON.stringify({
-            compilerOptions: {
-                allowJs: true,
-                checkJs: true,
-                noEmit: true,
-                module: "ESNext",
-                moduleResolution: "Bundler",
-                target: "ES2022",
-                lib: ["ES2022", "DOM"],
-                skipLibCheck: true,
-                baseUrl: ROOT,
-                paths: {
-                    "phaser4-facade": ["types/gm-phaser4.d.ts"],
-                    "phaser4-facade/grout13": ["types/grout13.d.ts"]
-                }
-            },
-            files: ["fruit-shot.js"]
-        }, null, 2), "utf8");
-        const result = spawnSync(process.execPath, [tsc, "-p", path.join(tempRoot, "tsconfig.json")], {
-            cwd: ROOT,
-            encoding: "utf8"
+function read(relativePath) {
+    return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
+}
+
+function getExecutableInlineScript(html, label) {
+    const matches = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
+        .filter((match) => {
+            const openingTag = match[0].slice(0, match[0].indexOf(">") + 1);
+            return !/\bsrc\s*=/i.test(openingTag) && !/\btype\s*=\s*["']importmap["']/i.test(openingTag);
         });
-        if (result.status !== 0) fail(`Fruit Shot type check failed:\n${result.stdout || ""}${result.stderr || ""}`);
-    } finally {
-        fs.rmSync(tempRoot, { recursive: true, force: true });
+    if (matches.length !== 1) fail(label + " must contain one executable inline script, found " + matches.length + ".");
+    return matches[0][1];
+}
+
+function checkNativeShell() {
+    const css = fs.readFileSync(SHELL_CSS, "utf8");
+    for (const marker of [
+        "--gm-native-app-shell-version: 1",
+        "@supports (height: 100dvh)",
+        "env(safe-area-inset-top, 0px)",
+        "-webkit-text-size-adjust: 100%",
+        "body[data-gm-app-shell=\"locked\"]",
+        ".gm-app-safe-area",
+        ".gm-app-scroll-region",
+        ".gm-app-surface--pixel-art",
+        "image-rendering: pixelated"
+    ]) {
+        if (!css.includes(marker)) fail("Native app shell CSS is missing marker: " + marker);
     }
 }
 
-async function checkBundle() {
-    const localNamespace = "fruit-shot-local";
-    const result = await build({
-        absWorkingDir: ROOT,
-        bundle: true,
-        format: "esm",
-        metafile: true,
-        platform: "browser",
-        plugins: [{
-            name: "fruit-shot-local-source",
-            setup(pluginBuild) {
-                pluginBuild.onResolve({ filter: /.*/ }, (args) => {
-                    if (args.path === "phaser") return { external: true, path: args.path };
-                    if (!args.path.startsWith(".")) return { external: true, path: args.path };
-                    const importer = path.isAbsolute(args.importer)
-                        ? args.importer
-                        : path.join(ROOT, "examples", "fruit-shot.js");
-                    const resolved = path.resolve(path.dirname(importer), args.path);
-                    if (!resolved.startsWith(`${ROOT}${path.sep}`)) fail(`Fruit Shot import escapes package root: ${args.path}`);
-                    return { namespace: localNamespace, path: resolved };
-                });
-                pluginBuild.onLoad({ filter: /.*/, namespace: localNamespace }, (args) => ({
-                    contents: fs.readFileSync(args.path, "utf8"),
-                    loader: "js",
-                    resolveDir: path.dirname(args.path)
-                }));
-            }
-        }],
-        stdin: {
-            contents: fs.readFileSync(EXAMPLE, "utf8"),
-            loader: "js",
-            resolveDir: path.dirname(EXAMPLE),
-            sourcefile: "fruit-shot.js"
-        },
-        write: false,
-        logLevel: "silent"
-    });
-    assert.ok(result.outputFiles?.[0]?.text.length > 0, "Fruit Shot bundle should produce JavaScript.");
-    const externalImports = new Set();
-    for (const input of Object.values(result.metafile?.inputs || {})) {
-        for (const importRecord of input.imports || []) {
-            if (importRecord.external) externalImports.add(importRecord.path);
-        }
+function checkAllInOne(relativePath, label, markers) {
+    const html = read(relativePath);
+    if (/<script\s+type=["']module["']/i.test(html) || /<script\s+type=["']importmap["']/i.test(html)) {
+        fail(label + " must remain a plain-script all-in-one CDN example.");
     }
-    assert.deepEqual([...externalImports].sort(), ["phaser"], "Fruit Shot should only leave Phaser as a peer import.");
+    if (/\bimport\s+/.test(html)) fail(label + " must not use module import syntax.");
+    for (const marker of [
+        "href=\"" + CSS_CDN + "\"",
+        "data-gm-app-shell=\"locked\"",
+        "gm-app-surface gm-app-safe-area gm-app-surface--pixel-art",
+        "viewport-fit=cover",
+        "function loadScriptCandidates",
+        "SCRIPT_TIMEOUT_MS",
+        "validateRuntime",
+        "if (launched) return;",
+        "GM.app.start",
+        "GM.draw.spriteExt",
+        "responsive: true",
+        "renderQuality: \"pixel-art\"",
+        "pixelArt: true",
+        "antialias: false",
+        "roundPixels: true",
+        ...markers
+    ]) {
+        if (!html.includes(marker)) fail(label + " is missing marker: " + marker);
+    }
+    const script = getExecutableInlineScript(html, label);
+    try {
+        new Function(script);
+    } catch (error) {
+        fail(label + " inline script has a syntax error: " + (error instanceof Error ? error.message : String(error)));
+    }
+    assert.ok(fs.statSync(path.join(ROOT, relativePath)).size > 4000, label + " should retain a complete standalone implementation.");
 }
 
-function checkSourceContract() {
-    const source = fs.readFileSync(EXAMPLE, "utf8");
-    const html = fs.readFileSync(HTML, "utf8");
-    for (const forbidden of ["GM.time.deltaSec", "GM.time.currentTime", "GM.draw.rectangle"]) {
-        if (source.includes(forbidden)) fail(`Fruit Shot still uses unsupported API: ${forbidden}`);
+function checkModular() {
+    const html = read(MODULAR_HTML);
+    const source = read(MODULAR_JS);
+    for (const marker of [
+        "href=\"" + CSS_CDN + "\"",
+        "data-gm-app-shell=\"locked\"",
+        "gm-app-surface gm-app-safe-area gm-app-surface--pixel-art",
+        "viewport-fit=cover",
+        "type=\"importmap\"",
+        "\"phaser\": \"https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.esm.js\"",
+        "\"phaser4-facade\": \"https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.module.js\"",
+        "\"phaser4-facade/grout13\": \"https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4-grout13.module.js\"",
+        "\"grout13\": \"https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.mjs\"",
+        "<script type=\"module\" src=\"./fruit-shot-modular.js\"></script>"
+    ]) {
+        if (!html.includes(marker)) fail("Modular Fruit Shot HTML is missing marker: " + marker);
     }
     for (const marker of [
-        "GM.runtime.deltaSec",
-        "GM.runtime.currentTime",
-        "GM.runtime.centerX",
-        "GM.runtime.centerY",
-        "GM.draw.rect",
-        "GM.draw.polyline",
-        "GM.draw.textExt",
-        "GM.draw.textFit",
-        "GM.gui.textExt",
-        "GM.gui.textFit",
-        "GM.draw.spriteExt",
-        "width: 96",
-        "__fruitShotProof",
-        "id=\"game\"",
-        "touch-action: none",
-        "importmap"
+        "import { GM } from \"phaser4-facade\";",
+        "import { installGrout13Bridge } from \"phaser4-facade/grout13\";",
+        "import * as GROUT13 from \"grout13\";",
+        "architecture: \"module-grout13\"",
+        "installGrout13Bridge(GM, GROUT13)",
+        "bridge.addAtlas",
+        "responsive: true",
+        "renderQuality: \"pixel-art\"",
+        "bitmap_text",
+        "function drawPixelLabel",
+        "flipY: true",
+        "pixelTextSeen",
+        "GM.draw.spriteExt"
     ]) {
-        if (!source.includes(marker) && !html.includes(marker)) fail(`Fruit Shot proof is missing marker: ${marker}`);
+        if (!source.includes(marker)) fail("Modular Fruit Shot source is missing marker: " + marker);
     }
+    const syntax = new Function(source.replace(/^import .*$/gm, ""));
+    assert.ok(syntax, "Modular Fruit Shot should parse after import declarations are removed.");
 }
 
-checkSourceContract();
-checkTypeScript();
-await checkBundle();
-console.log("[ok] Fruit Shot source, type, and package bundle proof passed.");
+checkNativeShell();
+assert.equal(fs.existsSync(path.join(ROOT, "examples", "fruit-shot.js")), false, "The retired Fruit Shot companion script must not return.");
+checkAllInOne(CORE_HTML, "Core Fruit Shot", [
+    "architecture: \"all-in-one-core\"",
+    "grout13: false",
+    "https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js",
+    "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.global.min.js",
+    "../dist/gm-phaser4.global.min.js",
+    "../main-files/runtime/gm-phaser4/gm-phaser4.global.min.js",
+    "GM.asset.addAtlas",
+    "GM.draw.textExt",
+    "GM.draw.textFit",
+    "GM.gui.textExt",
+    "GM.gui.textFit"
+]);
+const coreSource = read(CORE_HTML);
+assert.equal(coreSource.includes("GROUT13"), false, "Core Fruit Shot must not load or require Grout13.");
+checkAllInOne(GROUT_HTML, "Grout13 Fruit Shot", [
+    "architecture: \"all-in-one-grout13\"",
+    "__fruitShotGrout13Proof",
+    "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.global.min.js",
+    "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4-grout13.global.min.js",
+    "../dist/gm-phaser4-grout13.global.min.js",
+    "../main-files/runtime/gm-phaser4/gm-phaser4-grout13.global.min.js",
+    "validateGrout13",
+    "validateBridge",
+    "createFruitSpecs",
+    "GM.grout13.addAtlas",
+    "preset: \"pixel\"",
+    "bitmap_text",
+    "fruit-shot-title",
+    "function drawPixelLabel",
+    "flipY: true",
+    "pixelTextSeen"
+]);
+checkModular();
+console.log("[ok] Fruit Shot core, all-in-one Grout13, modular, CDN CSS, and native-shell contracts passed.");
