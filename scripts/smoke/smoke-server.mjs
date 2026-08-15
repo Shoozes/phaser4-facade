@@ -11,23 +11,8 @@ import path from "node:path";
 
 const SERVER_TIMEOUT_MS = 30000;
 
-function quoteCmdArg(value) {
-    const text = String(value);
-    if (/^[A-Za-z0-9_./:=+-]+$/.test(text)) return text;
-    return `"${text.replace(/"/g, '""')}"`;
-}
-
-function resolveCommand(name, args) {
-    if (process.platform === "win32" && name === "npm") {
-        const npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
-        if (fs.existsSync(npmCli)) {
-            return { executable: process.execPath, args: [npmCli, ...args] };
-        }
-        const commandLine = ["npm", ...args].map(quoteCmdArg).join(" ");
-        return { executable: "cmd.exe", args: ["/d", "/s", "/c", commandLine] };
-    }
-
-    return { executable: name, args };
+function viteCliPath(frontendRoot) {
+    return path.join(frontendRoot, "node_modules", "vite", "bin", "vite.js");
 }
 
 export function ensureFrontendDeps(frontendRoot) {
@@ -50,8 +35,13 @@ function isPortFree(port) {
 }
 
 function startFrontendServer(frontendRoot, port) {
-    const command = resolveCommand("npm", ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port), "--strictPort"]);
-    const child = spawn(command.executable, command.args, {
+    const viteCli = viteCliPath(frontendRoot);
+    if (!fs.existsSync(viteCli)) {
+        throw new Error(`Source smoke requires Vite at ${viteCli}. Run npm install in ${frontendRoot}.`);
+    }
+    // Launch Vite's local CLI directly. `npm run dev` can spawn an orphaned
+    // Vite child on Windows after its npm wrapper exits, which defeats teardown.
+    const child = spawn(process.execPath, [viteCli, "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
         cwd: frontendRoot,
         env: Object.assign({}, process.env, { BROWSER: "none" }),
         stdio: ["ignore", "pipe", "pipe"],
@@ -173,7 +163,7 @@ export async function stopServer(child) {
         await child.close();
         return;
     }
-    if (!child || child.exitCode !== null) return;
+    if (!child || hasChildExited(child)) return;
 
     if (process.platform === "win32") {
         try {
@@ -182,20 +172,32 @@ export async function stopServer(child) {
                 windowsHide: true,
                 timeout: 8000
             });
-            releaseChildProcess(child);
-            return;
+            await waitForChildExit(child, 1000);
+            if (hasChildExited(child)) {
+                releaseChildProcess(child);
+                return;
+            }
         } catch {
             // Fall back to normal process termination below.
         }
     }
 
     child.kill("SIGTERM");
+    await waitForChildExit(child, 1000);
+    if (!hasChildExited(child)) child.kill("SIGKILL");
+    releaseChildProcess(child);
+}
+
+function hasChildExited(child) {
+    return child.exitCode !== null || child.signalCode !== null;
+}
+
+async function waitForChildExit(child, timeoutMs) {
+    if (hasChildExited(child)) return;
     await Promise.race([
         new Promise((resolve) => child.once("exit", resolve)),
-        sleep(1000)
+        sleep(timeoutMs)
     ]);
-    if (child.exitCode === null) child.kill("SIGKILL");
-    releaseChildProcess(child);
 }
 
 function releaseChildProcess(child) {
