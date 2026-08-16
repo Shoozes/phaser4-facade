@@ -45,6 +45,7 @@ function checkNativeShell() {
         ".gm-app-safe-area",
         ".gm-app-scroll-region",
         ".gm-app-surface--pixel-art",
+        ".gm-app-surface--integer-pixel-art",
         "image-rendering: pixelated"
     ]) {
         if (!css.includes(marker)) fail("Native app shell CSS is missing marker: " + marker);
@@ -69,11 +70,15 @@ function checkAllInOne(relativePath, label, architecture, extraMarkers) {
         "function loadFirst",
         "GM.app.start",
         "GM.draw.spriteExt",
-        "responsive: true",
+        "responsive: false",
+        "integerScaleStep: PIXEL_SCALE_STEP",
         "renderQuality: \"pixel-art\"",
         "pixelArt: true",
         "antialias: false",
         "roundPixels: true",
+        "renderResolution: \"auto\"",
+        "pixelScaleStep: 0.5",
+        "pixelPresentation",
         "const PIXEL_SOURCE_SCALE = 4",
         "nativeSpriteFrames: true",
         "merges",
@@ -131,8 +136,12 @@ function checkModular() {
         "function pixelGlyphAsset",
         "function fruitAsset",
         "bridge.addAtlas",
-        "responsive: true",
+        "responsive: false",
+        "integerScaleStep: PIXEL_SCALE_STEP",
         "renderQuality: \"pixel-art\"",
+        "renderResolution: \"auto\"",
+        "pixelScaleStep: PIXEL_SCALE_STEP",
+        "pixelPresentation",
         "function fire",
         "function resolveHit",
         "GM.draw.spriteExt"

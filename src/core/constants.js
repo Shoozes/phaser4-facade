@@ -11,6 +11,8 @@ export const DEFAULTS = {
     desktopHeight: 720,
     desktopMaxWidth: 1920,
     responsive: false,
+    // Optional world-scale quantum for fixed-pixel presentations.
+    integerScaleStep: null,
     bleed: 300,
     background: 0x111111,
     safeColor: 0x333333,

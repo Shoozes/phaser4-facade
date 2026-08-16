@@ -121,12 +121,15 @@ function createAssets() {
 
 export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, failProof }) {
     const VIEW = Object.freeze({ width: 720, height: 1280, top: 188, floor: 1070, cueY: 1106, wall: 26 });
+    const PIXEL_SCALE_STEP = 0.5;
+    const PIXEL_RENDER_GRID = PIXEL_SOURCE_SCALE * PIXEL_SCALE_STEP;
     const FRUIT_SIZES = Object.freeze([64, 80, 96]);
     const state = { targets: [], shot: null, score: 0, lives: 3, nextTier: 0, canShoot: true, spawnAge: 0, gameOver: false, restarts: 0 };
     const clamp = (value, min, max) => GM.math.clamp(value, min, max);
     const roomWidth = () => Number(GM.runtime.roomWidth) || VIEW.width;
     const centerX = () => roomWidth() * 0.5;
     const radius = (tier) => FRUIT_SIZES[tier] * 0.5;
+    const snapPixelPosition = (value) => Math.round(Number(value) / PIXEL_RENDER_GRID) * PIXEL_RENDER_GRID;
 
     Object.assign(proof, {
         render: renderType,
@@ -138,6 +141,8 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
         pixelTextSeen: false,
         pixelTextFlipY: false,
         pixelTextDraws: 0,
+        pixelScaleStep: PIXEL_SCALE_STEP,
+        pixelPresentation: null,
         spriteOptionsSeen: false,
         fixedStepsSeen: false,
         headingDraws: 0,
@@ -152,6 +157,26 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
         restarts: 0
     });
 
+    function updatePixelPresentation() {
+        const layout = GM.runtime.state?.layout;
+        const render = GM.runtime.state?.render;
+        const scale = Number(GM.runtime.scale);
+        const resolution = Number(render?.resolution) || 1;
+        const units = scale / PIXEL_SCALE_STEP;
+        proof.pixelPresentation = {
+            scale,
+            scaleStep: PIXEL_SCALE_STEP,
+            scaleUnits: Math.round(units),
+            integer: Number.isFinite(units) && Math.abs(units - Math.round(units)) < 0.000001,
+            mode: layout?.scaleMode || "pending",
+            sourceCellCssPixels: PIXEL_SOURCE_SCALE * scale,
+            sourceCellDevicePixels: PIXEL_SOURCE_SCALE * scale * resolution,
+            renderResolution: resolution,
+            displayWidth: Number(GM.runtime.displayWidth),
+            displayHeight: Number(GM.runtime.displayHeight)
+        };
+    }
+
     function textWidth(text, scale) {
         const letters = String(text).toUpperCase().split("");
         return letters.reduce((width, character, index) => width + glyphWidth(character) * scale + (index < letters.length - 1 ? PIXEL_SOURCE_SCALE * scale : 0), 0);
@@ -159,12 +184,12 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
 
     function drawPixelText(text, x, y, scale, align, color) {
         const letters = String(text).toUpperCase().split("");
-        let cursor = Math.round(x);
+        let cursor = snapPixelPosition(x);
         const width = textWidth(text, scale);
         if (align === "center") cursor -= Math.floor(width * 0.5);
         if (align === "right") cursor -= width;
         for (const character of letters) {
-            const sprite = GM.draw.spriteExt("fruit-shot-modular", glyphName(character), cursor, Math.round(y), {
+            const sprite = GM.draw.spriteExt("fruit-shot-modular", glyphName(character), cursor, snapPixelPosition(y), {
                 scale,
                 color: color === undefined ? GM.color.WHITE : color,
                 originX: 0,
@@ -284,7 +309,7 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
     }
 
     function drawFruit(frame, x, y) {
-        const sprite = GM.draw.spriteExt("fruit-shot-modular", frame, Math.round(x), Math.round(y), { originX: 0.5, originY: 0.5 });
+        const sprite = GM.draw.spriteExt("fruit-shot-modular", frame, snapPixelPosition(x), snapPixelPosition(y), { originX: 0.5, originY: 0.5 });
         proof.spriteOptionsSeen = proof.spriteOptionsSeen || Boolean(sprite);
     }
 
@@ -320,7 +345,8 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
         parent: "game",
         width: VIEW.width,
         height: VIEW.height,
-        responsive: true,
+        responsive: false,
+        integerScaleStep: PIXEL_SCALE_STEP,
         minHeight: VIEW.height,
         targetHeight: VIEW.height,
         maxHeight: VIEW.height,
@@ -335,11 +361,13 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
         stage: false,
         curtain: false,
         globals: false,
-        background: "#073b4c",
+        background: "#05050c",
         renderQuality: "pixel-art",
         pixelArt: true,
         antialias: false,
         roundPixels: true,
+        renderResolution: "auto",
+        maxRenderResolution: 3,
         type: renderType,
         create() {
             const atlas = bridge.addAtlas("fruit-shot-modular", createAssets(), {
@@ -354,6 +382,7 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
             resetGame(false);
             proof.playable = true;
             proof.inputReady = Boolean(GM.input && typeof GM.input.pointerReleased === "function");
+            updatePixelPresentation();
             proof.phase = "running";
             setStatus("Ready\nPhaser 4.2.1\nModular Grout13 game");
             window.setTimeout(() => { if (!proof.failed) document.getElementById("status").hidden = true; }, 4000);

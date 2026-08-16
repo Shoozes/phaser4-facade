@@ -41,6 +41,10 @@ function mergeConfig(config) {
     if (merged.desktopMinWidth > merged.desktopMaxWidth) {
         throw new RangeError("GM.app.start requires desktopMinWidth <= desktopMaxWidth.");
     }
+    if (merged.integerScaleStep !== null && merged.integerScaleStep !== undefined &&
+        (!Number.isFinite(Number(merged.integerScaleStep)) || Number(merged.integerScaleStep) <= 0)) {
+        throw new TypeError("GM.app.start requires integerScaleStep to be a positive number when provided.");
+    }
     if (merged.renderResolution !== "auto" &&
         (!Number.isFinite(Number(merged.renderResolution)) || Number(merged.renderResolution) <= 0)) {
         throw new TypeError("GM.app.start requires renderResolution to be a positive number or 'auto'.");

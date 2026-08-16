@@ -295,6 +295,8 @@ interface GMStartConfig {
     /** Phaser renderer type: AUTO | CANVAS | WEBGL (string or Phaser constant). */
     type?: "AUTO" | "CANVAS" | "WEBGL" | number;
     responsive?: boolean;
+    /** Quantize world scale to this positive step when the viewport fits it. */
+    integerScaleStep?: number;
     minHeight?: number;
     targetHeight?: number;
     maxHeight?: number;

@@ -42,7 +42,7 @@
     <div id="status" class="gm-app-status" role="status">Fruit Shot Grout13 CDN booting...</div>
     <pre id="proof-error" class="gm-app-error" role="alert" hidden></pre>
     <div class="gm-app-shell">
-        <div id="game" class="gm-app-surface gm-app-safe-area gm-app-surface--pixel-art"></div>
+        <div id="game" class="gm-app-surface gm-app-safe-area gm-app-surface--pixel-art gm-app-surface--integer-pixel-art"></div>
     </div>
     <script>
         (function () {
@@ -91,6 +91,8 @@
                 pixelTextDraws: 0,
                 bitmapTextAvoided: true,
                 pixelSourceScale: 4,
+                pixelScaleStep: 0.5,
+                pixelPresentation: null,
                 nativeSpriteFrames: true,
                 spriteOptionsSeen: false,
                 fixedStepsSeen: false,
@@ -100,6 +102,9 @@
             };
             // Four source pixels per authored pixel avoid enlarging a 3x5 glyph at runtime.
             const PIXEL_SOURCE_SCALE = 4;
+            // A half-world-step maps each four-pixel authored cell to two CSS pixels.
+            const PIXEL_SCALE_STEP = 0.5;
+            const PIXEL_RENDER_GRID = PIXEL_SOURCE_SCALE * PIXEL_SCALE_STEP;
             const PIXEL_GLYPHS = Object.freeze({
                 A: ["010", "101", "111", "101", "101"], B: ["110", "101", "110", "101", "110"],
                 C: ["011", "100", "100", "100", "011"], D: ["110", "101", "101", "101", "110"],
@@ -281,6 +286,27 @@
                 const fieldLeft = function () { return (roomWidth() - VIEW.width) * 0.5; };
                 const field = function () { return { left: state.fieldLeft, right: state.fieldLeft + VIEW.width, centerX: state.fieldLeft + VIEW.width * 0.5 }; };
                 const baseRadius = function (type) { return FRUIT_SIZES[Math.max(0, Math.min(FRUIT_SIZES.length - 1, type - 1))] * 0.5; };
+                const snapPixelPosition = function (value) { return Math.round(Number(value) / PIXEL_RENDER_GRID) * PIXEL_RENDER_GRID; };
+
+                function updatePixelPresentation() {
+                    const layout = GM.runtime.state && GM.runtime.state.layout;
+                    const render = GM.runtime.state && GM.runtime.state.render;
+                    const scale = Number(GM.runtime.scale);
+                    const resolution = Number(render && render.resolution) || 1;
+                    const units = scale / PIXEL_SCALE_STEP;
+                    proof.pixelPresentation = {
+                        scale: scale,
+                        scaleStep: PIXEL_SCALE_STEP,
+                        scaleUnits: Math.round(units),
+                        integer: Number.isFinite(units) && Math.abs(units - Math.round(units)) < 0.000001,
+                        mode: layout ? layout.scaleMode : "pending",
+                        sourceCellCssPixels: PIXEL_SOURCE_SCALE * scale,
+                        sourceCellDevicePixels: PIXEL_SOURCE_SCALE * scale * resolution,
+                        renderResolution: resolution,
+                        displayWidth: Number(GM.runtime.displayWidth),
+                        displayHeight: Number(GM.runtime.displayHeight)
+                    };
+                }
 
                 function pixelRect(steps, x, y, w, h, color) {
                     steps.push({ type: "rect_filled", x: x * ART_CELL, y: y * ART_CELL, w: w * ART_CELL, h: h * ART_CELL, col: color });
@@ -367,12 +393,12 @@
                 function drawPixelText(text, x, y, scale, align, color, alpha) {
                     const letters = String(text).toUpperCase().split("");
                     const width = textWidth(text, scale);
-                    let cursor = Math.round(x);
+                    let cursor = snapPixelPosition(x);
                     const textAlign = align || "left";
                     if (textAlign === "center") cursor -= Math.floor(width / 2);
                     if (textAlign === "right") cursor -= width;
                     for (const character of letters) {
-                        const sprite = GM.draw.spriteExt(ATLAS_KEY, glyphName(character), cursor, Math.round(y), {
+                        const sprite = GM.draw.spriteExt(ATLAS_KEY, glyphName(character), cursor, snapPixelPosition(y), {
                             scale: scale,
                             color: color === undefined ? GM.color.WHITE : color,
                             alpha: alpha === undefined ? 1 : alpha,
@@ -587,7 +613,7 @@
                 }
 
                 function drawSprite(frameName, x, y, alpha) {
-                    const sprite = GM.draw.spriteExt(ATLAS_KEY, frameName, x, y, {
+                    const sprite = GM.draw.spriteExt(ATLAS_KEY, frameName, snapPixelPosition(x), snapPixelPosition(y), {
                         color: GM.color.WHITE,
                         alpha: alpha === undefined ? 1 : alpha,
                         originX: 0.5,
@@ -613,7 +639,7 @@
                     GM.draw.layer("Balls");
                     for (const ball of state.balls) {
                         if (!ball.alive) continue;
-                        GM.draw.circle(ball.x, ball.y, ball.r + 8, { color: ball.type === 0 ? "#ffffff" : FRUITS[ball.type - 1].css, alpha: 0.14 });
+                        GM.draw.circle(snapPixelPosition(ball.x), snapPixelPosition(ball.y), ball.r + 8, { color: ball.type === 0 ? "#ffffff" : FRUITS[ball.type - 1].css, alpha: 0.14 });
                         drawSprite(ball.type === 0 ? "cue" : "fruit-" + ball.type, ball.x, ball.y);
                     }
                 }
@@ -636,11 +662,11 @@
                         const dots = Math.floor(Math.hypot(b.x - a.x, b.y - a.y) / 28);
                         for (let dot = 1; dot <= dots; dot += 1) {
                             const t = dot / (dots + 1);
-                            GM.draw.spriteExt(ATLAS_KEY, "aim-dot", a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, { alpha: 0.72 });
+                            drawSprite("aim-dot", a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 0.72);
                         }
                     }
                     const end = path[path.length - 1];
-                    GM.draw.spriteExt(ATLAS_KEY, "impact", end.x, end.y, { alpha: 0.92 });
+                    drawSprite("impact", end.x, end.y, 0.92);
                 }
 
                 function drawHud() {
@@ -663,7 +689,8 @@
                     parent: "game",
                     width: VIEW.width,
                     height: VIEW.height,
-                    responsive: true,
+                    responsive: false,
+                    integerScaleStep: PIXEL_SCALE_STEP,
                     minHeight: VIEW.height,
                     targetHeight: VIEW.height,
                     maxHeight: VIEW.height,
@@ -683,6 +710,8 @@
                     pixelArt: true,
                     antialias: false,
                     roundPixels: true,
+                    renderResolution: "auto",
+                    maxRenderResolution: 3,
                     type: renderType,
                     create: function () {
                         GM.layer.define({ Background: -100, Balls: 0, Aim: 20, HUD: 100 });
@@ -690,6 +719,7 @@
                         resetGame(false);
                         proof.playable = true;
                         proof.inputReady = Boolean(GM.input && typeof GM.input.pointerReleased === "function");
+                        updatePixelPresentation();
                         proof.phase = "running";
                         setStatus("Ready\nPhaser " + (window.Phaser.VERSION || "4.2.1") + "\nGrout13 " + proof.atlasFrames.length + " frames");
                         window.setTimeout(function () {

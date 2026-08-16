@@ -15,6 +15,8 @@ var DEFAULTS = {
   desktopHeight: 720,
   desktopMaxWidth: 1920,
   responsive: false,
+  // Optional world-scale quantum for fixed-pixel presentations.
+  integerScaleStep: null,
   bleed: 300,
   background: 1118481,
   safeColor: 3355443,
@@ -1421,12 +1423,20 @@ function setRuntimeAlarm(state, index, frames, inst) {
 }
 
 // phaser4-facade-runtime:src/core/layout.js
+function quantizeScale(scale, cfg) {
+  const step = numberOr(cfg.integerScaleStep, 0);
+  if (!(step > 0)) return { scale, scaleMode: "continuous" };
+  const units = Math.floor((scale + Number.EPSILON) / step);
+  if (units < 1) return { scale, scaleMode: "fit-fallback" };
+  return { scale: units * step, scaleMode: "integer" };
+}
 function resolveRoomLayout(w, h, cfg) {
   const baseWidth = Math.max(1, numberOr(cfg.width, 720));
   const baseHeight = Math.max(1, numberOr(cfg.height, 1280));
   const orientation = w >= h ? "landscape" : "portrait";
   if (!cfg.responsive) {
-    const scale2 = Math.min(w / baseWidth, h / baseHeight);
+    const scaled2 = quantizeScale(Math.min(w / baseWidth, h / baseHeight), cfg);
+    const scale2 = scaled2.scale;
     return {
       roomWidth: baseWidth,
       roomHeight: baseHeight,
@@ -1434,7 +1444,8 @@ function resolveRoomLayout(w, h, cfg) {
       x: (w - baseWidth * scale2) / 2,
       y: (h - baseHeight * scale2) / 2,
       profile: "fixed",
-      orientation
+      orientation,
+      scaleMode: scaled2.scaleMode
     };
   }
   const landscape = w >= h;
@@ -1448,6 +1459,8 @@ function resolveRoomLayout(w, h, cfg) {
     let roomHeight = h / scale2;
     roomHeight = clamp(roomHeight, minHeight, maxHeight);
     scale2 = Math.min(w / baseWidth, h / roomHeight);
+    const scaled2 = quantizeScale(scale2, cfg);
+    scale2 = scaled2.scale;
     const profile = roomHeight < targetHeight - 120 ? "portrait-compact" : roomHeight > targetHeight + 120 ? "portrait-tall" : "portrait-standard";
     return {
       roomWidth: baseWidth,
@@ -1456,7 +1469,8 @@ function resolveRoomLayout(w, h, cfg) {
       x: (w - baseWidth * scale2) / 2,
       y: (h - roomHeight * scale2) / 2,
       profile,
-      orientation: "portrait"
+      orientation: "portrait",
+      scaleMode: scaled2.scaleMode
     };
   }
   const desktopHeight = Math.max(1, numberOr(cfg.desktopHeight, 720));
@@ -1465,6 +1479,8 @@ function resolveRoomLayout(w, h, cfg) {
   let scale = h / desktopHeight;
   let roomWidth = clamp(w / scale, desktopMinWidth, desktopMaxWidth);
   scale = Math.min(w / roomWidth, h / desktopHeight);
+  const scaled = quantizeScale(scale, cfg);
+  scale = scaled.scale;
   return {
     roomWidth,
     roomHeight: desktopHeight,
@@ -1472,7 +1488,8 @@ function resolveRoomLayout(w, h, cfg) {
     x: (w - roomWidth * scale) / 2,
     y: (h - desktopHeight * scale) / 2,
     profile: "desktop",
-    orientation: landscape ? "landscape" : "portrait-wide"
+    orientation: landscape ? "landscape" : "portrait-wide",
+    scaleMode: scaled.scaleMode
   };
 }
 
@@ -3225,6 +3242,9 @@ function mergeConfig(config) {
   if (merged.desktopMinWidth > merged.desktopMaxWidth) {
     throw new RangeError("GM.app.start requires desktopMinWidth <= desktopMaxWidth.");
   }
+  if (merged.integerScaleStep !== null && merged.integerScaleStep !== void 0 && (!Number.isFinite(Number(merged.integerScaleStep)) || Number(merged.integerScaleStep) <= 0)) {
+    throw new TypeError("GM.app.start requires integerScaleStep to be a positive number when provided.");
+  }
   if (merged.renderResolution !== "auto" && (!Number.isFinite(Number(merged.renderResolution)) || Number(merged.renderResolution) <= 0)) {
     throw new TypeError("GM.app.start requires renderResolution to be a positive number or 'auto'.");
   }
@@ -4245,6 +4265,7 @@ function installGMRuntime(root, Phaser) {
         state.layout.roomHeight = next.roomHeight;
         state.layout.profile = next.profile;
         state.layout.orientation = next.orientation;
+        state.layout.scaleMode = next.scaleMode;
         if (state.world) {
           state.world.setPosition(state.layout.x * resolution, state.layout.y * resolution);
           state.world.setScale(state.layout.scale * resolution);

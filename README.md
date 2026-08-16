@@ -54,6 +54,12 @@ options, and `GM.draw.polyline` validates object or flat points.
 See [`docs/text-and-sprite-options.md`](docs/text-and-sprite-options.md) and
 [`docs/migrations/0.2.0.md`](docs/migrations/0.2.0.md).
 
+For fixed-pixel games, `integerScaleStep` quantizes the room transform to a
+positive world-scale step when it fits, letterboxing surplus space rather than
+stretching source cells. Pair it with a fixed room, `pixelArt: true`, rounded
+positions, and `renderResolution: "auto"`; `docs/getting-started.md` includes
+the 4x-source-cell / 0.5-step Fruit Shot pattern.
+
 ## Optional Grout13 bridge
 
 The optional `phaser4-facade/grout13` entrypoint accepts an injected object
@@ -112,5 +118,6 @@ separate release decisions.
 
 `examples/native-app-shell.css` is the responsive native-app page shell shared
 by the public examples. It handles safe areas, desktop/mobile dynamic viewport
-sizes, scroll locking, and pixel-art canvas CSS without taking over Phaser's
-high-DPI backing-buffer configuration.
+sizes, scroll locking, pixel-art canvas CSS, and the optional
+`gm-app-surface--integer-pixel-art` presentation marker without taking over
+Phaser's high-DPI backing-buffer configuration.

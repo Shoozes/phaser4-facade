@@ -29,13 +29,15 @@ const GROUT_MODULE_DIST = process.env.GROUT13_MODULE_PATH || path.join(GROUT_ROO
 const HEADERS = { "access-control-allow-origin": "*" };
 
 const TEST_CASES = [
-    { name: "grout13-phone-3x", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 3 } },
-    { name: "grout13-desktop-webgl", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 } },
-    { name: "grout13-pinned-fallback", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "canvas", viewport: { width: 720, height: 1280, deviceScaleFactor: 1 }, runtimeFallback: true },
-    { name: "core-phone-2x", kind: "core", relPath: "examples/fruit-shot.html", proofName: "__fruitShotProof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 2 } },
-    { name: "core-desktop-webgl", kind: "core", relPath: "examples/fruit-shot.html", proofName: "__fruitShotProof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 } },
-    { name: "modular-phone-3x", kind: "module", relPath: "examples/fruit-shot-modular.html", proofName: "__fruitShotModularProof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 3 } },
-    { name: "modular-desktop-webgl", kind: "module", relPath: "examples/fruit-shot-modular.html", proofName: "__fruitShotModularProof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 } }
+    { name: "grout13-phone-3x", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 3 }, pixelScale: 0.5, pixelMode: "integer" },
+    { name: "grout13-tablet-2x", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "canvas", viewport: { width: 768, height: 1024, deviceScaleFactor: 2 }, pixelScale: 0.5, pixelMode: "integer" },
+    { name: "grout13-desktop-webgl", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 }, pixelScale: 0.5, pixelMode: "integer" },
+    { name: "grout13-pinned-fallback", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "canvas", viewport: { width: 720, height: 1280, deviceScaleFactor: 1 }, runtimeFallback: true, pixelScale: 1, pixelMode: "integer" },
+    { name: "core-phone-2x", kind: "core", relPath: "examples/fruit-shot.html", proofName: "__fruitShotProof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 2 }, pixelScale: 0.5, pixelMode: "integer" },
+    { name: "core-compact-phone-2x", kind: "core", relPath: "examples/fruit-shot.html", proofName: "__fruitShotProof", render: "canvas", viewport: { width: 320, height: 568, deviceScaleFactor: 2 }, pixelScale: 568 / 1280, pixelMode: "fit-fallback" },
+    { name: "core-desktop-webgl", kind: "core", relPath: "examples/fruit-shot.html", proofName: "__fruitShotProof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 }, pixelScale: 0.5, pixelMode: "integer" },
+    { name: "modular-phone-3x", kind: "module", relPath: "examples/fruit-shot-modular.html", proofName: "__fruitShotModularProof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 3 }, pixelScale: 0.5, pixelMode: "integer" },
+    { name: "modular-desktop-webgl", kind: "module", relPath: "examples/fruit-shot-modular.html", proofName: "__fruitShotModularProof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 }, pixelScale: 0.5, pixelMode: "integer" }
 ];
 
 function fail(message) {
@@ -59,6 +61,15 @@ function assertProof(report, testCase) {
     assert.ok(report.headingDraws >= report.frames, testCase.name + " should draw its heading every frame");
     assert.ok(report.summaryDraws >= report.frames, testCase.name + " should draw its HUD every frame");
     assert.deepEqual(report.errors, [], testCase.name + " proof errors");
+    assert.equal(report.pixelScaleStep, 0.5, testCase.name + " declares the half-step presentation contract");
+    assert.ok(report.pixelPresentation, testCase.name + " reports its pixel presentation diagnostics");
+    assert.ok(Math.abs(report.pixelPresentation.scale - testCase.pixelScale) < 0.000001, testCase.name + " uses the expected world scale");
+    assert.equal(report.pixelPresentation.mode, testCase.pixelMode, testCase.name + " reports the expected presentation mode");
+    if (testCase.pixelMode === "integer") {
+        assert.equal(report.pixelPresentation.integer, true, testCase.name + " reports an integer pixel presentation");
+        assert.ok(Number.isInteger(report.pixelPresentation.sourceCellCssPixels), testCase.name + " maps each authored cell to whole CSS pixels");
+        assert.ok(Number.isInteger(report.pixelPresentation.sourceCellDevicePixels), testCase.name + " maps each authored cell to whole device pixels");
+    }
     if (testCase.kind === "core") {
         assert.equal(report.architecture, "all-in-one-core");
         assert.equal(report.grout13, false);
@@ -202,6 +213,7 @@ try {
             await assertViewportFit(page, testCase);
             assert.equal(pageErrors.length, 0, testCase.name + " page errors: " + pageErrors.join(" | "));
             assert.equal(consoleErrors.length, 0, testCase.name + " console errors: " + consoleErrors.join(" | "));
+            await page.locator("#status").evaluate((element) => { element.hidden = true; });
             const screenshot = "fruit-shot-" + testCase.name + ".png";
             await page.screenshot({ path: path.join(REPORT_ROOT, screenshot) });
             results.push({ name: testCase.name, frames: report.frames, shotsFired: report.shotsFired, merges: report.merges, screenshot });

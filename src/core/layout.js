@@ -3,6 +3,21 @@
 import { clamp, numberOr } from "./math.js";
 
 /**
+ * Preserve an exact source-pixel grid whenever the viewport can contain a
+ * whole configured scale quantum. A smaller viewport still fits safely, but
+ * is intentionally labeled as a fallback for diagnostics and visual QA.
+ * @param {number} scale
+ * @param {Record<string, unknown>} cfg
+ */
+function quantizeScale(scale, cfg) {
+    const step = numberOr(cfg.integerScaleStep, 0);
+    if (!(step > 0)) return { scale, scaleMode: "continuous" };
+    const units = Math.floor((scale + Number.EPSILON) / step);
+    if (units < 1) return { scale, scaleMode: "fit-fallback" };
+    return { scale: units * step, scaleMode: "integer" };
+}
+
+/**
  * @param {number} w
  * @param {number} h
  * @param {Record<string, unknown>} cfg
@@ -13,7 +28,8 @@ export function resolveRoomLayout(w, h, cfg) {
     const orientation = w >= h ? "landscape" : "portrait";
 
     if (!cfg.responsive) {
-        const scale = Math.min(w / baseWidth, h / baseHeight);
+        const scaled = quantizeScale(Math.min(w / baseWidth, h / baseHeight), cfg);
+        const scale = scaled.scale;
 
         return {
             roomWidth: baseWidth,
@@ -22,7 +38,8 @@ export function resolveRoomLayout(w, h, cfg) {
             x: (w - baseWidth * scale) / 2,
             y: (h - baseHeight * scale) / 2,
             profile: "fixed",
-            orientation
+            orientation,
+            scaleMode: scaled.scaleMode
         };
     }
 
@@ -40,6 +57,8 @@ export function resolveRoomLayout(w, h, cfg) {
 
         roomHeight = clamp(roomHeight, minHeight, maxHeight);
         scale = Math.min(w / baseWidth, h / roomHeight);
+        const scaled = quantizeScale(scale, cfg);
+        scale = scaled.scale;
 
         const profile = roomHeight < targetHeight - 120
             ? "portrait-compact"
@@ -54,7 +73,8 @@ export function resolveRoomLayout(w, h, cfg) {
             x: (w - baseWidth * scale) / 2,
             y: (h - roomHeight * scale) / 2,
             profile,
-            orientation: "portrait"
+            orientation: "portrait",
+            scaleMode: scaled.scaleMode
         };
     }
 
@@ -66,6 +86,8 @@ export function resolveRoomLayout(w, h, cfg) {
     let roomWidth = clamp(w / scale, desktopMinWidth, desktopMaxWidth);
 
     scale = Math.min(w / roomWidth, h / desktopHeight);
+    const scaled = quantizeScale(scale, cfg);
+    scale = scaled.scale;
 
     return {
         roomWidth,
@@ -74,6 +96,7 @@ export function resolveRoomLayout(w, h, cfg) {
         x: (w - roomWidth * scale) / 2,
         y: (h - desktopHeight * scale) / 2,
         profile: "desktop",
-        orientation: landscape ? "landscape" : "portrait-wide"
+        orientation: landscape ? "landscape" : "portrait-wide",
+        scaleMode: scaled.scaleMode
     };
 }

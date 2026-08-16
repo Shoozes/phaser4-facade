@@ -724,6 +724,7 @@ export function installGMRuntime(root, Phaser) {
                 state.layout.roomHeight = next.roomHeight;
                 state.layout.profile = next.profile;
                 state.layout.orientation = next.orientation;
+                state.layout.scaleMode = next.scaleMode;
 
                 if (state.world) {
                     state.world.setPosition(state.layout.x * resolution, state.layout.y * resolution);

@@ -96,6 +96,16 @@ body[data-gm-app-shell="locked"] {
     image-rendering: pixelated;
 }
 
+/* Pair with GM.app.start({ integerScaleStep }) for letterboxed pixel games. */
+.gm-app-surface--integer-pixel-art {
+    background: var(--gm-app-background);
+}
+
+.gm-app-surface--integer-pixel-art canvas {
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+}
+
 .gm-app-scroll-region {
     min-width: 0;
     min-height: 0;

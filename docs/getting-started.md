@@ -55,6 +55,37 @@ The optional `phaser4-facade/grout13` entrypoint accepts an injected Grout13
 module and delegates decoded atlas registration to `GM.asset.addAtlas`; the
 core facade does not import Grout13.
 
+## Pixel-perfect presentation
+
+`pixelArt: true`, disabled antialiasing, and `roundPixels: true` preserve
+nearest-neighbor sampling, but they cannot make a fractional room transform
+pixel-perfect. For fixed-pixel games, opt into `integerScaleStep` and keep the
+game room fixed. The facade then letterboxes at a whole multiple of the step
+when the viewport permits it; undersized viewports retain a safe fit fallback
+instead of cropping.
+
+```js
+GM.app.start({
+    parent: "game",
+    width: 720,
+    height: 1280,
+    responsive: false,
+    // Four authored source pixels become two CSS pixels at the first step.
+    integerScaleStep: 0.5,
+    pixelArt: true,
+    antialias: false,
+    roundPixels: true,
+    renderResolution: "auto",
+    maxRenderResolution: 3
+});
+```
+
+Use a step that maps the asset's meaningful pixel cell to an integer number of
+CSS pixels. For example, Fruit Shot uses 4x source cells and a 0.5 step, so a
+cell always becomes 2, 4, 6, and so on CSS pixels. Read
+`GM.runtime.scale` for the applied world scale; its layout diagnostic reports
+`integer`, `continuous`, or `fit-fallback` in `GM.runtime.state.layout.scaleMode`.
+
 ## Browser global
 
 For a released consumer, load Phaser first, then the versioned global artifact
