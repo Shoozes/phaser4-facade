@@ -115,6 +115,7 @@ for (const relativePath of [
     "examples/fruit-shot-grout13.html",
     "examples/fruit-shot-modular.html",
     "examples/fruit-shot-modular.js",
+    "examples/fruit-shot-gameplay.js",
     "dist/gm-phaser4.module.js",
     "dist/gm-phaser4.global.js",
     "dist/gm-phaser4.global.min.js",
@@ -137,8 +138,7 @@ for (const [relativePath, stylesheet] of [
     ["examples/prototype-cdn.html", "./native-app-shell.css"],
     ["examples/fruit-shot.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
     ["examples/fruit-shot-grout13.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
-    ["examples/fruit-shot-modular.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
-    ["examples/single-html-cdn/index.html", "../native-app-shell.css"]
+    ["examples/fruit-shot-modular.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"]
 ]) {
     const source = fs.readFileSync(path.join(PACKAGE_ROOT, relativePath), "utf8");
     if (!source.includes(`href=\"${stylesheet}\"`) || !source.includes('data-gm-app-shell="locked"')) {
@@ -156,6 +156,7 @@ for (const artifact of [
 }
 
 assertSyntax("examples/fruit-shot-modular.js");
+assertSyntax("examples/fruit-shot-gameplay.js");
 
 for (const artifact of [
     "dist/gm-phaser4-grout13.module.js",

@@ -23,7 +23,7 @@ npm run verify
 
 ## Matrix
 
-The behavior harness packs the facade, installs it into a temporary consumer with Phaser `4.1.0` and `4.2.1`, then runs the same browser fixture against:
+The behavior harness packs the facade, installs it into a temporary consumer with Phaser `4.2.1`, then runs the same browser fixture against:
 
 - module artifact (`dist/gm-phaser4.module.js`)
 - global artifact (`dist/gm-phaser4.global.js`)

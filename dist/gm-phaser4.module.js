@@ -4574,8 +4574,8 @@ function installGMRuntime(root, Phaser) {
         drawRuntimeCircle(state, state.worldGfx, x, y, radius, outline);
         return api;
       },
-      draw_line(x1, y1, x2, y2) {
-        drawRuntimeLine(state, state.worldGfx, x1, y1, x2, y2);
+      draw_line(x1, y1, x2, y2, options) {
+        drawRuntimeLine(state, state.worldGfx, x1, y1, x2, y2, options);
         return api;
       },
       draw_polyline(points, options) {

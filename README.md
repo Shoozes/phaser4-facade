@@ -103,10 +103,14 @@ separate release decisions.
 
 - `examples/prototype-module.html`: module boot proof.
 - `examples/prototype-cdn.html`: plain-script/global boot proof.
-- `examples/single-html-cdn/index.html`: downloaded global bundle proof.
-- `examples/fruit-shot-grout13.html`: recommended all-in-one CDN proof with
-  Phaser, the facade, injected Grout13 atlas compilation, fixed-step motion,
-  seeded RNG, pixel-art rendering, and Grout13 bitmap text.
-- `examples/fruit-shot.html`: all-in-one core CDN proof without Grout13.
-- `examples/fruit-shot-modular.html`: import-map module architecture with its
-  game source in `examples/fruit-shot-modular.js`.
+- `examples/fruit-shot-grout13.html`: recommended directly-openable,
+  all-in-one GitHub-CDN playable merge shooter with Grout13.
+- `examples/fruit-shot.html`: directly-openable all-in-one core-facade
+  playable merge shooter without Grout13.
+- `examples/fruit-shot-modular.html`: HTTP-served import-map architecture
+  split between a dependency launcher and `examples/fruit-shot-gameplay.js`.
+
+`examples/native-app-shell.css` is the responsive native-app page shell shared
+by the public examples. It handles safe areas, desktop/mobile dynamic viewport
+sizes, scroll locking, and pixel-art canvas CSS without taking over Phaser's
+high-DPI backing-buffer configuration.

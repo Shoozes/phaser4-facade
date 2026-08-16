@@ -7,10 +7,13 @@
 - examples/README.md: runnable examples and their proof boundaries.
 - examples/prototype-module.html: module-entrypoint boot proof.
 - examples/prototype-cdn.html: plain-script/global boot proof.
-- examples/single-html-cdn/index.html: host-page example for a downloaded bundle pair.
 - types/gm-phaser4.d.ts: canonical public declarations.
 - types/grout13.d.ts: optional injected Grout13 bridge declarations.
 - docs/migrations/0.2.0.md: compatibility notes for the promoted runtime.
 - docs/text-and-sprite-options.md: extended text, text-fit, and sprite option contracts.
-- examples/fruit-shot.html: focused cross-feature procedural proof.
+- examples/native-app-shell.css: native browser app shell for fullscreen, safe-area, high-DPI, and pixel-art canvas pages.
+- examples/fruit-shot.html: all-in-one directly-openable core playable merge shooter.
+- examples/fruit-shot-grout13.html: recommended all-in-one directly-openable Grout13 playable merge shooter.
+- examples/fruit-shot-modular.html: HTTP-served modular architecture entrypoint.
+- examples/fruit-shot-gameplay.js: modular Fruit Shot gameplay and direct-pixel asset construction.
 - scripts/test-runtime-reproducibility.mjs: deterministic dist drift check.

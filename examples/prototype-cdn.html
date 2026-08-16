@@ -12,7 +12,7 @@
     </div>
 
     <!-- CDN/CDN-hosted fallback example. Host these locally for bundled preview drops. -->
-    <script src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js"></script>
 
     <script>
         window.onerror = function (message) {
@@ -35,7 +35,7 @@
                         return /gm-phaser4\.global(?:\.min)?\.js$/.test(url.pathname);
                     }
                     if (url.origin !== "https://cdn.jsdelivr.net") return false;
-                    return /^\/(?:npm\/phaser4-facade@[^/]+|gh\/Shoozes\/phaser4-facade@[^/]+)\/dist\/gm-phaser4\.global(?:\.min)?\.js$/.test(url.pathname);
+                    return /^\/gh\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4\.global(?:\.min)?\.js$/.test(url.pathname);
                 } catch {
                     return false;
                 }
@@ -49,7 +49,6 @@
                 runtimeOverride,
                 "../dist/gm-phaser4.global.js",
                 "../main-files/runtime/gm-phaser4/gm-phaser4.global.js",
-                "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.global.js",
                 "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/gm-phaser4.global.js"
             ].filter(function (candidate, index, candidates) {
                 return candidate && candidates.indexOf(candidate) === index;

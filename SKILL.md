@@ -18,8 +18,8 @@ import "phaser4-facade";
   after a consumer release workflow:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/gm-phaser4.global.min.js"></script>
 ```
 
 - Keep game-specific content in the consuming project. This package includes
@@ -53,7 +53,7 @@ The package build is generated from `src/` and checked in two stages:
 
 1. `scripts/test-runtime-package.mjs` — package shape, syntax, types, fixture presence
 2. `scripts/test-runtime-behavior.mjs` — packed consumer install + browser matrix
-   (module/global/minified × WebGL/Canvas × Phaser 4.1.0 and 4.2.1)
+   (module/global/minified × WebGL/Canvas × Phaser 4.2.1)
 3. `scripts/test-runtime-reproducibility.mjs` — deterministic dist drift check
 
 Run `npm run verify` from this package for all stages. Browser fixtures live

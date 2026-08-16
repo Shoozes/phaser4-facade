@@ -5,12 +5,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SHELL_CSS = path.join(ROOT, "examples", "native-app-shell.css");
 const CSS_CDN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css";
+const PHASER_GLOBAL_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
+const PHASER_MODULE_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js";
+const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
+const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/";
 const CORE_HTML = "examples/fruit-shot.html";
 const GROUT_HTML = "examples/fruit-shot-grout13.html";
 const MODULAR_HTML = "examples/fruit-shot-modular.html";
 const MODULAR_JS = "examples/fruit-shot-modular.js";
+const GAMEPLAY_JS = "examples/fruit-shot-gameplay.js";
 
 function fail(message) {
     throw new Error(message);
@@ -31,7 +35,7 @@ function getExecutableInlineScript(html, label) {
 }
 
 function checkNativeShell() {
-    const css = fs.readFileSync(SHELL_CSS, "utf8");
+    const css = read("examples/native-app-shell.css");
     for (const marker of [
         "--gm-native-app-shell-version: 1",
         "@supports (height: 100dvh)",
@@ -47,21 +51,22 @@ function checkNativeShell() {
     }
 }
 
-function checkAllInOne(relativePath, label, markers) {
+function checkAllInOne(relativePath, label, architecture, extraMarkers) {
     const html = read(relativePath);
     if (/<script\s+type=["']module["']/i.test(html) || /<script\s+type=["']importmap["']/i.test(html)) {
         fail(label + " must remain a plain-script all-in-one CDN example.");
     }
     if (/\bimport\s+/.test(html)) fail(label + " must not use module import syntax.");
+    if (/cdn\.jsdelivr\.net\/npm|phaser@4\.1\.0|file:\/\//i.test(html)) {
+        fail(label + " must use GitHub-backed current CDN sources without local file fallbacks.");
+    }
     for (const marker of [
         "href=\"" + CSS_CDN + "\"",
         "data-gm-app-shell=\"locked\"",
         "gm-app-surface gm-app-safe-area gm-app-surface--pixel-art",
         "viewport-fit=cover",
-        "function loadScriptCandidates",
         "SCRIPT_TIMEOUT_MS",
-        "validateRuntime",
-        "if (launched) return;",
+        "function loadFirst",
         "GM.app.start",
         "GM.draw.spriteExt",
         "responsive: true",
@@ -69,91 +74,100 @@ function checkAllInOne(relativePath, label, markers) {
         "pixelArt: true",
         "antialias: false",
         "roundPixels: true",
-        ...markers
+        "const PIXEL_SOURCE_SCALE = 4",
+        "nativeSpriteFrames: true",
+        "merges",
+        "architecture: \"" + architecture + "\"",
+        ...extraMarkers
     ]) {
         if (!html.includes(marker)) fail(label + " is missing marker: " + marker);
     }
+    if (/\bflipY\s*:\s*true\b/i.test(html)) fail(label + " must not rely on a text flip workaround.");
     const script = getExecutableInlineScript(html, label);
     try {
         new Function(script);
     } catch (error) {
         fail(label + " inline script has a syntax error: " + (error instanceof Error ? error.message : String(error)));
     }
-    assert.ok(fs.statSync(path.join(ROOT, relativePath)).size > 4000, label + " should retain a complete standalone implementation.");
+    assert.ok(fs.statSync(path.join(ROOT, relativePath)).size > 9000, label + " should retain a complete standalone implementation.");
 }
 
 function checkModular() {
     const html = read(MODULAR_HTML);
-    const source = read(MODULAR_JS);
+    const launcher = read(MODULAR_JS);
+    const gameplay = read(GAMEPLAY_JS);
     for (const marker of [
         "href=\"" + CSS_CDN + "\"",
         "data-gm-app-shell=\"locked\"",
         "gm-app-surface gm-app-safe-area gm-app-surface--pixel-art",
         "viewport-fit=cover",
         "type=\"importmap\"",
-        "\"phaser\": \"https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.esm.js\"",
-        "\"phaser4-facade\": \"https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.module.js\"",
-        "\"phaser4-facade/grout13\": \"https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4-grout13.module.js\"",
-        "\"grout13\": \"https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.mjs\"",
-        "<script type=\"module\" src=\"./fruit-shot-modular.js\"></script>"
+        "\"phaser\": \"" + PHASER_MODULE_CDN + "\"",
+        "\"phaser4-facade\": \"" + FACADE_MAIN + "gm-phaser4.module.js\"",
+        "\"phaser4-facade/grout13\": \"" + FACADE_MAIN + "gm-phaser4-grout13.module.js\"",
+        "\"grout13\": \"" + GROUT_MAIN + "grout13.mjs\"",
+        "fileMode: window.location.protocol === \"file:\"",
+        "server-required",
+        "module.src = \"./fruit-shot-modular.js\""
     ]) {
         if (!html.includes(marker)) fail("Modular Fruit Shot HTML is missing marker: " + marker);
+    }
+    if (/<script\s+type=["']module["']\s+src=/i.test(html)) {
+        fail("Modular Fruit Shot must defer its module entry so a directly opened file page stays error-free.");
     }
     for (const marker of [
         "import { GM } from \"phaser4-facade\";",
         "import { installGrout13Bridge } from \"phaser4-facade/grout13\";",
         "import * as GROUT13 from \"grout13\";",
-        "architecture: \"module-grout13\"",
+        "import { startFruitShotGame } from \"./fruit-shot-gameplay.js\";",
         "installGrout13Bridge(GM, GROUT13)",
+        "startFruitShotGame"
+    ]) {
+        if (!launcher.includes(marker)) fail("Modular Fruit Shot launcher is missing marker: " + marker);
+    }
+    for (const marker of [
+        "export function startFruitShotGame",
+        "const PIXEL_SOURCE_SCALE = 4",
+        "function pixelGlyphAsset",
+        "function fruitAsset",
         "bridge.addAtlas",
         "responsive: true",
         "renderQuality: \"pixel-art\"",
-        "bitmap_text",
-        "function drawPixelLabel",
-        "flipY: true",
-        "pixelTextSeen",
+        "function fire",
+        "function resolveHit",
         "GM.draw.spriteExt"
     ]) {
-        if (!source.includes(marker)) fail("Modular Fruit Shot source is missing marker: " + marker);
+        if (!gameplay.includes(marker)) fail("Modular Fruit Shot gameplay is missing marker: " + marker);
     }
-    const syntax = new Function(source.replace(/^import .*$/gm, ""));
-    assert.ok(syntax, "Modular Fruit Shot should parse after import declarations are removed.");
+    if (/bitmap_text|\bflipY\s*:\s*true\b/i.test(gameplay)) fail("Modular Fruit Shot must use upright direct-pixel glyph assets.");
+    if (/cdn\.jsdelivr\.net\/npm|phaser@4\.1\.0/i.test(html + launcher + gameplay)) {
+        fail("Modular Fruit Shot must use GitHub-backed current CDN sources.");
+    }
+    assert.ok(new Function(launcher.replace(/^import .*$/gm, "")), "Modular launcher should parse after import declarations are removed.");
+    assert.ok(new Function(gameplay.replace(/^export /gm, "")), "Modular gameplay should parse after its export declaration is removed.");
 }
 
 checkNativeShell();
 assert.equal(fs.existsSync(path.join(ROOT, "examples", "fruit-shot.js")), false, "The retired Fruit Shot companion script must not return.");
-checkAllInOne(CORE_HTML, "Core Fruit Shot", [
-    "architecture: \"all-in-one-core\"",
-    "grout13: false",
-    "https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js",
-    "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.global.min.js",
-    "../dist/gm-phaser4.global.min.js",
-    "../main-files/runtime/gm-phaser4/gm-phaser4.global.min.js",
+checkAllInOne(CORE_HTML, "Core Fruit Shot", "all-in-one-core", [
+    PHASER_GLOBAL_CDN,
+    FACADE_MAIN + "gm-phaser4.global.min.js",
     "GM.asset.addAtlas",
-    "GM.draw.textExt",
-    "GM.draw.textFit",
-    "GM.gui.textExt",
-    "GM.gui.textFit"
+    "function createCoreAtlas",
+    "function fire",
+    "function resolveHit"
 ]);
 const coreSource = read(CORE_HTML);
 assert.equal(coreSource.includes("GROUT13"), false, "Core Fruit Shot must not load or require Grout13.");
-checkAllInOne(GROUT_HTML, "Grout13 Fruit Shot", [
-    "architecture: \"all-in-one-grout13\"",
-    "__fruitShotGrout13Proof",
-    "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.global.min.js",
-    "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4-grout13.global.min.js",
-    "../dist/gm-phaser4-grout13.global.min.js",
-    "../main-files/runtime/gm-phaser4/gm-phaser4-grout13.global.min.js",
-    "validateGrout13",
-    "validateBridge",
-    "createFruitSpecs",
+checkAllInOne(GROUT_HTML, "Grout13 Fruit Shot", "all-in-one-grout13", [
+    PHASER_GLOBAL_CDN,
+    GROUT_MAIN + "grout13.global.min.js",
+    "const FACADE_MAIN = \"" + FACADE_MAIN + "\"",
+    "gm-phaser4-grout13.global.min.js",
     "GM.grout13.addAtlas",
-    "preset: \"pixel\"",
-    "bitmap_text",
-    "fruit-shot-title",
-    "function drawPixelLabel",
-    "flipY: true",
-    "pixelTextSeen"
+    "bitmapTextAvoided: true",
+    "function shoot",
+    "function mergeBalls"
 ]);
 checkModular();
-console.log("[ok] Fruit Shot core, all-in-one Grout13, modular, CDN CSS, and native-shell contracts passed.");
+console.log("[ok] Fruit Shot all-in-one, Grout13, modular, GitHub CDN, and pixel-source contracts passed.");

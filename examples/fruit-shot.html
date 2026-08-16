@@ -2,14 +2,45 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#073b4c">
-    <title>Phaser 4 Facade Fruit Shot Core CDN</title>
+    <title>Fruit Shot - Core Phaser 4 Facade CDN</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css">
+    <style>
+        #status,
+        #proof-error {
+            position: fixed;
+            z-index: 10;
+            font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+            pointer-events: none;
+        }
+
+        #status {
+            top: max(8px, env(safe-area-inset-top, 0px));
+            right: max(8px, env(safe-area-inset-right, 0px));
+            padding: 6px 8px;
+            color: #c9c9df;
+            background: rgba(8, 8, 20, 0.84);
+            border: 1px solid #31314d;
+            border-radius: 6px;
+            white-space: pre-wrap;
+        }
+
+        #proof-error {
+            inset: 0 0 auto;
+            max-height: 42vh;
+            overflow: auto;
+            margin: 0;
+            padding: 10px;
+            color: #ff9c9c;
+            background: #300;
+            white-space: pre-wrap;
+        }
+    </style>
 </head>
 <body data-gm-app-shell="locked">
-    <div id="status" class="gm-app-status" role="status">Fruit Shot Core CDN booting...</div>
-    <div id="proof-error" class="gm-app-error" role="alert" hidden></div>
+    <div id="status" class="gm-app-status" role="status">Fruit Shot core CDN booting...</div>
+    <pre id="proof-error" class="gm-app-error" role="alert" hidden></pre>
     <div class="gm-app-shell">
         <div id="game" class="gm-app-surface gm-app-safe-area gm-app-surface--pixel-art"></div>
     </div>
@@ -17,312 +48,477 @@
         (function () {
             "use strict";
 
-            const RUNTIME_VERSION = "0.1.0";
-            const renderType = new URLSearchParams(window.location.search).get("render") === "canvas"
-                ? "CANVAS"
-                : "WEBGL";
+            const PHASER_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
+            const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/gm-phaser4.global.min.js";
+            const FACADE_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@fbfcf54dec9c6ce7c466c9cf03bdbaaebd5e2f91/dist/gm-phaser4.global.min.js";
+            const SCRIPT_TIMEOUT_MS = 12000;
+            const renderType = new URLSearchParams(window.location.search).get("render") === "canvas" ? "CANVAS" : "WEBGL";
+            const fileMode = window.location.protocol === "file:";
+            const statusBox = document.getElementById("status");
+            const errorBox = document.getElementById("proof-error");
+            const reportedErrors = new Set();
             const proof = window.__fruitShotProof = {
                 architecture: "all-in-one-core",
-                phase: "booting",
+                phase: "loading",
                 complete: false,
                 failed: false,
                 errors: [],
                 frames: 0,
-                atlasFrames: [],
                 render: renderType,
+                fileMode: fileMode,
                 phaserSource: "",
                 runtimeSource: "",
-                textExtSeen: false,
-                textFitSeen: false,
-                guiTextExtSeen: false,
-                guiTextFitSeen: false,
+                atlasFrames: [],
+                grout13: false,
+                pixelTextSeen: false,
+                pixelTextDraws: 0,
+                pixelTextFlipY: false,
+                pixelSourceScale: 4,
+                nativeSpriteFrames: true,
                 spriteOptionsSeen: false,
                 fixedStepsSeen: false,
                 headingDraws: 0,
                 summaryDraws: 0,
-                sprite: null,
-                text: null,
-                guiText: null,
-                grout13: false
+                playable: false,
+                inputReady: false,
+                shotsFired: 0,
+                hits: 0,
+                merges: 0,
+                score: 0,
+                lives: 3,
+                restarts: 0
             };
-            const SCRIPT_TIMEOUT_MS = 8000;
-            const phaserCandidates = [
-                "https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"
-            ];
-            const runtimeCandidates = [
-                "https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.global.min.js",
-                "../dist/gm-phaser4.global.min.js",
-                "../main-files/runtime/gm-phaser4/gm-phaser4.global.min.js",
-                "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/gm-phaser4.global.min.js"
-            ];
-            let launched = false;
-            let errorHandlersInstalled = false;
+            // Four source pixels per authored pixel avoid runtime enlargement of a 3x5 glyph.
+            const PIXEL_SOURCE_SCALE = 4;
+            const PIXEL_GLYPHS = Object.freeze({
+                A: ["010", "101", "111", "101", "101"], B: ["110", "101", "110", "101", "110"],
+                C: ["011", "100", "100", "100", "011"], D: ["110", "101", "101", "101", "110"],
+                E: ["111", "100", "110", "100", "111"], F: ["111", "100", "110", "100", "100"],
+                G: ["011", "100", "101", "101", "011"], H: ["101", "101", "111", "101", "101"],
+                I: ["111", "010", "010", "010", "111"], J: ["001", "001", "001", "101", "010"],
+                K: ["101", "101", "110", "101", "101"], L: ["100", "100", "100", "100", "111"],
+                M: ["101", "111", "111", "101", "101"], N: ["101", "111", "111", "111", "101"],
+                O: ["010", "101", "101", "101", "010"], P: ["110", "101", "110", "100", "100"],
+                Q: ["010", "101", "101", "011", "001"], R: ["110", "101", "110", "101", "101"],
+                S: ["011", "100", "010", "001", "110"], T: ["111", "010", "010", "010", "010"],
+                U: ["101", "101", "101", "101", "111"], V: ["101", "101", "101", "101", "010"],
+                W: ["101", "101", "111", "111", "101"], X: ["101", "101", "010", "101", "101"],
+                Y: ["101", "101", "010", "010", "010"], Z: ["111", "001", "010", "100", "111"],
+                "0": ["111", "101", "101", "101", "111"], "1": ["010", "110", "010", "010", "111"],
+                "2": ["110", "001", "111", "100", "111"], "3": ["110", "001", "011", "001", "110"],
+                "4": ["101", "101", "111", "001", "001"], "5": ["111", "100", "110", "001", "110"],
+                "6": ["011", "100", "111", "101", "111"], "7": ["111", "001", "010", "010", "010"],
+                "8": ["111", "101", "111", "101", "111"], "9": ["111", "101", "111", "001", "110"],
+                ".": ["0", "0", "0", "0", "1"], " ": ["00", "00", "00", "00", "00"]
+            });
 
-            function setStatus(text) {
-                const status = document.getElementById("status");
-                if (!status) return;
-                status.hidden = false;
-                status.textContent = text;
-            }
-
-            function hideStatus() {
-                const status = document.getElementById("status");
-                if (status) status.hidden = true;
-            }
-
-            function failProof(error) {
-                const message = error instanceof Error ? error.message : String(error);
+            function report(error) {
+                const text = error instanceof Error ? error.stack || error.message : String(error);
+                if (reportedErrors.has(text)) return;
+                reportedErrors.add(text);
                 proof.failed = true;
                 proof.complete = false;
                 proof.phase = "failed";
-                proof.errors.push(message);
-                setStatus(`Fruit Shot Core CDN failed: ${message}`);
-                const errorNode = document.getElementById("proof-error");
-                if (errorNode) {
-                    errorNode.hidden = false;
-                    errorNode.textContent = message;
-                }
+                proof.errors.push(text);
+                errorBox.hidden = false;
+                errorBox.textContent += (errorBox.textContent ? "\n\n" : "") + text;
+                statusBox.textContent = "Fruit Shot failed";
+                console.error(error);
             }
 
-            function installErrorHandlers() {
-                if (errorHandlersInstalled) return;
-                errorHandlersInstalled = true;
-                window.addEventListener("error", (event) => failProof(event.error || event.message || "window error"));
-                window.addEventListener("unhandledrejection", (event) => failProof(event.reason || "unhandled rejection"));
+            function setStatus(text) {
+                statusBox.hidden = false;
+                statusBox.textContent = text;
             }
 
-            function validatePhaser() {
-                return Boolean(window.Phaser && window.Phaser.Game && window.Phaser.Scene);
-            }
-
-            function validateRuntime() {
-                return Boolean(
-                    validatePhaser() &&
-                    window.GM &&
-                    window.GM.version === RUNTIME_VERSION &&
-                    window.GM.app &&
-                    typeof window.GM.app.start === "function"
-                );
-            }
-
-            function loadScriptCandidates(candidates, validate, onReady, onFail) {
-                let index = 0;
-
-                function tryNext() {
-                    if (index >= candidates.length) {
-                        onFail();
-                        return;
-                    }
-
-                    const candidate = candidates[index];
-                    index += 1;
+            function loadScript(source) {
+                return new Promise(function (resolve, reject) {
                     const script = document.createElement("script");
                     let settled = false;
-                    const timeout = window.setTimeout(() => finish(false), SCRIPT_TIMEOUT_MS);
-
-                    function finish(loaded) {
+                    const finish = function (error) {
                         if (settled) return;
                         settled = true;
                         window.clearTimeout(timeout);
-                        if (loaded && validate()) {
-                            onReady(candidate);
-                            return;
+                        if (error) {
+                            script.remove();
+                            reject(error);
+                        } else {
+                            resolve(script);
                         }
-                        if (script.parentNode) script.parentNode.removeChild(script);
-                        tryNext();
-                    }
-
-                    script.src = candidate;
-                    script.onload = () => finish(true);
-                    script.onerror = () => finish(false);
+                    };
+                    const timeout = window.setTimeout(function () { finish(new Error("Script timed out: " + source)); }, SCRIPT_TIMEOUT_MS);
+                    script.crossOrigin = "anonymous";
+                    script.async = false;
+                    script.src = source;
+                    script.onload = function () { finish(); };
+                    script.onerror = function () { finish(new Error("Script failed to load: " + source)); };
                     document.head.appendChild(script);
-                }
-
-                tryNext();
+                });
             }
 
-            function createFruitAtlas() {
-                const canvas = document.createElement("canvas");
-                canvas.width = 192;
-                canvas.height = 64;
-                const context = canvas.getContext("2d");
-                if (!context) throw new Error("Fruit Shot CDN requires a 2D canvas context.");
-
-                const fruit = [
-                    [32, "#ef476f"],
-                    [96, "#ffd166"],
-                    [160, "#06d6a0"]
-                ];
-                for (const [x, color] of fruit) {
-                    context.fillStyle = color;
-                    context.beginPath();
-                    context.arc(x, 32, 24, 0, Math.PI * 2);
-                    context.fill();
-                    context.fillStyle = "#073b4c";
-                    context.fillRect(x - 8, 4, 16, 8);
-                }
-
-                return {
-                    canvas,
-                    frames: {
-                        strawberry: { x: 0, y: 0, w: 64, h: 64 },
-                        lemon: { x: 64, y: 0, w: 64, h: 64 },
-                        lime: { x: 128, y: 0, w: 64, h: 64 }
+            async function loadFirst(label, sources, validate) {
+                let lastError = null;
+                for (const source of sources) {
+                    try {
+                        setStatus("Loading " + label + "...");
+                        await loadScript(source);
+                        if (!validate()) throw new Error(label + " loaded without its expected public API.");
+                        return source;
+                    } catch (error) {
+                        lastError = error;
                     }
+                }
+                throw lastError || new Error("Unable to load " + label + ".");
+            }
+
+            function glyphName(character) {
+                return character === " " ? "glyph-space" : "glyph-" + character;
+            }
+
+            function glyphRows(character) {
+                return PIXEL_GLYPHS[character] || PIXEL_GLYPHS[" "];
+            }
+
+            function glyphWidth(character) {
+                return glyphRows(character)[0].length * PIXEL_SOURCE_SCALE;
+            }
+
+            function textWidth(text, scale) {
+                const letters = String(text).toUpperCase().split("");
+                return letters.reduce(function (width, character, index) {
+                    return width + glyphWidth(character) * scale + (index < letters.length - 1 ? PIXEL_SOURCE_SCALE * scale : 0);
+                }, 0);
+            }
+
+            function createCoreAtlas() {
+                const canvas = document.createElement("canvas");
+                canvas.width = 512;
+                canvas.height = 256;
+                const context = canvas.getContext("2d");
+                if (!context) throw new Error("Fruit Shot core CDN requires a 2D canvas context.");
+                context.imageSmoothingEnabled = false;
+                const frames = {};
+                const addFrame = function (name, x, y, w, h) { frames[name] = { x: x, y: y, w: w, h: h }; };
+                const block = function (x, y, w, h, color) {
+                    context.fillStyle = color;
+                    context.fillRect(x, y, w, h);
                 };
-            }
-
-            function observeSprite(sprite) {
-                proof.sprite = sprite ? {
-                    x: Number(sprite.x),
-                    y: Number(sprite.y),
-                    angle: Number(sprite.angle),
-                    scaleX: Number(sprite.scaleX),
-                    scaleY: Number(sprite.scaleY)
-                } : null;
-            }
-
-            function observeText(text, target) {
-                proof[target] = text ? {
-                    width: Number(text.width),
-                    height: Number(text.height),
-                    fontSize: String(text.style?.fontSize || "")
-                } : null;
-            }
-
-            function startFruitShot() {
-                if (launched) return;
-                launched = true;
-                const GM = window.GM;
-
-                try {
-                    GM.app.start({
-                        parent: "game",
-                        width: 720,
-                        height: 1280,
-                        simulationHz: 60,
-                        maxFrameDeltaMs: 100,
-                        maxCatchUpSteps: 5,
-                        randomSeed: 1337,
-                        responsive: true,
-                        renderQuality: "pixel-art",
-                        pixelArt: true,
-                        antialias: false,
-                        roundPixels: true,
-                        type: renderType,
-                        create() {
-                            const atlas = createFruitAtlas();
-                            GM.asset.addAtlas("fruit-atlas", atlas.canvas, atlas.frames);
-                            proof.atlasFrames = Object.keys(atlas.frames);
-                            GM.layer.define("fruit", 100);
-                            GM.entity.spawn({
-                                create() {
-                                    this.fruit = GM.math.choose("strawberry", "lemon", "lime") || "strawberry";
-                                    this.spin = GM.math.random_range(-18, 18);
-                                    this.x = GM.runtime.centerX;
-                                    this.y = GM.runtime.centerY + 80;
-                                },
-                                step() {
-                                    this.x += this.spin * GM.runtime.deltaSec;
-                                    if (this.x < 80 || this.x > GM.runtime.roomWidth - 80) this.spin *= -1;
-                                },
-                                draw() {
-                                    const sprite = GM.draw.spriteExt("fruit-atlas", this.fruit, this.x, this.y, {
-                                        width: 96,
-                                        rotation: this.spin * GM.runtime.currentTime / 1000,
-                                        originX: 0.5,
-                                        originY: 0.5
-                                    });
-                                    proof.spriteOptionsSeen = proof.spriteOptionsSeen || Boolean(sprite);
-                                    observeSprite(sprite);
-                                }
-                            }, { layer: "fruit", name: "fruit" });
-                        },
-                        step(_api, deltaSec) {
-                            proof.frames += 1;
-                            proof.fixedStepsSeen = proof.fixedStepsSeen || Number.isFinite(deltaSec) && deltaSec > 0;
-                            proof.phase = "running";
-                        },
-                        draw() {
-                            GM.draw.rect(0, 0, GM.runtime.roomWidth, GM.runtime.roomHeight, { color: "#073b4c" });
-                            GM.draw.polyline([
-                                { x: 48, y: 220 },
-                                { x: GM.runtime.centerX, y: 190 },
-                                { x: GM.runtime.roomWidth - 48, y: 220 }
-                            ], { color: "#ffd166", lineWidth: 2 });
-                            const heading = GM.draw.textExt(GM.runtime.centerX, 80, "Fruit Shot CDN", {
-                                size: 46,
-                                bold: true,
-                                color: GM.color.WHITE,
-                                hAlign: "center",
-                                vAlign: "middle"
-                            });
-                            proof.headingDraws += 1;
-                            const summary = GM.draw.textFit(
-                                GM.runtime.centerX,
-                                150,
-                                "All-in-one core CDN: fixed-step, seeded atlas, and global facade",
-                                {
-                                    size: 28,
-                                    minSize: 16,
-                                    maxWidth: GM.runtime.roomWidth - 80,
-                                    hAlign: "center",
-                                    vAlign: "middle",
-                                    color: "#ffd166"
-                                }
-                            );
-                            proof.summaryDraws += 1;
-                            proof.textExtSeen = proof.textExtSeen || Boolean(heading);
-                            proof.textFitSeen = proof.textFitSeen || Boolean(summary);
-                            observeText(summary, "text");
-                            if (proof.frames >= 8 && !proof.failed) {
-                                proof.phase = "complete";
-                                proof.complete = true;
-                                hideStatus();
-                            }
-                        },
-                        gui() {
-                            const guiY = GM.runtime.roomHeight - 64;
-                            const guiHeading = GM.gui.textExt(20, guiY, "Core facade atlas", { size: 16, color: "#ffffff" });
-                            const guiSummary = GM.gui.textFit(20, guiY + 24, "No Grout13 dependency", {
-                                size: 16,
-                                minSize: 10,
-                                maxWidth: 220,
-                                color: "#ffd166"
-                            });
-                            proof.guiTextExtSeen = proof.guiTextExtSeen || Boolean(guiHeading);
-                            proof.guiTextFitSeen = proof.guiTextFitSeen || Boolean(guiSummary);
-                            observeText(guiSummary, "guiText");
-                        },
-                        onError(error) {
-                            failProof(error);
+                const drawFruit = function (name, x0, y0, size, colors) {
+                    const cells = size / PIXEL_SOURCE_SCALE;
+                    const center = (cells - 1) * 0.5;
+                    const bodyRadius = cells * 0.44;
+                    for (let y = 0; y < cells; y += 1) {
+                        for (let x = 0; x < cells; x += 1) {
+                            const dx = (x - center) / bodyRadius;
+                            const dy = (y - (center + 0.35)) / bodyRadius;
+                            const distance = dx * dx + dy * dy;
+                            if (distance > 1) continue;
+                            let color = colors.body;
+                            if (distance > 0.72 || x < center - cells * 0.17 || y > center + cells * 0.31) color = colors.shade;
+                            if (distance < 0.43 && x < center - cells * 0.08 && y < center - cells * 0.19) color = colors.shine;
+                            block(x0 + x * PIXEL_SOURCE_SCALE, y0 + y * PIXEL_SOURCE_SCALE, PIXEL_SOURCE_SCALE, PIXEL_SOURCE_SCALE, color);
+                        }
+                    }
+                    const stemX = Math.floor(center);
+                    block(x0 + stemX * PIXEL_SOURCE_SCALE, y0, PIXEL_SOURCE_SCALE, Math.max(2, Math.floor(cells * 0.19)) * PIXEL_SOURCE_SCALE, "#633a20");
+                    block(x0 + (stemX + 1) * PIXEL_SOURCE_SCALE, y0 + PIXEL_SOURCE_SCALE, Math.max(2, Math.floor(cells * 0.23)) * PIXEL_SOURCE_SCALE, PIXEL_SOURCE_SCALE, "#54d66d");
+                    addFrame(name, x0, y0, size, size);
+                };
+                const fruit = [
+                    { name: "strawberry", size: 64, shotSize: 48, body: "#ff4d5d", shade: "#a71d3a", shine: "#ffd166" },
+                    { name: "lemon", size: 80, shotSize: 60, body: "#ffd166", shade: "#b87900", shine: "#fff1a6" },
+                    { name: "lime", size: 96, shotSize: 72, body: "#5ee173", shade: "#15834b", shine: "#d6ffdf" }
+                ];
+                fruit.forEach(function (item, index) {
+                    const x = index === 0 ? 0 : index === 1 ? 72 : 160;
+                    drawFruit(item.name, x, 0, item.size, item);
+                    const shotX = index === 0 ? 0 : index === 1 ? 56 : 124;
+                    drawFruit("shot-" + item.name, shotX, 104, item.shotSize, item);
+                });
+                const cueX = 272;
+                const cueSize = 64;
+                const cueCells = cueSize / PIXEL_SOURCE_SCALE;
+                const cueCenter = (cueCells - 1) * 0.5;
+                const cueRadius = cueCells * 0.46;
+                for (let y = 0; y < cueCells; y += 1) {
+                    for (let x = 0; x < cueCells; x += 1) {
+                        const dx = (x - cueCenter) / cueRadius;
+                        const dy = (y - cueCenter) / cueRadius;
+                        const distance = dx * dx + dy * dy;
+                        if (distance > 1) continue;
+                        let color = distance > 0.76 ? "#8b8ba8" : "#ffffff";
+                        if (distance < 0.33 && x < cueCenter - 1 && y < cueCenter - 1) color = "#d8f7ff";
+                        block(cueX + x * PIXEL_SOURCE_SCALE, y * PIXEL_SOURCE_SCALE, PIXEL_SOURCE_SCALE, PIXEL_SOURCE_SCALE, color);
+                    }
+                }
+                addFrame("cue", cueX, 0, cueSize, cueSize);
+                const characters = Object.keys(PIXEL_GLYPHS);
+                characters.forEach(function (character, index) {
+                    const x = (index % 20) * 24;
+                    const y = 184 + Math.floor(index / 20) * 28;
+                    const rows = glyphRows(character);
+                    rows.forEach(function (row, rowIndex) {
+                        for (let column = 0; column < row.length; column += 1) {
+                            if (row[column] === "1") block(x + column * PIXEL_SOURCE_SCALE, y + rowIndex * PIXEL_SOURCE_SCALE, PIXEL_SOURCE_SCALE, PIXEL_SOURCE_SCALE, "#ffffff");
                         }
                     });
-                } catch (error) {
-                    failProof(error);
-                }
+                    addFrame(glyphName(character), x, y, rows[0].length * PIXEL_SOURCE_SCALE, rows.length * PIXEL_SOURCE_SCALE);
+                });
+                return { canvas: canvas, frames: frames };
             }
 
-            installErrorHandlers();
-            setStatus("Fruit Shot Core CDN loading Phaser...");
-            loadScriptCandidates(
-                phaserCandidates,
-                validatePhaser,
-                (source) => {
-                    proof.phaserSource = source;
-                    setStatus("Fruit Shot Core CDN loading facade...");
-                    loadScriptCandidates(
-                        runtimeCandidates,
-                        validateRuntime,
-                        (runtimeSource) => {
-                            proof.runtimeSource = runtimeSource;
-                            startFruitShot();
-                        },
-                        () => failProof("Unable to load the gm-phaser4 CDN runtime.")
-                    );
-                },
-                () => failProof("Unable to load Phaser from the CDN.")
-            );
+            async function boot() {
+                proof.phaserSource = await loadFirst("Phaser 4.2.1", [PHASER_CDN], function () {
+                    return Boolean(window.Phaser && window.Phaser.Game && window.Phaser.Scene);
+                });
+                proof.runtimeSource = await loadFirst("phaser4-facade", [FACADE_MAIN, FACADE_PIN], function () {
+                    return Boolean(window.GM && window.GM.app && typeof window.GM.app.start === "function");
+                });
+                startGame();
+            }
+
+            function startGame() {
+                const VIEW = Object.freeze({ width: 720, height: 1280, top: 188, floor: 1070, cueY: 1142, wall: 26 });
+                const FRUIT = ["strawberry", "lemon", "lime"];
+                const SHOT_FRUIT = ["shot-strawberry", "shot-lemon", "shot-lime"];
+                const game = { targets: [], shot: null, score: 0, lives: 3, nextTier: 0, canShoot: true, spawnAge: 0, gameOver: false, restarts: 0 };
+                const clamp = function (value, min, max) { return GM.math.clamp(value, min, max); };
+                const centerX = function () { return (Number(GM.runtime.roomWidth) || VIEW.width) * 0.5; };
+                const radius = function (tier) { return [32, 40, 48][tier] || 32; };
+                const shotRadius = function (tier) { return [24, 30, 36][tier] || 24; };
+
+                function drawPixelText(text, x, y, scale, align, color) {
+                    const letters = String(text).toUpperCase().split("");
+                    let cursor = Math.round(x);
+                    const width = textWidth(text, scale);
+                    if (align === "center") cursor -= Math.floor(width * 0.5);
+                    if (align === "right") cursor -= width;
+                    for (const character of letters) {
+                        const sprite = GM.draw.spriteExt("fruit-shot-core", glyphName(character), cursor, Math.round(y), {
+                            scale: scale,
+                            color: color === undefined ? GM.color.WHITE : color,
+                            originX: 0,
+                            originY: 0
+                        });
+                        proof.pixelTextSeen = proof.pixelTextSeen || Boolean(sprite);
+                        proof.pixelTextFlipY = proof.pixelTextFlipY || sprite && sprite.flipY === true;
+                        proof.pixelTextDraws += 1;
+                        cursor += glyphWidth(character) * scale + PIXEL_SOURCE_SCALE * scale;
+                    }
+                }
+
+                function addTarget(tier, x, y, vx) {
+                    game.targets.push({ tier: tier, x: x, y: y, vx: vx, phase: game.targets.length * 0.8 });
+                }
+
+                function resetGame(countRestart) {
+                    const cx = centerX();
+                    game.targets.length = 0;
+                    game.shot = null;
+                    game.score = 0;
+                    game.lives = 3;
+                    game.nextTier = 0;
+                    game.canShoot = true;
+                    game.spawnAge = 0;
+                    game.gameOver = false;
+                    if (countRestart) game.restarts += 1;
+                    addTarget(0, cx, 470, 0);
+                    addTarget(1, cx - 170, 340, 34);
+                    addTarget(0, cx + 170, 580, -28);
+                    addTarget(2, cx + 60, 260, 22);
+                    proof.score = 0;
+                    proof.lives = 3;
+                    proof.restarts = game.restarts;
+                    proof.shotsFired = 0;
+                    proof.hits = 0;
+                    proof.merges = 0;
+                }
+
+                function fire() {
+                    if (!game.canShoot || game.shot || game.gameOver) return;
+                    const cx = centerX();
+                    const dx = clamp((GM.runtime.mouseX - cx) / 260, -1, 1);
+                    game.shot = { tier: game.nextTier, x: cx, y: VIEW.cueY - 30, vx: dx * 620, vy: -1000 };
+                    game.nextTier = GM.math.irandom(1);
+                    game.canShoot = false;
+                    proof.shotsFired += 1;
+                }
+
+                function resolveHit(index) {
+                    const target = game.targets[index];
+                    const shot = game.shot;
+                    if (!target || !shot) return;
+                    proof.hits += 1;
+                    if (target.tier === shot.tier) {
+                        proof.merges += 1;
+                        game.score += (target.tier + 1) * 100;
+                        if (target.tier < 2) {
+                            target.tier += 1;
+                            target.vx *= -1;
+                            target.y -= 18;
+                        } else {
+                            game.targets.splice(index, 1);
+                        }
+                    } else {
+                        game.score += 25;
+                        game.targets.splice(index, 1);
+                    }
+                    game.shot = null;
+                    game.canShoot = true;
+                }
+
+                function stepGame(deltaSeconds) {
+                    if (game.gameOver) {
+                        if (GM.input.pointerPressed(GM.pointer.LEFT) || GM.input.keyPressed(GM.key.SPACE) || GM.input.keyPressed(GM.key.ENTER)) resetGame(true);
+                        return;
+                    }
+                    if (game.canShoot && (GM.input.pointerReleased(GM.pointer.LEFT) || GM.input.keyPressed(GM.key.SPACE))) fire();
+                    game.spawnAge += deltaSeconds;
+                    if (game.spawnAge >= 2.6 && game.targets.length < 6) {
+                        game.spawnAge = 0;
+                        addTarget(GM.math.irandom(2) === 2 ? 1 : 0, GM.math.random_range(VIEW.wall + 70, (Number(GM.runtime.roomWidth) || VIEW.width) - VIEW.wall - 70), VIEW.top + 34, GM.math.random_range(-42, 42));
+                    }
+                    for (let index = game.targets.length - 1; index >= 0; index -= 1) {
+                        const target = game.targets[index];
+                        const r = radius(target.tier);
+                        target.phase += deltaSeconds;
+                        target.x += target.vx * deltaSeconds;
+                        target.y += (12 + target.tier * 3 + Math.sin(target.phase) * 3) * deltaSeconds;
+                        if (target.x < VIEW.wall + r || target.x > (Number(GM.runtime.roomWidth) || VIEW.width) - VIEW.wall - r) target.vx *= -1;
+                        target.x = clamp(target.x, VIEW.wall + r, (Number(GM.runtime.roomWidth) || VIEW.width) - VIEW.wall - r);
+                        if (target.y - r > VIEW.floor) {
+                            game.targets.splice(index, 1);
+                            game.lives -= 1;
+                            if (game.lives <= 0) {
+                                game.gameOver = true;
+                                game.shot = null;
+                                game.canShoot = false;
+                            }
+                        }
+                    }
+                    if (game.shot) {
+                        const shot = game.shot;
+                        shot.x += shot.vx * deltaSeconds;
+                        shot.y += shot.vy * deltaSeconds;
+                        const r = shotRadius(shot.tier);
+                        if (shot.x < VIEW.wall + r || shot.x > (Number(GM.runtime.roomWidth) || VIEW.width) - VIEW.wall - r) shot.vx *= -1;
+                        shot.x = clamp(shot.x, VIEW.wall + r, (Number(GM.runtime.roomWidth) || VIEW.width) - VIEW.wall - r);
+                        for (let index = game.targets.length - 1; index >= 0 && game.shot; index -= 1) {
+                            const target = game.targets[index];
+                            const hitRadius = r + radius(target.tier) * 0.74;
+                            if (GM.math.distanceSq(shot.x, shot.y, target.x, target.y) <= hitRadius * hitRadius) resolveHit(index);
+                        }
+                        if (game.shot && game.shot.y < VIEW.top - 80) {
+                            game.shot = null;
+                            game.canShoot = true;
+                        }
+                    }
+                    proof.score = game.score;
+                    proof.lives = game.lives;
+                }
+
+                function drawFruit(frame, x, y) {
+                    const sprite = GM.draw.spriteExt("fruit-shot-core", frame, Math.round(x), Math.round(y), {
+                        originX: 0.5,
+                        originY: 0.5
+                    });
+                    proof.spriteOptionsSeen = proof.spriteOptionsSeen || Boolean(sprite);
+                }
+
+                function drawGame() {
+                    const width = Number(GM.runtime.roomWidth) || VIEW.width;
+                    const cx = centerX();
+                    GM.draw.layer("Background");
+                    GM.draw.rect(0, 0, width, VIEW.height, { color: "#073b4c" });
+                    GM.draw.rect(VIEW.wall, VIEW.top, width - VIEW.wall, VIEW.floor, { color: "#0b5368" });
+                    GM.draw.rect(VIEW.wall, VIEW.top, width - VIEW.wall, VIEW.floor, { color: "#ffd166", outline: true, lineWidth: 3 });
+                    GM.draw.setColor("#0e6178");
+                    GM.draw.setAlpha(0.5);
+                    for (let y = VIEW.top + 48; y < VIEW.floor; y += 48) GM.draw.line(VIEW.wall, y, width - VIEW.wall, y);
+                    GM.draw.setAlpha(1);
+                    GM.draw.setColor("#ff2244");
+                    GM.draw.setLineWidth(4);
+                    GM.draw.line(VIEW.wall, VIEW.floor, width - VIEW.wall, VIEW.floor);
+                    GM.draw.setLineWidth(1);
+                    GM.draw.layer("Fruit");
+                    for (const target of game.targets) drawFruit(FRUIT[target.tier], target.x, target.y);
+                    if (game.shot) drawFruit(SHOT_FRUIT[game.shot.tier], game.shot.x, game.shot.y);
+                    GM.draw.layer("HUD");
+                    drawPixelText("FRUIT SHOT", cx, 34, 2, "center");
+                    drawPixelText("SCORE " + String(game.score).padStart(4, "0"), VIEW.wall + 18, 100, 1);
+                    drawPixelText("LIVES " + game.lives, width - VIEW.wall - 18, 100, 1, "right", 0xffd166);
+                    proof.headingDraws += 1;
+                    proof.summaryDraws += 1;
+                    if (!game.gameOver) {
+                        const aimX = clamp(GM.runtime.mouseX || cx, VIEW.wall + 46, width - VIEW.wall - 46);
+                        if (game.canShoot) {
+                            GM.draw.polyline([{ x: cx, y: VIEW.cueY - 28 }, { x: aimX, y: VIEW.top + 44 }], { color: "#ffffff", alpha: 0.28, lineWidth: 2 });
+                            drawFruit("cue", cx, VIEW.cueY);
+                        }
+                        drawPixelText(game.canShoot ? "TAP OR SPACE TO FIRE" : "SHOT ACTIVE", cx, VIEW.height - 42, 1, "center", game.canShoot ? 0xffffff : 0xffd166);
+                        return;
+                    }
+                    GM.draw.rect(0, 0, width, VIEW.height, { color: "#000000", alpha: 0.74 });
+                    drawPixelText("GAME OVER", cx, 540, 3, "center");
+                    drawPixelText("TAP TO RESTART", cx, 628, 1, "center", 0xffd166);
+                }
+
+                GM.app.start({
+                    parent: "game",
+                    width: VIEW.width,
+                    height: VIEW.height,
+                    responsive: true,
+                    minHeight: VIEW.height,
+                    targetHeight: VIEW.height,
+                    maxHeight: VIEW.height,
+                    desktopHeight: VIEW.height,
+                    desktopMinWidth: VIEW.width,
+                    desktopMaxWidth: 1920,
+                    simulationHz: 60,
+                    maxFrameDeltaMs: 100,
+                    maxCatchUpSteps: 5,
+                    randomSeed: 1337,
+                    bleed: 80,
+                    stage: false,
+                    curtain: false,
+                    globals: false,
+                    background: "#073b4c",
+                    renderQuality: "pixel-art",
+                    pixelArt: true,
+                    antialias: false,
+                    roundPixels: true,
+                    type: renderType,
+                    create: function () {
+                        const atlas = createCoreAtlas();
+                        GM.asset.addAtlas("fruit-shot-core", atlas.canvas, atlas.frames);
+                        proof.atlasFrames = Object.keys(atlas.frames);
+                        GM.layer.define({ Background: -100, Fruit: 0, HUD: 100 });
+                        resetGame(false);
+                        proof.playable = true;
+                        proof.inputReady = Boolean(GM.input && typeof GM.input.pointerReleased === "function");
+                        proof.phase = "running";
+                        setStatus("Ready\nPhaser " + (window.Phaser.VERSION || "4.2.1") + "\nCore facade atlas");
+                        window.setTimeout(function () { if (!proof.failed) statusBox.hidden = true; }, 4000);
+                    },
+                    step: function (_gm, deltaSeconds) {
+                        proof.frames += 1;
+                        proof.fixedStepsSeen = proof.fixedStepsSeen || Number.isFinite(deltaSeconds) && deltaSeconds > 0;
+                        stepGame(deltaSeconds);
+                    },
+                    draw: function () {
+                        drawGame();
+                        if (!proof.failed && proof.frames >= 8 && proof.pixelTextSeen && proof.spriteOptionsSeen) {
+                            proof.phase = "complete";
+                            proof.complete = true;
+                        }
+                    },
+                    onError: function (error) { report(error); }
+                });
+            }
+
+            window.addEventListener("error", function (event) { report(event.error || event.message || "window error"); });
+            window.addEventListener("unhandledrejection", function (event) { report(event.reason || "unhandled rejection"); });
+            boot().catch(report);
         }());
     </script>
 </body>

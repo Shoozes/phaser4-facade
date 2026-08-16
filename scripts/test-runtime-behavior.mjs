@@ -3,7 +3,7 @@
  * Behavioral qualification for phaser4-facade.
  * Stage 2 after scripts/test-runtime-package.mjs structural checks.
  *
- * - Packs the facade and installs it into temporary consumers with Phaser 4.1.0 / 4.2.1
+ * - Packs the facade and installs it into temporary consumers with Phaser 4.2.1
  * - Serves the browser fixture with module, global, and minified-global artifacts
  * - Exercises start → frames → pointer → resize → destroy → restart
  * - Optional resolution matrix exercises responsive room mapping at DPR 1/2/3
@@ -37,7 +37,7 @@ const DEFAULT_START_PORT = 4310;
 const PAGE_TIMEOUT_MS = 20000;
 const NPM_TIMEOUT_MS = 120000;
 
-const PHASER_VERSIONS = ["4.1.0", "4.2.1"];
+const PHASER_VERSIONS = ["4.2.1"];
 const ARTIFACTS = ["module", "global", "global.min"];
 const RENDER_MODES = ["webgl", "canvas"];
 const RESOLUTION_VIEWPORTS = [
@@ -574,7 +574,7 @@ function parseArgs(argv) {
         } else if (arg === "--skip-install") {
             options.skipInstall = true;
         } else if (arg === "--help" || arg === "-h") {
-            console.log("Usage: node scripts/test-runtime-behavior.mjs [--phaser 4.1.0,4.2.1] [--artifact module,global,global.min] [--render webgl,canvas] [--resolution-matrix]");
+            console.log("Usage: node scripts/test-runtime-behavior.mjs [--phaser 4.2.1] [--artifact module,global,global.min] [--render webgl,canvas] [--resolution-matrix]");
             process.exit(0);
         } else {
             fail(`Unknown option: ${arg}`);

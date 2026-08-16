@@ -61,8 +61,8 @@ For a released consumer, load Phaser first, then the versioned global artifact
 from the selected delivery channel:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/phaser@4.1.0/dist/phaser.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/phaser4-facade@0.1.0/dist/gm-phaser4.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/gm-phaser4.global.min.js"></script>
 ```
 
 The global entrypoint validates `window.Phaser` and installs `window.GM`.
