@@ -26,6 +26,7 @@ const SHELL_CSS = path.join(ROOT, "examples", "native-app-shell.css");
 const GROUT_ROOT = path.resolve(ROOT, "..", "grout13", "dist");
 const GROUT_GLOBAL_DIST = process.env.GROUT13_GLOBAL_PATH || path.join(GROUT_ROOT, "grout13.global.min.js");
 const GROUT_MODULE_DIST = process.env.GROUT13_MODULE_PATH || path.join(GROUT_ROOT, "grout13.mjs");
+const HAS_LOCAL_GROUT = fs.existsSync(GROUT_GLOBAL_DIST) && fs.existsSync(GROUT_MODULE_DIST);
 const HEADERS = { "access-control-allow-origin": "*" };
 
 const TEST_CASES = [
@@ -122,8 +123,12 @@ async function installRoutes(page, testCase) {
         if (url === CSS_CDN) return fulfill(SHELL_CSS, "text/css; charset=utf-8");
         if (url === PHASER_GLOBAL_CDN) return fulfill(PHASER_GLOBAL_DIST, "text/javascript; charset=utf-8");
         if (url === PHASER_MODULE_CDN) return fulfill(PHASER_MODULE_DIST, "text/javascript; charset=utf-8");
-        if (url === GROUT_MAIN + "grout13.global.min.js" || url === GROUT_PIN + "grout13.global.min.js") return fulfill(GROUT_GLOBAL_DIST, "text/javascript; charset=utf-8");
-        if (url === GROUT_MAIN + "grout13.mjs" || url === GROUT_PIN + "grout13.mjs") return fulfill(GROUT_MODULE_DIST, "text/javascript; charset=utf-8");
+        if (url === GROUT_MAIN + "grout13.global.min.js" || url === GROUT_PIN + "grout13.global.min.js") {
+            return HAS_LOCAL_GROUT ? fulfill(GROUT_GLOBAL_DIST, "text/javascript; charset=utf-8") : route.continue();
+        }
+        if (url === GROUT_MAIN + "grout13.mjs" || url === GROUT_PIN + "grout13.mjs") {
+            return HAS_LOCAL_GROUT ? fulfill(GROUT_MODULE_DIST, "text/javascript; charset=utf-8") : route.continue();
+        }
         if (url === FACADE_MAIN + "gm-phaser4.global.min.js") {
             return testCase.runtimeFallback ? route.abort("failed") : fulfill(FACADE_GLOBAL_DIST, "text/javascript; charset=utf-8");
         }
@@ -159,6 +164,9 @@ async function playOneShot(page, testCase) {
 }
 
 ensureFrontendDeps(ROOT);
+if ((process.env.GROUT13_GLOBAL_PATH || process.env.GROUT13_MODULE_PATH) && !HAS_LOCAL_GROUT) {
+    fail("Fruit Shot browser proof received an incomplete GROUT13_* fixture override.");
+}
 for (const assetPath of [
     PHASER_GLOBAL_DIST,
     PHASER_MODULE_DIST,
@@ -166,9 +174,7 @@ for (const assetPath of [
     FACADE_MODULE_DIST,
     BRIDGE_GLOBAL_DIST,
     BRIDGE_MODULE_DIST,
-    SHELL_CSS,
-    GROUT_GLOBAL_DIST,
-    GROUT_MODULE_DIST
+    SHELL_CSS
 ]) {
     if (!fs.existsSync(assetPath)) fail("Fruit Shot browser proof needs local fixture: " + assetPath);
 }
@@ -227,4 +233,4 @@ try {
 }
 
 fs.writeFileSync(path.join(REPORT_ROOT, "report.json"), JSON.stringify({ browser: launch.label, results }, null, 2) + "\n", "utf8");
-console.log("[ok] Fruit Shot all-in-one, Grout13, and modular playable browser proofs passed across Canvas, WebGL, phone, desktop, and pinned-fallback lanes using " + launch.label + ".");
+console.log("[ok] Fruit Shot all-in-one, Grout13, and modular playable browser proofs passed across Canvas, WebGL, phone, tablet, desktop, compact-fallback, and pinned-fallback lanes using " + launch.label + " with " + (HAS_LOCAL_GROUT ? "a local Grout13 fixture." : "the GitHub Grout13 CDN."));

@@ -19,6 +19,7 @@ const FACADE_DIST = path.join(ROOT, "dist", "gm-phaser4.global.min.js");
 const BRIDGE_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.global.min.js");
 const CSS_DIST = path.join(ROOT, "examples", "native-app-shell.css");
 const GROUT_DIST = process.env.GROUT13_GLOBAL_PATH || path.resolve(ROOT, "..", "grout13", "dist", "grout13.global.min.js");
+const HAS_LOCAL_GROUT = fs.existsSync(GROUT_DIST);
 const HEADERS = { "access-control-allow-origin": "*" };
 
 function fail(message) {
@@ -33,7 +34,9 @@ async function installRoutes(page) {
         if (url === PHASER_CDN) return fulfill(PHASER_DIST, "text/javascript; charset=utf-8");
         if (url === FACADE_MAIN + "gm-phaser4.global.min.js" || url === FACADE_PIN + "gm-phaser4.global.min.js") return fulfill(FACADE_DIST, "text/javascript; charset=utf-8");
         if (url === FACADE_MAIN + "gm-phaser4-grout13.global.min.js" || url === FACADE_PIN + "gm-phaser4-grout13.global.min.js") return fulfill(BRIDGE_DIST, "text/javascript; charset=utf-8");
-        if (url === GROUT_MAIN || url === GROUT_PIN) return fulfill(GROUT_DIST, "text/javascript; charset=utf-8");
+        if (url === GROUT_MAIN || url === GROUT_PIN) {
+            return HAS_LOCAL_GROUT ? fulfill(GROUT_DIST, "text/javascript; charset=utf-8") : route.continue();
+        }
         return route.abort("blockedbyclient");
     });
 }
@@ -54,7 +57,7 @@ async function assertAllInOneFile(page, fileName, proofName) {
     await page.waitForFunction((name) => Boolean(window[name]?.complete || window[name]?.failed), proofName, { timeout: 20000 });
     const proof = await page.evaluate((name) => window[name], proofName);
     assert.equal(proof.fileMode, true, fileName + " runs in file mode");
-    assert.equal(proof.failed, false, fileName + " does not report a file-origin error");
+    assert.equal(proof.failed, false, fileName + " does not report a file-origin error: " + JSON.stringify(proof));
     assert.equal(proof.complete, true, fileName + " completes from a direct file URL");
     assert.deepEqual(proof.errors, [], fileName + " proof errors");
     assert.equal(childFileRequests.length, 0, fileName + " must not request a child file URL");
@@ -64,7 +67,10 @@ async function assertAllInOneFile(page, fileName, proofName) {
 }
 
 ensureFrontendDeps(ROOT);
-for (const assetPath of [PHASER_DIST, FACADE_DIST, BRIDGE_DIST, CSS_DIST, GROUT_DIST]) {
+if (process.env.GROUT13_GLOBAL_PATH && !HAS_LOCAL_GROUT) {
+    fail("Fruit Shot file-origin proof received a missing GROUT13_GLOBAL_PATH fixture override.");
+}
+for (const assetPath of [PHASER_DIST, FACADE_DIST, BRIDGE_DIST, CSS_DIST]) {
     if (!fs.existsSync(assetPath)) fail("Fruit Shot file-origin proof needs local fixture: " + assetPath);
 }
 fs.mkdirSync(REPORT_ROOT, { recursive: true });
@@ -110,4 +116,4 @@ try {
     await launch.browser.close();
 }
 
-console.log("[ok] Fruit Shot direct-file all-in-one pages load without child file requests; the modular page gives safe HTTP-server guidance using " + launch.label + ".");
+console.log("[ok] Fruit Shot direct-file all-in-one pages load without child file requests; the modular page gives safe HTTP-server guidance using " + launch.label + " with " + (HAS_LOCAL_GROUT ? "a local Grout13 fixture." : "the GitHub Grout13 CDN."));
