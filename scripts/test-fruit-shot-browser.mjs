@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { resolveGrout13Fixture } from "./grout13-fixture.mjs";
 import { ensureFrontendDeps, launchBrowser, startStaticServer, stopServer } from "./smoke/smoke-server.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,10 +24,10 @@ const FACADE_MODULE_DIST = path.join(ROOT, "dist", "gm-phaser4.module.js");
 const BRIDGE_GLOBAL_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.global.min.js");
 const BRIDGE_MODULE_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.module.js");
 const SHELL_CSS = path.join(ROOT, "examples", "native-app-shell.css");
-const GROUT_ROOT = path.resolve(ROOT, "..", "grout13", "dist");
-const GROUT_GLOBAL_DIST = process.env.GROUT13_GLOBAL_PATH || path.join(GROUT_ROOT, "grout13.global.min.js");
-const GROUT_MODULE_DIST = process.env.GROUT13_MODULE_PATH || path.join(GROUT_ROOT, "grout13.mjs");
-const HAS_LOCAL_GROUT = fs.existsSync(GROUT_GLOBAL_DIST) && fs.existsSync(GROUT_MODULE_DIST);
+const GROUT_FIXTURE = resolveGrout13Fixture(ROOT);
+const GROUT_GLOBAL_DIST = GROUT_FIXTURE.globalPath;
+const GROUT_MODULE_DIST = GROUT_FIXTURE.modulePath;
+const HAS_LOCAL_GROUT = Boolean(GROUT_GLOBAL_DIST && GROUT_MODULE_DIST && fs.existsSync(GROUT_GLOBAL_DIST) && fs.existsSync(GROUT_MODULE_DIST));
 const HEADERS = { "access-control-allow-origin": "*" };
 
 const TEST_CASES = [
@@ -164,7 +165,7 @@ async function playOneShot(page, testCase) {
 }
 
 ensureFrontendDeps(ROOT);
-if ((process.env.GROUT13_GLOBAL_PATH || process.env.GROUT13_MODULE_PATH) && !HAS_LOCAL_GROUT) {
+if (GROUT_FIXTURE.hasOverride && !HAS_LOCAL_GROUT) {
     fail("Fruit Shot browser proof received an incomplete GROUT13_* fixture override.");
 }
 for (const assetPath of [
@@ -233,4 +234,4 @@ try {
 }
 
 fs.writeFileSync(path.join(REPORT_ROOT, "report.json"), JSON.stringify({ browser: launch.label, results }, null, 2) + "\n", "utf8");
-console.log("[ok] Fruit Shot all-in-one, Grout13, and modular playable browser proofs passed across Canvas, WebGL, phone, tablet, desktop, compact-fallback, and pinned-fallback lanes using " + launch.label + " with " + (HAS_LOCAL_GROUT ? "a local Grout13 fixture." : "the GitHub Grout13 CDN."));
+console.log("[ok] Fruit Shot all-in-one, Grout13, and modular playable browser proofs passed across Canvas, WebGL, phone, tablet, desktop, compact-fallback, and pinned-fallback lanes using " + launch.label + " with " + (HAS_LOCAL_GROUT ? "the " + GROUT_FIXTURE.source + " Grout13 fixture." : "the GitHub Grout13 CDN."));

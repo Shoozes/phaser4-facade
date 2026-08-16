@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { resolveGrout13Fixture } from "./grout13-fixture.mjs";
 import { ensureFrontendDeps, launchBrowser } from "./smoke/smoke-server.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -18,8 +19,9 @@ const PHASER_DIST = path.join(ROOT, "node_modules", "phaser", "dist", "phaser.mi
 const FACADE_DIST = path.join(ROOT, "dist", "gm-phaser4.global.min.js");
 const BRIDGE_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.global.min.js");
 const CSS_DIST = path.join(ROOT, "examples", "native-app-shell.css");
-const GROUT_DIST = process.env.GROUT13_GLOBAL_PATH || path.resolve(ROOT, "..", "grout13", "dist", "grout13.global.min.js");
-const HAS_LOCAL_GROUT = fs.existsSync(GROUT_DIST);
+const GROUT_FIXTURE = resolveGrout13Fixture(ROOT);
+const GROUT_DIST = GROUT_FIXTURE.globalPath;
+const HAS_LOCAL_GROUT = Boolean(GROUT_DIST && fs.existsSync(GROUT_DIST));
 const HEADERS = { "access-control-allow-origin": "*" };
 
 function fail(message) {
@@ -67,7 +69,7 @@ async function assertAllInOneFile(page, fileName, proofName) {
 }
 
 ensureFrontendDeps(ROOT);
-if (process.env.GROUT13_GLOBAL_PATH && !HAS_LOCAL_GROUT) {
+if (GROUT_FIXTURE.hasOverride && !HAS_LOCAL_GROUT) {
     fail("Fruit Shot file-origin proof received a missing GROUT13_GLOBAL_PATH fixture override.");
 }
 for (const assetPath of [PHASER_DIST, FACADE_DIST, BRIDGE_DIST, CSS_DIST]) {
@@ -116,4 +118,4 @@ try {
     await launch.browser.close();
 }
 
-console.log("[ok] Fruit Shot direct-file all-in-one pages load without child file requests; the modular page gives safe HTTP-server guidance using " + launch.label + " with " + (HAS_LOCAL_GROUT ? "a local Grout13 fixture." : "the GitHub Grout13 CDN."));
+console.log("[ok] Fruit Shot direct-file all-in-one pages load without child file requests; the modular page gives safe HTTP-server guidance using " + launch.label + " with " + (HAS_LOCAL_GROUT ? "the " + GROUT_FIXTURE.source + " Grout13 fixture." : "the GitHub Grout13 CDN."));
