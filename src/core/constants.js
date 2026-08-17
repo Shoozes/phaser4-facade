@@ -35,7 +35,10 @@ export const DEFAULTS = {
     maxFrameDeltaMs: 100,
     maxCatchUpSteps: 5,
     // Optional seed applied when the game starts (does not replace Math.random).
-    randomSeed: null
+    randomSeed: null,
+    // "strict" throws on invalid draws. "report" skips the draw and records it.
+    drawValidation: "strict",
+    layerAssertions: true
 };
 
 export const RUNTIME_VERSION = "0.1.0";

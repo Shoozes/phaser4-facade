@@ -126,3 +126,40 @@ export function hasObjectKeys(value) {
     for (const key in value) return true;
     return false;
 }
+
+/**
+ * @param {unknown} pointer
+ * @returns {"mouse" | "touch" | "pen"}
+ */
+export function inferPointerKind(pointer) {
+    if (!pointer || typeof pointer !== "object") return "mouse";
+    /** @type {any} */
+    const raw = pointer;
+    const token = String(raw.pointerType || raw.type || raw.kind || "").toLowerCase();
+    if (token.includes("touch")) return "touch";
+    if (token.includes("pen") || token.includes("stylus")) return "pen";
+    if (token.includes("mouse")) return "mouse";
+    if (raw.wasTouch === true || raw.isTouch === true) return "touch";
+    return "mouse";
+}
+
+/**
+ * Latest active pointer, preferring one that is currently down.
+ * @template {Record<string, any>} T
+ * @param {T[]} pointers
+ * @returns {T | null}
+ */
+export function pickPrimaryPointer(pointers) {
+    if (!Array.isArray(pointers) || pointers.length === 0) return null;
+    let chosen = null;
+    for (const pointer of pointers) {
+        if (!pointer || pointer.active === false) continue;
+        if (!chosen) {
+            chosen = pointer;
+            continue;
+        }
+        if (pointer.down && !chosen.down) chosen = pointer;
+        else if (pointer.down === chosen.down) chosen = pointer;
+    }
+    return chosen;
+}

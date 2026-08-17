@@ -3,6 +3,7 @@
 import { COLORS } from "./constants.js";
 import { clamp, toColor, toCssColor } from "./math.js";
 import { countRuntimePerf, countRuntimeTextLabel } from "./perf-metrics.js";
+import { collectNonFiniteValues, formatInvalidDraw } from "./debug.js";
 
 /**
  * @param {unknown} value
@@ -637,6 +638,42 @@ function finiteOr(value, fallback, label) {
 }
 
 /**
+ * @param {any} state
+ * @param {unknown} key
+ * @param {unknown} frame
+ * @param {Record<string, unknown>} values
+ */
+function rejectInvalidSpriteTransform(state, key, frame, values) {
+    const invalid = collectNonFiniteValues(values);
+    if (Object.keys(invalid).length === 0) return false;
+    const report = {
+        texture: key,
+        frame,
+        layer: state.activeWorldLayer || "world",
+        frameNumber: state.frameId,
+        values
+    };
+    if (!state.diagnostics) {
+        state.diagnostics = { invalidDraws: 0, lastInvalidDraw: null, nonFiniteSimulationValues: 0 };
+    }
+    state.diagnostics.invalidDraws += 1;
+    state.diagnostics.lastInvalidDraw = report;
+    const error = new TypeError(formatInvalidDraw(report));
+    const mode = state.cfg && state.cfg.drawValidation === "report" ? "report" : "strict";
+    if (mode === "report") {
+        if (state.cfg && typeof state.cfg.onError === "function") {
+            try {
+                state.cfg.onError(error, { phase: "draw", frame: state.frameId });
+            } catch {
+                /* keep the frame alive */
+            }
+        }
+        return true;
+    }
+    throw error;
+}
+
+/**
  * Phaser tint is a 24-bit RGB integer after BGR conversion at the color boundary.
  * @param {unknown} color
  */
@@ -721,12 +758,21 @@ function resolveSpriteSourceSize(state, item, key, frame) {
  * @param {number=} alpha
  */
 export function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rotation, color, alpha) {
-    const posX = finiteOr(x, 0, "x");
-    const posY = finiteOr(y, 0, "y");
     /** @type {RuntimeSpriteOptions | null} */
     const options = xscale && typeof xscale === "object"
         ? /** @type {RuntimeSpriteOptions} */ (xscale)
         : null;
+    const requestedRotation = options ? options.rotation : rotation;
+    const preview = {
+        x: x === undefined || x === null ? 0 : Number(x),
+        y: y === undefined || y === null ? 0 : Number(y),
+        scaleX: Number(options ? (options.scaleX ?? options.scale ?? 1) : (xscale === undefined || typeof xscale === "object" ? 1 : xscale)),
+        scaleY: Number(options ? (options.scaleY ?? options.scale ?? 1) : (yscale === undefined ? 1 : yscale)),
+        rotation: requestedRotation === undefined || requestedRotation === null ? 0 : Number(requestedRotation)
+    };
+    if (rejectInvalidSpriteTransform(state, key, frame, preview)) return null;
+    const posX = finiteOr(x, 0, "x");
+    const posY = finiteOr(y, 0, "y");
     assertSpriteSource(state, key, frame);
     const hasWidth = options?.width !== undefined;
     const hasHeight = options?.height !== undefined;
@@ -745,7 +791,6 @@ export function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, ysca
         scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");
         scaleY = finiteOr(options ? options.scaleY : yscale, baseScale, "yscale");
     }
-    const requestedRotation = options ? options.rotation : rotation;
     const requestedColor = options ? options.color : color;
     const requestedAlpha = options ? options.alpha : alpha;
     const item = pool.take(key, frame);

@@ -150,6 +150,9 @@ export function normalizeAtlasFrames(frames) {
                 y: requireFiniteNumber(source.anchor.y ?? 0, `frame ${name}.anchor.y`)
             };
         }
+        if (source.meta && typeof source.meta === "object" && !Array.isArray(source.meta)) {
+            normalized.meta = source.meta;
+        }
 
         safe[name] = normalized;
     }
@@ -303,6 +306,19 @@ export function addAtlasTexture(scene, key, source, frames, options = {}) {
         if (!texture) {
             throw new Error(`Phaser could not register atlas texture: ${textureKey}`);
         }
+        /** @type {Record<string, any>} */
+        const frameMeta = {};
+        for (const [name, frame] of Object.entries(safeFrames)) {
+            frameMeta[name] = {
+                width: frame.frame.w,
+                height: frame.frame.h,
+                sourceWidth: frame.sourceSize ? frame.sourceSize.w : frame.frame.w,
+                sourceHeight: frame.sourceSize ? frame.sourceSize.h : frame.frame.h,
+                pivot: frame.pivot || null,
+                meta: frame.meta || null
+            };
+        }
+        texture.customData = Object.assign({}, texture.customData, { gmFrameMeta: frameMeta });
         return {
             key: textureKey,
             texture,
@@ -360,4 +376,74 @@ export function textureFrameExists(scene, key, frame) {
     } catch {
         return false;
     }
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ */
+export function getFrameNames(scene, key) {
+    const textureKey = normalizeTextureKey(key);
+    const textures = requireTextures(scene);
+    if (!textures.exists(textureKey)) {
+        throw new Error(`GM.asset.frameNames texture not found: ${textureKey}`);
+    }
+    const texture = textures.get(textureKey);
+    const stored = texture?.customData?.gmFrameMeta;
+    if (stored && typeof stored === "object") return Object.keys(stored);
+    if (texture && typeof texture.getFrameNames === "function") {
+        return texture.getFrameNames().filter((/** @type {string} */ name) => name && name !== "__BASE");
+    }
+    return [];
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ * @param {string | number} [frame]
+ */
+export function getFrameInfo(scene, key, frame) {
+    const textureKey = normalizeTextureKey(key);
+    const textures = requireTextures(scene);
+    if (!textures.exists(textureKey)) {
+        throw new Error(`GM.asset.frameInfo texture not found: ${textureKey}`);
+    }
+    const texture = textures.get(textureKey);
+    const frameName = frame === undefined || frame === null || frame === "" ? "__BASE" : String(frame);
+    const stored = texture?.customData?.gmFrameMeta?.[frameName] || null;
+    /** @type {any} */
+    let phaserFrame = null;
+    if (texture && typeof texture.get === "function") {
+        try {
+            phaserFrame = texture.get(frameName === "__BASE" ? texture.firstFrame || "__BASE" : frameName);
+        } catch {
+            phaserFrame = null;
+        }
+    }
+    if (!stored && !phaserFrame) {
+        throw new Error(`GM.asset.frameInfo frame not found: ${textureKey}:${frameName}`);
+    }
+    const width = Number(phaserFrame?.cutWidth ?? phaserFrame?.width ?? stored?.width ?? 0);
+    const height = Number(phaserFrame?.cutHeight ?? phaserFrame?.height ?? stored?.height ?? 0);
+    const sourceWidth = Number(phaserFrame?.sourceSize?.w ?? stored?.sourceWidth ?? width);
+    const sourceHeight = Number(phaserFrame?.sourceSize?.h ?? stored?.sourceHeight ?? height);
+    return {
+        name: frameName,
+        width,
+        height,
+        sourceWidth,
+        sourceHeight,
+        pivot: stored?.pivot || null,
+        meta: stored?.meta || null
+    };
+}
+
+/**
+ * @param {any} scene
+ * @param {string} key
+ * @param {string | number} [frame]
+ */
+export function getFrameSize(scene, key, frame) {
+    const info = getFrameInfo(scene, key, frame);
+    return { width: info.width, height: info.height, sourceWidth: info.sourceWidth, sourceHeight: info.sourceHeight };
 }

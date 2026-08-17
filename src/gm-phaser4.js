@@ -17,6 +17,7 @@ import { createMathApi } from "./core/math-api.js";
 import {
     buttonFromPointer,
     consumeInputEvent,
+    inferPointerKind,
     normalizeDelayMs,
     normalizeKey,
     pointerGateKey
@@ -376,6 +377,7 @@ export function installGMRuntime(root, Phaser) {
                     startX: roomX,
                     startY: roomY,
                     button: buttonFromPointer(pointer),
+                    kind: inferPointerKind(pointer),
                     down: false,
                     active: true,
                     owner: null,
@@ -388,6 +390,7 @@ export function installGMRuntime(root, Phaser) {
                 record.x = roomX;
                 record.y = roomY;
                 record.button = buttonFromPointer(pointer);
+                record.kind = inferPointerKind(pointer);
                 record.active = true;
             }
             if (flags.down === true) {

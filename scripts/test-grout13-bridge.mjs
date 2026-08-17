@@ -76,6 +76,28 @@ assert.equal(directResult.runtimeContract.formatVersion, 13);
 assert.equal(directResult.payloadBytes, 7);
 assert.equal(directResult.hasFrame("direct"), true);
 
+const font = {
+    glyphs: {
+        S: { name: "S", width: 12, height: 20, advance: 12 },
+        C: { name: "C", width: 12, height: 20, advance: 12 },
+        O: { name: "O", width: 12, height: 20, advance: 12 },
+        R: { name: "R", width: 12, height: 20, advance: 12 },
+        E: { name: "E", width: 12, height: 20, advance: 12 },
+        space: { name: "space", width: 8, height: 20, advance: 8 }
+    },
+    metrics: { tracking: 4, lineHeight: 24, fallback: "E", fallbackFrame: "E" },
+    compiled: {
+        payload: ["font"],
+        atlas: { width: 8, height: 8, rgba: new Uint8ClampedArray(256) },
+        frames: Object.keys({ S: 1, C: 1, O: 1, R: 1, E: 1, space: 1 }).map((name) => ({
+            name, x: 0, y: 0, width: 8, height: 8
+        }))
+    }
+};
+const addedFont = bridge.addFont("pixel-3x5", font);
+assert.equal(addedFont.atlasKey, "grout13-font-pixel-3x5");
+assert.equal(bridge.getFont("pixel-3x5").atlasKey, "grout13-font-pixel-3x5");
+
 assert.throws(
     () => installGrout13Bridge(gm, { ...grout13 }),
     /already installed with a different bridge/

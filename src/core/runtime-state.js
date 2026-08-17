@@ -82,6 +82,11 @@ export function createRuntimeState(scene, cfg) {
             halign: "left",
             valign: "top"
         },
+        diagnostics: {
+            invalidDraws: 0,
+            lastInvalidDraw: null,
+            nonFiniteSimulationValues: 0
+        },
         mouse: {
             x: 0,
             y: 0,

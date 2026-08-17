@@ -61,6 +61,12 @@ function mergeConfig(config) {
     if (merged.globals !== undefined && typeof merged.globals !== "boolean") {
         throw new TypeError("GM.app.start requires globals to be a boolean.");
     }
+    if (merged.drawValidation !== undefined && merged.drawValidation !== "strict" && merged.drawValidation !== "report") {
+        throw new TypeError("GM.app.start drawValidation must be \"strict\" or \"report\".");
+    }
+    if (merged.layerAssertions !== undefined && typeof merged.layerAssertions !== "boolean") {
+        throw new TypeError("GM.app.start requires layerAssertions to be a boolean.");
+    }
     if (merged.simulationHz !== undefined &&
         (!Number.isFinite(Number(merged.simulationHz)) || Number(merged.simulationHz) < 0)) {
         throw new TypeError("GM.app.start requires simulationHz to be a non-negative finite number.");

@@ -249,6 +249,7 @@
         height: source.height
       });
     }
+    const fonts = /* @__PURE__ */ new Map();
     return Object.freeze({
       compile(assets, options = {}) {
         return compile(assets, directCompileOptions(options));
@@ -264,6 +265,38 @@
         const compiled = compile(assets, compileOptions(options));
         const added = registerCompiled(key, compiled, options);
         return { ...added, compiled, payload: compiled.payload };
+      },
+      /**
+       * @param {string} name
+       * @param {any} font
+       * @param {{ atlasKey?: string, replace?: boolean }} [options]
+       */
+      addFont(name, font, options = {}) {
+        const fontName = requireKey(name);
+        requireObject(font, "Grout13 compiled font");
+        requireObject(font.metrics, "Grout13 compiled font.metrics");
+        requireObject(font.glyphs, "Grout13 compiled font.glyphs");
+        if (!font.compiled && !font.atlas) {
+          throw new TypeError("GM.grout13.addFont requires compiled atlas data.");
+        }
+        const atlasKey = options.atlasKey ? requireKey(options.atlasKey) : `grout13-font-${fontName}`;
+        const added = font.compiled ? registerCompiled(atlasKey, font.compiled, options) : register(atlasKey, font.atlas, font.atlas.frames || {}, options, { width: font.atlas.width, height: font.atlas.height });
+        const record = {
+          name: fontName,
+          atlasKey,
+          glyphs: font.glyphs,
+          metrics: font.metrics,
+          compiled: font.compiled || null,
+          added
+        };
+        fonts.set(fontName, record);
+        return record;
+      },
+      /**
+       * @param {string} name
+       */
+      getFont(name) {
+        return fonts.get(requireKey(name)) || null;
       },
       [BRIDGE_MARKER]: grout13
     });

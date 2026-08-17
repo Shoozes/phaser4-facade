@@ -4,11 +4,21 @@ import {
     addAtlasTexture,
     addCanvasTexture,
     addRgbaTexture,
+    getFrameInfo,
+    getFrameNames,
+    getFrameSize,
     removeTexture,
     textureExists,
     textureFrameExists
 } from "./assets.js";
+import { inferPointerKind, pickPrimaryPointer } from "./input.js";
+import { assertFinite } from "./debug.js";
 import { createVirtualStick } from "./virtual-stick.js";
+import {
+    drawAtlasText,
+    drawAtlasTextFit,
+    measureAtlasText
+} from "./atlas-text.js";
 import {
     containsPoint,
     copyInsets,
@@ -156,7 +166,49 @@ export function installFacadeNamespaces(deps) {
         textExt: function () { return callActive("draw_text_ext", arguments); },
         textFit: function () { return callActive("draw_text_fit", arguments); },
         sprite: function () { return callActive("draw_sprite", arguments); },
-        spriteExt: function () { return callActive("draw_sprite_ext", arguments); }
+        spriteExt: function () { return callActive("draw_sprite_ext", arguments); },
+        /**
+         * @param {string | { glyphs?: unknown, metrics?: unknown, atlasKey?: string, name?: string }} font
+         */
+        resolveAtlasFont(font) {
+            if (font && typeof font === "object" && font.glyphs && font.metrics) return font;
+            const name = String(font || "").trim();
+            const record = GM.grout13 && typeof GM.grout13.getFont === "function" ? GM.grout13.getFont(name) : null;
+            if (!record) throw new TypeError(`GM.draw.atlasText font is not registered: ${name || "(empty)"}`);
+            return record;
+        },
+        /**
+         * @param {string | object} font
+         * @param {unknown} text
+         * @param {{ scale?: number }} [options]
+         */
+        measureAtlasText(font, text, options) {
+            return measureAtlasText(this.resolveAtlasFont(font), text, options);
+        },
+        /**
+         * @param {string | object} font
+         * @param {unknown} text
+         * @param {number} x
+         * @param {number} y
+         * @param {object} [options]
+         */
+        atlasText(font, text, x, y, options) {
+            const runtime = active();
+            const record = this.resolveAtlasFont(font);
+            return drawAtlasText(runtime.state, runtime.state.worldSprites, record.atlasKey || record.name, record, text, x, y, options);
+        },
+        /**
+         * @param {string | object} font
+         * @param {unknown} text
+         * @param {number} x
+         * @param {number} y
+         * @param {{ maxWidth: number, scale?: number, minScale?: number, color?: unknown, alpha?: number, align?: "left" | "center" | "right" }} options
+         */
+        atlasTextFit(font, text, x, y, options) {
+            const runtime = active();
+            const record = this.resolveAtlasFont(font);
+            return drawAtlasTextFit(runtime.state, runtime.state.worldSprites, record.atlasKey || record.name, record, text, x, y, options);
+        }
     };
 
     const gui = {
@@ -190,6 +242,55 @@ export function installFacadeNamespaces(deps) {
                     return active().release_pointer_id(id, owner);
                 }
             });
+        },
+        primaryPointer() {
+            const runtime = activeOrNull();
+            if (!runtime) return null;
+            const record = pickPrimaryPointer(runtime.active_pointers());
+            if (!record) return null;
+            const button = record.button || INPUT.mb_left;
+            return {
+                id: record.id,
+                screenX: record.screenX,
+                screenY: record.screenY,
+                roomX: record.x,
+                roomY: record.y,
+                x: record.x,
+                y: record.y,
+                insideGame: GM.viewport.containsRoomPoint(record.x, record.y),
+                down: !!record.down,
+                pressed: !!(runtime.state.mouse.pressed && runtime.state.mouse.pressed[button]),
+                released: !!(runtime.state.mouse.released && runtime.state.mouse.released[button]),
+                kind: record.kind || inferPointerKind(record),
+                button,
+                owner: record.owner || null
+            };
+        },
+        primaryPressed() {
+            const pointer = this.primaryPointer();
+            return Boolean(pointer && pointer.pressed);
+        },
+        primaryReleased() {
+            const pointer = this.primaryPointer();
+            return Boolean(pointer && pointer.released);
+        },
+        /**
+         * @param {string} [owner]
+         */
+        capturePrimary(owner) {
+            const pointer = this.primaryPointer();
+            if (!pointer) return false;
+            active().capture_pointer(pointer.id, owner);
+            return true;
+        },
+        /**
+         * @param {string} [owner]
+         */
+        releasePrimary(owner) {
+            const pointer = this.primaryPointer();
+            if (!pointer) return false;
+            active().release_pointer_id(pointer.id, owner);
+            return true;
         }
     });
 
@@ -219,7 +320,50 @@ export function installFacadeNamespaces(deps) {
     };
 
     const layer = {
-        define: function () { return callActive("define_layer", arguments); }
+        define: function () { return callActive("define_layer", arguments); },
+        /**
+         * @param {string[]} names
+         * @param {{ start?: number, step?: number }} [options]
+         */
+        stack(names, options) {
+            if (!Array.isArray(names) || names.length === 0) {
+                throw new TypeError("GM.layer.stack requires a non-empty name array.");
+            }
+            const start = Number(options && options.start);
+            const step = Number(options && options.step);
+            const origin = Number.isFinite(start) ? start : 0;
+            const increment = Number.isFinite(step) && step !== 0 ? step : 10;
+            /** @type {Record<string, number>} */
+            const depths = {};
+            names.forEach((name, index) => {
+                const layerName = String(name || "").trim();
+                if (!layerName) throw new TypeError("GM.layer.stack requires non-empty layer names.");
+                depths[layerName] = origin + index * increment;
+            });
+            return active().define_layer(depths);
+        },
+        /**
+         * @param {string} upper
+         * @param {string} lower
+         */
+        assertAbove(upper, lower) {
+            const runtime = active();
+            if (runtime.cfg && runtime.cfg.layerAssertions === false) return runtime;
+            const upperName = String(upper || "").trim();
+            const lowerName = String(lower || "").trim();
+            const upperDepth = runtime.state.layerRegistry.get(upperName);
+            const lowerDepth = runtime.state.layerRegistry.get(lowerName);
+            if (!Number.isFinite(upperDepth)) {
+                throw new Error(`GM.layer.assertAbove could not find layer ${upperName}.`);
+            }
+            if (!Number.isFinite(lowerDepth)) {
+                throw new Error(`GM.layer.assertAbove could not find layer ${lowerName}.`);
+            }
+            if (upperDepth <= lowerDepth) {
+                throw new Error(`GM.layer.assertAbove expected ${upperName} (${upperDepth}) above ${lowerName} (${lowerDepth}).`);
+            }
+            return runtime;
+        }
     };
 
     const asset = {
@@ -275,6 +419,26 @@ export function installFacadeNamespaces(deps) {
             const activeRuntime = activeOrNull();
             if (!activeRuntime) return false;
             return textureFrameExists(activeRuntime.scene, key, frame);
+        },
+        /**
+         * @param {string} key
+         * @param {string | number} [frame]
+         */
+        frameInfo(key, frame) {
+            return getFrameInfo(active().scene, key, frame);
+        },
+        /**
+         * @param {string} key
+         * @param {string | number} [frame]
+         */
+        frameSize(key, frame) {
+            return getFrameSize(active().scene, key, frame);
+        },
+        /**
+         * @param {string} key
+         */
+        frameNames(key) {
+            return getFrameNames(active().scene, key);
         }
     };
 
@@ -327,7 +491,15 @@ export function installFacadeNamespaces(deps) {
 
     const debug = {
         log: function () { return callActive("show_debug_message", arguments); },
-        tween: function () { return callActive("tween", arguments); }
+        tween: function () { return callActive("tween", arguments); },
+        /**
+         * @param {string} label
+         * @param {Record<string, unknown>} values
+         */
+        assertFinite(label, values) {
+            const runtime = activeOrNull();
+            return assertFinite(label, values, runtime ? runtime.state.diagnostics : undefined);
+        }
     };
 
     const legacy = {
@@ -400,9 +572,25 @@ export function installFacadeNamespaces(deps) {
 
     GM.installGlobals = installGlobals;
     GM.app = { start: GM.start };
+    const diagnostics = {
+        get invalidDraws() {
+            const runtime = activeOrNull();
+            return runtime && runtime.state.diagnostics ? Number(runtime.state.diagnostics.invalidDraws || 0) : 0;
+        },
+        get lastInvalidDraw() {
+            const runtime = activeOrNull();
+            return runtime && runtime.state.diagnostics ? runtime.state.diagnostics.lastInvalidDraw : null;
+        },
+        get nonFiniteSimulationValues() {
+            const runtime = activeOrNull();
+            return runtime && runtime.state.diagnostics ? Number(runtime.state.diagnostics.nonFiniteSimulationValues || 0) : 0;
+        }
+    };
+
     GM.runtime = runtime;
     GM.layout = runtime;
     GM.viewport = viewport;
+    GM.diagnostics = diagnostics;
     GM.draw = draw;
     GM.gui = gui;
     GM.input = input;

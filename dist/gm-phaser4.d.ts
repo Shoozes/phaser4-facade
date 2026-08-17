@@ -437,6 +437,10 @@ interface GMStartConfig {
     maxCatchUpSteps?: number;
     /** Seeds facade random helpers for this game; does not replace Math.random. */
     randomSeed?: number | string | null;
+    /** Invalid sprite transforms throw in strict mode or skip and record in report mode. */
+    drawValidation?: "strict" | "report";
+    /** When false, GM.layer.assertAbove is a no-op. */
+    layerAssertions?: boolean;
     preload?: (gm: GMRuntime) => void;
     create?: (gm: GMRuntime) => void;
     step?: (gm: GMRuntime, deltaSeconds: number) => void;
@@ -561,6 +565,9 @@ interface GMDrawFacade {
     sprite(key: string, frame: string | number | null | undefined, x: number, y: number): unknown;
     spriteExt(key: string, frame: string | number | null | undefined, x: number, y: number, xscale?: number, yscale?: number, rotation?: number, color?: GMColorValue, alpha?: number): unknown;
     spriteExt(key: string, frame: string | number | null | undefined, x: number, y: number, options?: GMSpriteDrawOptions): unknown;
+    measureAtlasText(font: string | object, text: unknown, options?: { scale?: number }): { width: number; height: number; characters: number };
+    atlasText(font: string | object, text: unknown, x: number, y: number, options?: { scale?: number; color?: GMColorValue; alpha?: number; align?: "left" | "center" | "right" }): unknown;
+    atlasTextFit(font: string | object, text: unknown, x: number, y: number, options: { maxWidth: number; scale?: number; minScale?: number; color?: GMColorValue; alpha?: number; align?: "left" | "center" | "right" }): unknown;
 }
 
 interface GMGuiFacade {
@@ -579,10 +586,28 @@ interface GMPointerState {
     startX: number;
     startY: number;
     button: GMMouseButton | string;
+    kind?: "mouse" | "touch" | "pen";
     down: boolean;
     active: boolean;
     owner: string | null;
     downTime: number;
+}
+
+interface GMPrimaryPointer {
+    id: string;
+    screenX: number;
+    screenY: number;
+    roomX: number;
+    roomY: number;
+    x: number;
+    y: number;
+    insideGame: boolean;
+    down: boolean;
+    pressed: boolean;
+    released: boolean;
+    kind: "mouse" | "touch" | "pen";
+    button: GMMouseButton | string;
+    owner: string | null;
 }
 
 interface GMVirtualStickOptions {
@@ -640,6 +665,11 @@ interface GMInputFacade {
     capturePointer(id: string | number, owner?: string): GMRuntime;
     releasePointer(id: string | number, owner?: string): GMRuntime;
     createVirtualStick(options?: GMVirtualStickOptions): GMVirtualStick;
+    primaryPointer(): GMPrimaryPointer | null;
+    primaryPressed(): boolean;
+    primaryReleased(): boolean;
+    capturePrimary(owner?: string): boolean;
+    releasePrimary(owner?: string): boolean;
 }
 
 interface GMEntitySpawnOptions {
@@ -663,6 +693,8 @@ interface GMEntityFacade {
 interface GMLayerFacade {
     define(name: string, depth: number): GMRuntime;
     define(layers: Record<string, number>): GMRuntime;
+    stack(names: string[], options?: { start?: number; step?: number }): GMRuntime;
+    assertAbove(upper: string, lower: string): GMRuntime;
 }
 
 interface GMAtlasRgbaSource {
@@ -691,6 +723,19 @@ interface GMAssetFacade {
     remove(key: string): boolean;
     exists(key: string): boolean;
     frameExists(key: string, frame: string | number): boolean;
+    frameInfo(key: string, frame?: string | number): GMAssetFrameInfo;
+    frameSize(key: string, frame?: string | number): { width: number; height: number; sourceWidth: number; sourceHeight: number };
+    frameNames(key: string): string[];
+}
+
+interface GMAssetFrameInfo {
+    name: string;
+    width: number;
+    height: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    pivot: { x: number; y: number } | null;
+    meta: unknown;
 }
 
 interface GMAudioFacade {
@@ -721,6 +766,19 @@ interface GMTimeFacade {
 interface GMDebugFacade {
     log(message: unknown): GMRuntime;
     tween(target: object, options?: Record<string, unknown>): unknown;
+    assertFinite(label: string, values: Record<string, unknown>): true;
+}
+
+interface GMDiagnosticsFacade {
+    readonly invalidDraws: number;
+    readonly lastInvalidDraw: {
+        texture?: unknown;
+        frame?: unknown;
+        layer?: unknown;
+        frameNumber?: unknown;
+        values?: Record<string, unknown>;
+    } | null;
+    readonly nonFiniteSimulationValues: number;
 }
 
 interface GMSeededRng {
@@ -783,6 +841,7 @@ interface GMFacade {
     runtime: GMRuntimeInfo;
     layout: GMRuntimeInfo;
     viewport: GMViewportFacade;
+    diagnostics: GMDiagnosticsFacade;
     draw: GMDrawFacade;
     gui: GMGuiFacade;
     input: GMInputFacade;

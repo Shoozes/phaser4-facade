@@ -80,6 +80,25 @@ export interface Grout13Bridge {
         compiled: Grout13CompiledAtlas;
         payload: unknown[];
     };
+    addFont(name: string, font: {
+        glyphs: Record<string, { advance: number; width?: number; height?: number }>;
+        metrics: { tracking?: number; lineHeight?: number; fallback?: string; fallbackFrame?: string };
+        compiled?: Grout13CompiledAtlas;
+        atlas?: { width: number; height: number; rgba?: ArrayLike<number>; frames?: unknown };
+    }, options?: { atlasKey?: string; replace?: boolean }): {
+        name: string;
+        atlasKey: string;
+        glyphs: Record<string, unknown>;
+        metrics: Record<string, unknown>;
+        compiled: Grout13CompiledAtlas | null;
+        added: Grout13AssetRecord;
+    };
+    getFont(name: string): {
+        name: string;
+        atlasKey: string;
+        glyphs: Record<string, unknown>;
+        metrics: Record<string, unknown>;
+    } | null;
 }
 
 export function installGrout13Bridge(gm: object, grout13: Grout13Module): Grout13Bridge;

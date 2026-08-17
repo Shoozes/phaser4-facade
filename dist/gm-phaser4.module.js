@@ -39,7 +39,10 @@ var DEFAULTS = {
   maxFrameDeltaMs: 100,
   maxCatchUpSteps: 5,
   // Optional seed applied when the game starts (does not replace Math.random).
-  randomSeed: null
+  randomSeed: null,
+  // "strict" throws on invalid draws. "report" skips the draw and records it.
+  drawValidation: "strict",
+  layerAssertions: true
 };
 var RUNTIME_VERSION = "0.1.0";
 var ALARM_COUNT = 12;
@@ -491,6 +494,30 @@ function pointerGateKey(pointer) {
   if (pointerLike.pointerId !== void 0) return String(pointerLike.pointerId);
   return "default";
 }
+function inferPointerKind(pointer) {
+  if (!pointer || typeof pointer !== "object") return "mouse";
+  const raw = pointer;
+  const token = String(raw.pointerType || raw.type || raw.kind || "").toLowerCase();
+  if (token.includes("touch")) return "touch";
+  if (token.includes("pen") || token.includes("stylus")) return "pen";
+  if (token.includes("mouse")) return "mouse";
+  if (raw.wasTouch === true || raw.isTouch === true) return "touch";
+  return "mouse";
+}
+function pickPrimaryPointer(pointers) {
+  if (!Array.isArray(pointers) || pointers.length === 0) return null;
+  let chosen = null;
+  for (const pointer of pointers) {
+    if (!pointer || pointer.active === false) continue;
+    if (!chosen) {
+      chosen = pointer;
+      continue;
+    }
+    if (pointer.down && !chosen.down) chosen = pointer;
+    else if (pointer.down === chosen.down) chosen = pointer;
+  }
+  return chosen;
+}
 
 // phaser4-facade-runtime:src/core/perf-metrics.js
 function nowMs() {
@@ -830,6 +857,47 @@ function createRuntimeButtonClass(Phaser) {
       return !this.api.input_blocked() && !this.api.curtain_active();
     }
   };
+}
+
+// phaser4-facade-runtime:src/core/debug.js
+function logDebugMessage(message, logger = console) {
+  if (logger && typeof logger.log === "function") {
+    logger.log(message);
+  }
+}
+function collectNonFiniteValues(values) {
+  const invalid = {};
+  if (!values || typeof values !== "object") return invalid;
+  for (const [key, value] of Object.entries(values)) {
+    if (!Number.isFinite(Number(value))) invalid[key] = value;
+  }
+  return invalid;
+}
+function assertFinite(label, values, diagnostics) {
+  const invalid = collectNonFiniteValues(values);
+  if (Object.keys(invalid).length === 0) return true;
+  if (diagnostics) {
+    diagnostics.nonFiniteSimulationValues = Number(diagnostics.nonFiniteSimulationValues || 0) + 1;
+  }
+  const details = Object.entries(invalid).map(([key, value]) => `${key}: ${String(value)}`).join("\n");
+  throw new TypeError(`[phaser4-facade] ${label || "value"} has non-finite fields.
+${details}`);
+}
+function formatInvalidDraw(report) {
+  const values = report.values && typeof report.values === "object" ? report.values : {};
+  const lines = [
+    "[phaser4-facade] GM.draw.spriteExt rejected a non-finite transform.",
+    "",
+    `Texture: ${report.texture == null ? "(none)" : String(report.texture)}`,
+    `Frame: ${report.frame == null ? "(none)" : String(report.frame)}`,
+    `Layer: ${report.layer == null ? "(none)" : String(report.layer)}`,
+    `Frame number: ${report.frameNumber == null ? "(none)" : String(report.frameNumber)}`,
+    ""
+  ];
+  for (const [key, value] of Object.entries(values)) {
+    lines.push(`${key}: ${String(value)}`);
+  }
+  return lines.join("\n");
 }
 
 // phaser4-facade-runtime:src/core/draw.js
@@ -1191,6 +1259,34 @@ function finiteOr(value, fallback, label) {
   }
   return numeric;
 }
+function rejectInvalidSpriteTransform(state, key, frame, values) {
+  const invalid = collectNonFiniteValues(values);
+  if (Object.keys(invalid).length === 0) return false;
+  const report = {
+    texture: key,
+    frame,
+    layer: state.activeWorldLayer || "world",
+    frameNumber: state.frameId,
+    values
+  };
+  if (!state.diagnostics) {
+    state.diagnostics = { invalidDraws: 0, lastInvalidDraw: null, nonFiniteSimulationValues: 0 };
+  }
+  state.diagnostics.invalidDraws += 1;
+  state.diagnostics.lastInvalidDraw = report;
+  const error = new TypeError(formatInvalidDraw(report));
+  const mode = state.cfg && state.cfg.drawValidation === "report" ? "report" : "strict";
+  if (mode === "report") {
+    if (state.cfg && typeof state.cfg.onError === "function") {
+      try {
+        state.cfg.onError(error, { phase: "draw", frame: state.frameId });
+      } catch {
+      }
+    }
+    return true;
+  }
+  throw error;
+}
 function clampTintColor(color) {
   const converted = toColor(color === void 0 ? COLORS.c_white : color);
   if (!Number.isFinite(converted)) return 16777215;
@@ -1240,12 +1336,21 @@ function resolveSpriteSourceSize(state, item, key, frame) {
   throw new Error(`draw_sprite_ext display sizing could not resolve source dimensions for ${String(key)}:${String(frame)}`);
 }
 function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rotation, color, alpha) {
-  const posX = finiteOr(x, 0, "x");
-  const posY = finiteOr(y, 0, "y");
   const options = xscale && typeof xscale === "object" ? (
     /** @type {RuntimeSpriteOptions} */
     xscale
   ) : null;
+  const requestedRotation = options ? options.rotation : rotation;
+  const preview = {
+    x: x === void 0 || x === null ? 0 : Number(x),
+    y: y === void 0 || y === null ? 0 : Number(y),
+    scaleX: Number(options ? options.scaleX ?? options.scale ?? 1 : xscale === void 0 || typeof xscale === "object" ? 1 : xscale),
+    scaleY: Number(options ? options.scaleY ?? options.scale ?? 1 : yscale === void 0 ? 1 : yscale),
+    rotation: requestedRotation === void 0 || requestedRotation === null ? 0 : Number(requestedRotation)
+  };
+  if (rejectInvalidSpriteTransform(state, key, frame, preview)) return null;
+  const posX = finiteOr(x, 0, "x");
+  const posY = finiteOr(y, 0, "y");
   assertSpriteSource(state, key, frame);
   const hasWidth = options?.width !== void 0;
   const hasHeight = options?.height !== void 0;
@@ -1264,7 +1369,6 @@ function drawRuntimeSpriteExt(state, pool, key, frame, x, y, xscale, yscale, rot
     scaleX = finiteOr(options ? options.scaleX : xscale, baseScale, "xscale");
     scaleY = finiteOr(options ? options.scaleY : yscale, baseScale, "yscale");
   }
-  const requestedRotation = options ? options.rotation : rotation;
   const requestedColor = options ? options.color : color;
   const requestedAlpha = options ? options.alpha : alpha;
   const item = pool.take(key, frame);
@@ -2774,6 +2878,9 @@ function normalizeAtlasFrames(frames) {
         y: requireFiniteNumber(source.anchor.y ?? 0, `frame ${name}.anchor.y`)
       };
     }
+    if (source.meta && typeof source.meta === "object" && !Array.isArray(source.meta)) {
+      normalized.meta = source.meta;
+    }
     safe[name] = normalized;
   }
   if (Object.keys(safe).length === 0) {
@@ -2896,6 +3003,18 @@ function addAtlasTexture(scene, key, source, frames, options = {}) {
     if (!texture) {
       throw new Error(`Phaser could not register atlas texture: ${textureKey}`);
     }
+    const frameMeta = {};
+    for (const [name, frame] of Object.entries(safeFrames)) {
+      frameMeta[name] = {
+        width: frame.frame.w,
+        height: frame.frame.h,
+        sourceWidth: frame.sourceSize ? frame.sourceSize.w : frame.frame.w,
+        sourceHeight: frame.sourceSize ? frame.sourceSize.h : frame.frame.h,
+        pivot: frame.pivot || null,
+        meta: frame.meta || null
+      };
+    }
+    texture.customData = Object.assign({}, texture.customData, { gmFrameMeta: frameMeta });
     return {
       key: textureKey,
       texture,
@@ -2943,6 +3062,58 @@ function textureFrameExists(scene, key, frame) {
   } catch {
     return false;
   }
+}
+function getFrameNames(scene, key) {
+  const textureKey = normalizeTextureKey(key);
+  const textures = requireTextures(scene);
+  if (!textures.exists(textureKey)) {
+    throw new Error(`GM.asset.frameNames texture not found: ${textureKey}`);
+  }
+  const texture = textures.get(textureKey);
+  const stored = texture?.customData?.gmFrameMeta;
+  if (stored && typeof stored === "object") return Object.keys(stored);
+  if (texture && typeof texture.getFrameNames === "function") {
+    return texture.getFrameNames().filter((name) => name && name !== "__BASE");
+  }
+  return [];
+}
+function getFrameInfo(scene, key, frame) {
+  const textureKey = normalizeTextureKey(key);
+  const textures = requireTextures(scene);
+  if (!textures.exists(textureKey)) {
+    throw new Error(`GM.asset.frameInfo texture not found: ${textureKey}`);
+  }
+  const texture = textures.get(textureKey);
+  const frameName = frame === void 0 || frame === null || frame === "" ? "__BASE" : String(frame);
+  const stored = texture?.customData?.gmFrameMeta?.[frameName] || null;
+  let phaserFrame = null;
+  if (texture && typeof texture.get === "function") {
+    try {
+      phaserFrame = texture.get(frameName === "__BASE" ? texture.firstFrame || "__BASE" : frameName);
+    } catch {
+      phaserFrame = null;
+    }
+  }
+  if (!stored && !phaserFrame) {
+    throw new Error(`GM.asset.frameInfo frame not found: ${textureKey}:${frameName}`);
+  }
+  const width = Number(phaserFrame?.cutWidth ?? phaserFrame?.width ?? stored?.width ?? 0);
+  const height = Number(phaserFrame?.cutHeight ?? phaserFrame?.height ?? stored?.height ?? 0);
+  const sourceWidth = Number(phaserFrame?.sourceSize?.w ?? stored?.sourceWidth ?? width);
+  const sourceHeight = Number(phaserFrame?.sourceSize?.h ?? stored?.sourceHeight ?? height);
+  return {
+    name: frameName,
+    width,
+    height,
+    sourceWidth,
+    sourceHeight,
+    pivot: stored?.pivot || null,
+    meta: stored?.meta || null
+  };
+}
+function getFrameSize(scene, key, frame) {
+  const info = getFrameInfo(scene, key, frame);
+  return { width: info.width, height: info.height, sourceWidth: info.sourceWidth, sourceHeight: info.sourceHeight };
 }
 
 // phaser4-facade-runtime:src/core/virtual-stick.js
@@ -3086,6 +3257,96 @@ function createVirtualStick(options = {}, pointerApi) {
     }
   };
   return stick;
+}
+
+// phaser4-facade-runtime:src/core/atlas-text.js
+function requireCompiledFont(font) {
+  const candidate = (
+    /** @type {AtlasFont} */
+    font
+  );
+  if (!candidate || typeof candidate !== "object" || !candidate.glyphs || !candidate.metrics) {
+    throw new TypeError("GM.draw.atlasText requires a compiled font atlas.");
+  }
+  return candidate;
+}
+function resolveGlyphFrame(font, character) {
+  const raw = String(character ?? "");
+  const name = raw === " " ? "space" : raw;
+  if (font.glyphs[name]) return name;
+  const fallback = font.metrics.fallbackFrame || font.metrics.fallback;
+  if (fallback && font.glyphs[fallback]) return fallback;
+  throw new Error(`GM.draw.atlasText missing glyph for "${raw}" and no fallback is registered.`);
+}
+function measureAtlasText(font, text, options = {}) {
+  const compiled = requireCompiledFont(font);
+  const scale = options.scale === void 0 ? 1 : Number(options.scale);
+  if (!Number.isFinite(scale) || scale <= 0) {
+    throw new TypeError("GM.draw.measureAtlasText scale must be a positive finite number.");
+  }
+  const characters = String(text ?? "");
+  const tracking = Number(compiled.metrics.tracking) || 0;
+  const lineHeight = Number(compiled.metrics.lineHeight) || 0;
+  if (characters.length === 0) {
+    return { width: 0, height: lineHeight * scale, characters: 0 };
+  }
+  let width = 0;
+  for (let index = 0; index < characters.length; index += 1) {
+    const frame = resolveGlyphFrame(compiled, characters[index]);
+    const glyph = compiled.glyphs[frame];
+    width += Number(glyph.advance) * scale;
+    if (index < characters.length - 1) width += tracking * scale;
+  }
+  return { width, height: lineHeight * scale, characters: characters.length };
+}
+function drawAtlasText(state, pool, atlasKey, font, text, x, y, options = {}) {
+  const compiled = requireCompiledFont(font);
+  const scale = options.scale === void 0 ? 1 : Number(options.scale);
+  if (!Number.isFinite(scale) || scale <= 0) {
+    throw new TypeError("GM.draw.atlasText scale must be a positive finite number.");
+  }
+  const originX = Number(x);
+  const originY = Number(y);
+  if (!Number.isFinite(originX) || !Number.isFinite(originY)) {
+    throw new TypeError("GM.draw.atlasText x and y must be finite numbers.");
+  }
+  const measured = measureAtlasText(compiled, text, { scale });
+  const align = options.align === "center" || options.align === "right" ? options.align : "left";
+  let cursor = originX;
+  if (align === "center") cursor -= measured.width / 2;
+  if (align === "right") cursor -= measured.width;
+  const characters = String(text ?? "");
+  const tracking = Number(compiled.metrics.tracking) || 0;
+  const tint = options.color === void 0 ? void 0 : toColor(options.color);
+  const alpha = options.alpha === void 0 ? void 0 : Number(options.alpha);
+  const items = [];
+  for (let index = 0; index < characters.length; index += 1) {
+    const frame = resolveGlyphFrame(compiled, characters[index]);
+    const glyph = compiled.glyphs[frame];
+    const item = pool.take(atlasKey, frame);
+    const glyphWidth = Number(glyph.width || glyph.advance) * scale;
+    const glyphHeight = Number(glyph.height || compiled.metrics.lineHeight) * scale;
+    item.setPosition(cursor + glyphWidth / 2, originY + glyphHeight / 2);
+    item.setScale(scale, scale);
+    if (typeof item.setOrigin === "function") item.setOrigin(0.5, 0.5);
+    if (tint !== void 0 && typeof item.setTint === "function") item.setTint(tint);
+    if (alpha !== void 0 && Number.isFinite(alpha) && typeof item.setAlpha === "function") item.setAlpha(alpha);
+    items.push(item);
+    cursor += glyph.advance * scale;
+    if (index < characters.length - 1) cursor += tracking * scale;
+  }
+  return { ...measured, items };
+}
+function drawAtlasTextFit(state, pool, atlasKey, font, text, x, y, options) {
+  if (!options || typeof options !== "object" || !Number.isFinite(Number(options.maxWidth)) || Number(options.maxWidth) <= 0) {
+    throw new TypeError("GM.draw.atlasTextFit requires a positive maxWidth.");
+  }
+  const requested = options.scale === void 0 ? 1 : Number(options.scale);
+  const minScale = options.minScale === void 0 ? 0.25 : Number(options.minScale);
+  const natural = measureAtlasText(font, text, { scale: 1 });
+  const fitted = Math.min(requested, Number(options.maxWidth) / Math.max(1, natural.width));
+  const scale = Math.max(minScale, fitted);
+  return drawAtlasText(state, pool, atlasKey, font, text, x, y, { ...options, scale });
 }
 
 // phaser4-facade-runtime:src/core/facade-namespaces.js
@@ -3232,6 +3493,48 @@ function installFacadeNamespaces(deps) {
     },
     spriteExt: function() {
       return callActive("draw_sprite_ext", arguments);
+    },
+    /**
+     * @param {string | { glyphs?: unknown, metrics?: unknown, atlasKey?: string, name?: string }} font
+     */
+    resolveAtlasFont(font) {
+      if (font && typeof font === "object" && font.glyphs && font.metrics) return font;
+      const name = String(font || "").trim();
+      const record = GM2.grout13 && typeof GM2.grout13.getFont === "function" ? GM2.grout13.getFont(name) : null;
+      if (!record) throw new TypeError(`GM.draw.atlasText font is not registered: ${name || "(empty)"}`);
+      return record;
+    },
+    /**
+     * @param {string | object} font
+     * @param {unknown} text
+     * @param {{ scale?: number }} [options]
+     */
+    measureAtlasText(font, text, options) {
+      return measureAtlasText(this.resolveAtlasFont(font), text, options);
+    },
+    /**
+     * @param {string | object} font
+     * @param {unknown} text
+     * @param {number} x
+     * @param {number} y
+     * @param {object} [options]
+     */
+    atlasText(font, text, x, y, options) {
+      const runtime2 = active();
+      const record = this.resolveAtlasFont(font);
+      return drawAtlasText(runtime2.state, runtime2.state.worldSprites, record.atlasKey || record.name, record, text, x, y, options);
+    },
+    /**
+     * @param {string | object} font
+     * @param {unknown} text
+     * @param {number} x
+     * @param {number} y
+     * @param {{ maxWidth: number, scale?: number, minScale?: number, color?: unknown, alpha?: number, align?: "left" | "center" | "right" }} options
+     */
+    atlasTextFit(font, text, x, y, options) {
+      const runtime2 = active();
+      const record = this.resolveAtlasFont(font);
+      return drawAtlasTextFit(runtime2.state, runtime2.state.worldSprites, record.atlasKey || record.name, record, text, x, y, options);
     }
   };
   const gui = {
@@ -3294,6 +3597,55 @@ function installFacadeNamespaces(deps) {
           return active().release_pointer_id(id, owner);
         }
       });
+    },
+    primaryPointer() {
+      const runtime2 = activeOrNull();
+      if (!runtime2) return null;
+      const record = pickPrimaryPointer(runtime2.active_pointers());
+      if (!record) return null;
+      const button = record.button || INPUT2.mb_left;
+      return {
+        id: record.id,
+        screenX: record.screenX,
+        screenY: record.screenY,
+        roomX: record.x,
+        roomY: record.y,
+        x: record.x,
+        y: record.y,
+        insideGame: GM2.viewport.containsRoomPoint(record.x, record.y),
+        down: !!record.down,
+        pressed: !!(runtime2.state.mouse.pressed && runtime2.state.mouse.pressed[button]),
+        released: !!(runtime2.state.mouse.released && runtime2.state.mouse.released[button]),
+        kind: record.kind || inferPointerKind(record),
+        button,
+        owner: record.owner || null
+      };
+    },
+    primaryPressed() {
+      const pointer2 = this.primaryPointer();
+      return Boolean(pointer2 && pointer2.pressed);
+    },
+    primaryReleased() {
+      const pointer2 = this.primaryPointer();
+      return Boolean(pointer2 && pointer2.released);
+    },
+    /**
+     * @param {string} [owner]
+     */
+    capturePrimary(owner) {
+      const pointer2 = this.primaryPointer();
+      if (!pointer2) return false;
+      active().capture_pointer(pointer2.id, owner);
+      return true;
+    },
+    /**
+     * @param {string} [owner]
+     */
+    releasePrimary(owner) {
+      const pointer2 = this.primaryPointer();
+      if (!pointer2) return false;
+      active().release_pointer_id(pointer2.id, owner);
+      return true;
     }
   });
   const entity = {
@@ -3332,6 +3684,48 @@ function installFacadeNamespaces(deps) {
   const layer = {
     define: function() {
       return callActive("define_layer", arguments);
+    },
+    /**
+     * @param {string[]} names
+     * @param {{ start?: number, step?: number }} [options]
+     */
+    stack(names, options) {
+      if (!Array.isArray(names) || names.length === 0) {
+        throw new TypeError("GM.layer.stack requires a non-empty name array.");
+      }
+      const start = Number(options && options.start);
+      const step = Number(options && options.step);
+      const origin = Number.isFinite(start) ? start : 0;
+      const increment = Number.isFinite(step) && step !== 0 ? step : 10;
+      const depths = {};
+      names.forEach((name, index) => {
+        const layerName = String(name || "").trim();
+        if (!layerName) throw new TypeError("GM.layer.stack requires non-empty layer names.");
+        depths[layerName] = origin + index * increment;
+      });
+      return active().define_layer(depths);
+    },
+    /**
+     * @param {string} upper
+     * @param {string} lower
+     */
+    assertAbove(upper, lower) {
+      const runtime2 = active();
+      if (runtime2.cfg && runtime2.cfg.layerAssertions === false) return runtime2;
+      const upperName = String(upper || "").trim();
+      const lowerName = String(lower || "").trim();
+      const upperDepth = runtime2.state.layerRegistry.get(upperName);
+      const lowerDepth = runtime2.state.layerRegistry.get(lowerName);
+      if (!Number.isFinite(upperDepth)) {
+        throw new Error(`GM.layer.assertAbove could not find layer ${upperName}.`);
+      }
+      if (!Number.isFinite(lowerDepth)) {
+        throw new Error(`GM.layer.assertAbove could not find layer ${lowerName}.`);
+      }
+      if (upperDepth <= lowerDepth) {
+        throw new Error(`GM.layer.assertAbove expected ${upperName} (${upperDepth}) above ${lowerName} (${lowerDepth}).`);
+      }
+      return runtime2;
     }
   };
   const asset = {
@@ -3393,6 +3787,26 @@ function installFacadeNamespaces(deps) {
       const activeRuntime = activeOrNull();
       if (!activeRuntime) return false;
       return textureFrameExists(activeRuntime.scene, key2, frame);
+    },
+    /**
+     * @param {string} key
+     * @param {string | number} [frame]
+     */
+    frameInfo(key2, frame) {
+      return getFrameInfo(active().scene, key2, frame);
+    },
+    /**
+     * @param {string} key
+     * @param {string | number} [frame]
+     */
+    frameSize(key2, frame) {
+      return getFrameSize(active().scene, key2, frame);
+    },
+    /**
+     * @param {string} key
+     */
+    frameNames(key2) {
+      return getFrameNames(active().scene, key2);
     }
   };
   const audio = {
@@ -3467,6 +3881,14 @@ function installFacadeNamespaces(deps) {
     },
     tween: function() {
       return callActive("tween", arguments);
+    },
+    /**
+     * @param {string} label
+     * @param {Record<string, unknown>} values
+     */
+    assertFinite(label, values) {
+      const runtime2 = activeOrNull();
+      return assertFinite(label, values, runtime2 ? runtime2.state.diagnostics : void 0);
     }
   };
   const legacy = {
@@ -3574,9 +3996,24 @@ function installFacadeNamespaces(deps) {
   };
   GM2.installGlobals = installGlobals;
   GM2.app = { start: GM2.start };
+  const diagnostics = {
+    get invalidDraws() {
+      const runtime2 = activeOrNull();
+      return runtime2 && runtime2.state.diagnostics ? Number(runtime2.state.diagnostics.invalidDraws || 0) : 0;
+    },
+    get lastInvalidDraw() {
+      const runtime2 = activeOrNull();
+      return runtime2 && runtime2.state.diagnostics ? runtime2.state.diagnostics.lastInvalidDraw : null;
+    },
+    get nonFiniteSimulationValues() {
+      const runtime2 = activeOrNull();
+      return runtime2 && runtime2.state.diagnostics ? Number(runtime2.state.diagnostics.nonFiniteSimulationValues || 0) : 0;
+    }
+  };
   GM2.runtime = runtime;
   GM2.layout = runtime;
   GM2.viewport = viewport;
+  GM2.diagnostics = diagnostics;
   GM2.draw = draw;
   GM2.gui = gui;
   GM2.input = input;
@@ -3670,6 +4107,12 @@ function mergeConfig(config) {
   }
   if (merged.globals !== void 0 && typeof merged.globals !== "boolean") {
     throw new TypeError("GM.app.start requires globals to be a boolean.");
+  }
+  if (merged.drawValidation !== void 0 && merged.drawValidation !== "strict" && merged.drawValidation !== "report") {
+    throw new TypeError('GM.app.start drawValidation must be "strict" or "report".');
+  }
+  if (merged.layerAssertions !== void 0 && typeof merged.layerAssertions !== "boolean") {
+    throw new TypeError("GM.app.start requires layerAssertions to be a boolean.");
   }
   if (merged.simulationHz !== void 0 && (!Number.isFinite(Number(merged.simulationHz)) || Number(merged.simulationHz) < 0)) {
     throw new TypeError("GM.app.start requires simulationHz to be a non-negative finite number.");
@@ -4080,6 +4523,11 @@ function createRuntimeState(scene, cfg) {
       halign: "left",
       valign: "top"
     },
+    diagnostics: {
+      invalidDraws: 0,
+      lastInvalidDraw: null,
+      nonFiniteSimulationValues: 0
+    },
     mouse: {
       x: 0,
       y: 0,
@@ -4158,13 +4606,6 @@ function dismissCurtain(state, scene, fadeMs, cfg, normalizeDelayMs2) {
 }
 function curtain_active(state) {
   return state.curtain.visible && state.curtain.alpha > 0;
-}
-
-// phaser4-facade-runtime:src/core/debug.js
-function logDebugMessage(message, logger = console) {
-  if (logger && typeof logger.log === "function") {
-    logger.log(message);
-  }
 }
 
 // phaser4-facade-runtime:src/gm-phaser4.js
@@ -4322,6 +4763,7 @@ function installGMRuntime(root, Phaser) {
           startX: roomX,
           startY: roomY,
           button: buttonFromPointer(pointer),
+          kind: inferPointerKind(pointer),
           down: false,
           active: true,
           owner: null,
@@ -4334,6 +4776,7 @@ function installGMRuntime(root, Phaser) {
         record.x = roomX;
         record.y = roomY;
         record.button = buttonFromPointer(pointer);
+        record.kind = inferPointerKind(pointer);
         record.active = true;
       }
       if (flags.down === true) {
