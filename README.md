@@ -54,11 +54,11 @@ options, and `GM.draw.polyline` validates object or flat points.
 See [`docs/text-and-sprite-options.md`](docs/text-and-sprite-options.md) and
 [`docs/migrations/0.2.0.md`](docs/migrations/0.2.0.md).
 
-For fixed-pixel games, `integerScaleStep` quantizes the room transform to a
-positive world-scale step when it fits, letterboxing surplus space rather than
-stretching source cells. Pair it with a fixed room, `pixelArt: true`, rounded
-positions, and `renderResolution: "auto"`; `docs/getting-started.md` includes
-the 4x-source-cell / 0.5-step Fruit Shot pattern.
+For fixed-pixel games, declare `viewport.mode: "fixed"` so the logical room
+never changes with the device. `viewport.scaleStep` (or the older
+`integerScaleStep`) quantizes presentation scale; `0`, `false`, and `null`
+mean continuous scaling. Read `GM.viewport` for room/screen rectangles and
+transforms instead of mutating `runtime.state.layout`.
 
 ## Optional Grout13 bridge
 

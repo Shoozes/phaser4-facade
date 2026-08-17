@@ -1,6 +1,7 @@
 // @ts-check
 
 import { createRuntimePerfState, shouldEnableRuntimePerfProbe } from "./perf-metrics.js";
+import { createEmptyViewportSnapshot } from "./viewport.js";
 
 /**
  * @param {any} scene
@@ -52,8 +53,10 @@ export function createRuntimeState(scene, cfg) {
             roomWidth: cfg.width,
             roomHeight: cfg.height,
             profile: "fixed",
-            orientation: "portrait"
+            orientation: "portrait",
+            scaleMode: "continuous"
         },
+        viewport: createEmptyViewportSnapshot(),
         render: {
             cssWidth: 0,
             cssHeight: 0,

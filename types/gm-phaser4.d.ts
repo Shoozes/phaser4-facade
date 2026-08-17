@@ -288,15 +288,126 @@ interface GMNoticeModalOptions {
     onClose?: (reason: string, modal: GMModal) => void;
 }
 
+type GMViewportMode = "fixed" | "adaptive";
+type GMViewportFit = "contain" | "cover";
+type GMViewportFitArea = "viewport" | "safe";
+type GMViewportSafeArea = "none" | "inset" | "frame" | "vertical";
+type GMViewportAlignX = "left" | "center" | "right";
+type GMViewportAlignY = "top" | "center" | "bottom";
+
+interface GMViewportAlign {
+    x?: GMViewportAlignX;
+    y?: GMViewportAlignY;
+}
+
+interface GMViewportAlignByOrientation {
+    portrait?: GMViewportAlign;
+    landscape?: GMViewportAlign;
+}
+
+interface GMViewportConfig {
+    mode?: GMViewportMode;
+    width?: number;
+    height?: number;
+    fit?: GMViewportFit;
+    /** Positive step quantizes scale. 0, false, and null keep continuous scaling. */
+    scaleStep?: number | false | null;
+    fitArea?: GMViewportFitArea;
+    safeArea?: GMViewportSafeArea;
+    align?: GMViewportAlign | GMViewportAlignByOrientation;
+    minHeight?: number;
+    targetHeight?: number;
+    maxHeight?: number;
+    desktopBreakpoint?: number;
+    desktopMinWidth?: number;
+    desktopHeight?: number;
+    desktopMaxWidth?: number;
+}
+
+interface GMViewportRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+interface GMViewportInsets {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+}
+
+interface GMViewportFrameRects {
+    left: GMViewportRect | null;
+    right: GMViewportRect | null;
+    top: GMViewportRect | null;
+    bottom: GMViewportRect | null;
+}
+
+interface GMViewportPoint {
+    x: number;
+    y: number;
+}
+
+interface GMViewportSnapshot {
+    readonly mode: GMViewportMode;
+    readonly fit: GMViewportFit;
+    readonly scaleStep: number | false;
+    readonly fitArea: GMViewportFitArea;
+    readonly safeArea: GMViewportSafeArea;
+    readonly logicalRect: GMViewportRect;
+    readonly screenRect: GMViewportRect;
+    readonly safeScreenRect: GMViewportRect;
+    readonly gameScreenRect: GMViewportRect;
+    readonly visibleRoomRect: GMViewportRect;
+    readonly frameRects: GMViewportFrameRects;
+    readonly scale: number;
+    readonly scaleMode: "continuous" | "integer" | "fit-fallback";
+    readonly orientation: string;
+    readonly profile: string;
+    readonly safeInsets: GMViewportInsets;
+}
+
+interface GMViewportFacade {
+    readonly mode: GMViewportMode;
+    readonly fit: GMViewportFit;
+    readonly scaleStep: number | false;
+    readonly fitArea: GMViewportFitArea;
+    readonly safeArea: GMViewportSafeArea;
+    readonly logicalRect: GMViewportRect;
+    readonly screenRect: GMViewportRect;
+    readonly safeScreenRect: GMViewportRect;
+    readonly gameScreenRect: GMViewportRect;
+    readonly visibleRoomRect: GMViewportRect;
+    readonly frameRects: GMViewportFrameRects;
+    readonly scale: number;
+    readonly scaleMode: "continuous" | "integer" | "fit-fallback";
+    readonly orientation: string;
+    readonly profile: string;
+    readonly safeInsets: GMViewportInsets;
+    snapshot(): GMViewportSnapshot;
+    screenToRoom(x: number, y: number): GMViewportPoint;
+    roomToScreen(x: number, y: number): GMViewportPoint;
+    containsRoomPoint(x: number, y: number): boolean;
+    containsScreenPoint(x: number, y: number): boolean;
+}
+
 interface GMStartConfig {
     parent?: string | object;
     width?: number;
     height?: number;
     /** Phaser renderer type: AUTO | CANVAS | WEBGL (string or Phaser constant). */
     type?: "AUTO" | "CANVAS" | "WEBGL" | number;
+    /**
+     * Preferred presentation contract. `responsive` and `integerScaleStep`
+     * remain supported aliases for `mode` and `scaleStep`.
+     */
+    viewport?: GMViewportConfig;
+    /** @deprecated Prefer `viewport.mode`. false = fixed, true = adaptive. */
     responsive?: boolean;
-    /** Quantize world scale to this positive step when the viewport fits it. */
-    integerScaleStep?: number;
+    /** Quantize world scale. 0, false, and null disable stepping. */
+    integerScaleStep?: number | false | null;
     minHeight?: number;
     targetHeight?: number;
     maxHeight?: number;
@@ -671,6 +782,7 @@ interface GMFacade {
     };
     runtime: GMRuntimeInfo;
     layout: GMRuntimeInfo;
+    viewport: GMViewportFacade;
     draw: GMDrawFacade;
     gui: GMGuiFacade;
     input: GMInputFacade;

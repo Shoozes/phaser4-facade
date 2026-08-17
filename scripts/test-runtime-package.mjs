@@ -137,7 +137,7 @@ for (const [relativePath, stylesheet] of [
     ["examples/prototype-module.html", "./native-app-shell.css"],
     ["examples/prototype-cdn.html", "./native-app-shell.css"],
     ["examples/fruit-shot.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
-    ["examples/fruit-shot-grout13.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
+    ["examples/fruit-shot-grout13.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@06aba3eeadd027cb4854b6a34fde6ce454aa06a1/examples/native-app-shell.css"],
     ["examples/fruit-shot-modular.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"]
 ]) {
     const source = fs.readFileSync(path.join(PACKAGE_ROOT, relativePath), "utf8");

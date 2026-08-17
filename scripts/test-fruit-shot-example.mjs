@@ -43,6 +43,10 @@ function checkNativeShell() {
         "-webkit-text-size-adjust: 100%",
         "body[data-gm-app-shell=\"locked\"]",
         ".gm-app-safe-area",
+        ".gm-app-surface--full-bleed",
+        ".gm-app-overlay--safe",
+        ".gm-app-content--safe",
+        ".gm-app-frame--allows-unsafe-overflow",
         ".gm-app-scroll-region",
         ".gm-app-surface--pixel-art",
         ".gm-app-surface--integer-pixel-art",
@@ -168,15 +172,45 @@ checkAllInOne(CORE_HTML, "Core Fruit Shot", "all-in-one-core", [
 ]);
 const coreSource = read(CORE_HTML);
 assert.equal(coreSource.includes("GROUT13"), false, "Core Fruit Shot must not load or require Grout13.");
-checkAllInOne(GROUT_HTML, "Grout13 Fruit Shot", "all-in-one-grout13", [
-    PHASER_GLOBAL_CDN,
-    GROUT_MAIN + "grout13.global.min.js",
-    "const FACADE_MAIN = \"" + FACADE_MAIN + "\"",
-    "gm-phaser4-grout13.global.min.js",
-    "GM.grout13.addAtlas",
-    "bitmapTextAvoided: true",
-    "function shoot",
-    "function mergeBalls"
-]);
+function checkGrout13Showcase() {
+    const html = read(GROUT_HTML);
+    if (/<script\s+type=["']module["']/i.test(html) || /<script\s+type=["']importmap["']/i.test(html)) {
+        fail("Grout13 Fruit Shot must remain a plain-script all-in-one CDN example.");
+    }
+    if (/\bimport\s+/.test(html)) fail("Grout13 Fruit Shot must not use module import syntax.");
+    if (/cdn\.jsdelivr\.net\/npm|phaser@4\.1\.0|file:\/\//i.test(html)) {
+        fail("Grout13 Fruit Shot must use GitHub-backed current CDN sources without local file fallbacks.");
+    }
+    for (const marker of [
+        "data-gm-app-shell=\"locked\"",
+        "gm-app-surface gm-app-safe-area gm-app-surface--pixel-art",
+        "viewport-fit=cover",
+        "function loadFirst",
+        "GM.app.start",
+        "const FACADE_MAIN = \"" + FACADE_MAIN + "\"",
+        GROUT_MAIN + "grout13.global.min.js",
+        "gm-phaser4-grout13.global.min.js",
+        "GM.grout13.addAtlas",
+        "architecture: \"showcase-grout13-facade-fixed-playfield\"",
+        "gameplayViewport: { width: 720, height: 720 }",
+        "gameplayViewportFixed: true",
+        "horizontalAlign: \"center\"",
+        "verticalAlign: \"top\"",
+        "safeAreaPolicy: \"vertical-only\"",
+        "function mergeBalls",
+        "function shootToward"
+    ]) {
+        if (!html.includes(marker)) fail("Grout13 Fruit Shot is missing marker: " + marker);
+    }
+    if (/\bflipY\s*:\s*true\b/i.test(html)) fail("Grout13 Fruit Shot must not rely on a text flip workaround.");
+    const script = getExecutableInlineScript(html, "Grout13 Fruit Shot");
+    try {
+        new Function(script);
+    } catch (error) {
+        fail("Grout13 Fruit Shot inline script has a syntax error: " + (error instanceof Error ? error.message : String(error)));
+    }
+}
+
+checkGrout13Showcase();
 checkModular();
 console.log("[ok] Fruit Shot all-in-one, Grout13, modular, GitHub CDN, and pixel-source contracts passed.");

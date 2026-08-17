@@ -59,19 +59,26 @@ core facade does not import Grout13.
 
 `pixelArt: true`, disabled antialiasing, and `roundPixels: true` preserve
 nearest-neighbor sampling, but they cannot make a fractional room transform
-pixel-perfect. For fixed-pixel games, opt into `integerScaleStep` and keep the
-game room fixed. The facade then letterboxes at a whole multiple of the step
-when the viewport permits it; undersized viewports retain a safe fit fallback
-instead of cropping.
+pixel-perfect. For fixed-pixel games, declare a `viewport` contract and keep
+the logical room immutable. Presentation scale, alignment, and safe-area
+policy stay outside simulation.
 
 ```js
 GM.app.start({
     parent: "game",
-    width: 720,
-    height: 1280,
-    responsive: false,
-    // Four authored source pixels become two CSS pixels at the first step.
-    integerScaleStep: 0.5,
+    viewport: {
+        mode: "fixed",
+        width: 720,
+        height: 720,
+        fit: "contain",
+        scaleStep: 0.25,
+        fitArea: "viewport",
+        safeArea: "vertical",
+        align: {
+            portrait: { x: "center", y: "top" },
+            landscape: { x: "center", y: "center" }
+        }
+    },
     pixelArt: true,
     antialias: false,
     roundPixels: true,
@@ -80,11 +87,11 @@ GM.app.start({
 });
 ```
 
-Use a step that maps the asset's meaningful pixel cell to an integer number of
-CSS pixels. For example, Fruit Shot uses 4x source cells and a 0.5 step, so a
-cell always becomes 2, 4, 6, and so on CSS pixels. Read
-`GM.runtime.scale` for the applied world scale; its layout diagnostic reports
-`integer`, `continuous`, or `fit-fallback` in `GM.runtime.state.layout.scaleMode`.
+`responsive: false` still means `viewport.mode = "fixed"`. `integerScaleStep`
+still means `viewport.scaleStep`. `0`, `false`, and `null` disable stepping.
+Read `GM.viewport.logicalRect`, `visibleRoomRect`, and `screenToRoom()` instead
+of reconstructing `layout.x` / `layout.y`. Put the canvas on
+`gm-app-surface--full-bleed` and keep HUD/DOM chrome on `gm-app-overlay--safe`.
 
 ## Browser global
 

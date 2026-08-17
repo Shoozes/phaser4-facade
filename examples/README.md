@@ -17,7 +17,8 @@ Use the local stylesheet in a downloaded package:
 <link rel="stylesheet" href="./native-app-shell.css">
 <body data-gm-app-shell="locked">
     <div class="gm-app-shell">
-        <div id="game" class="gm-app-surface gm-app-safe-area gm-app-surface--pixel-art gm-app-surface--integer-pixel-art"></div>
+        <div id="game" class="gm-app-surface gm-app-surface--full-bleed gm-app-surface--pixel-art gm-app-surface--integer-pixel-art"></div>
+        <div class="gm-app-overlay gm-app-overlay--safe"></div>
     </div>
 </body>
 ```

@@ -3,6 +3,7 @@
 import { DEFAULTS } from "./constants.js";
 import { resolveRenderQuality } from "./game-config.js";
 import { toColor } from "./math.js";
+import { applyViewportToConfig } from "./viewport.js";
 
 /**
  * Resolve Phaser renderer type from config. Accepts Phaser constants or
@@ -26,6 +27,10 @@ function resolveGameType(Phaser, raw) {
 function mergeConfig(config) {
     /** @type {Record<string, any>} */
     const merged = Object.assign({}, DEFAULTS, config || {});
+    if (config && config.viewport && typeof config.viewport === "object") {
+        merged.viewport = Object.assign({}, config.viewport);
+    }
+    applyViewportToConfig(merged);
     const positiveFields = [
         "width", "height", "minHeight", "targetHeight", "maxHeight",
         "desktopBreakpoint", "desktopMinWidth", "desktopHeight", "desktopMaxWidth"
@@ -40,10 +45,6 @@ function mergeConfig(config) {
     }
     if (merged.desktopMinWidth > merged.desktopMaxWidth) {
         throw new RangeError("GM.app.start requires desktopMinWidth <= desktopMaxWidth.");
-    }
-    if (merged.integerScaleStep !== null && merged.integerScaleStep !== undefined &&
-        (!Number.isFinite(Number(merged.integerScaleStep)) || Number(merged.integerScaleStep) <= 0)) {
-        throw new TypeError("GM.app.start requires integerScaleStep to be a positive number when provided.");
     }
     if (merged.renderResolution !== "auto" &&
         (!Number.isFinite(Number(merged.renderResolution)) || Number(merged.renderResolution) <= 0)) {

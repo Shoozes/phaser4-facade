@@ -54,6 +54,7 @@ import {
     stepRuntimeInstances
 } from "./core/entity.js";
 import { resolveRoomLayout } from "./core/layout.js";
+import { readSafeInsets } from "./core/viewport.js";
 import { createModal } from "./core/modal.js";
 import { makeTextPool } from "./core/pools.js";
 import {
@@ -715,7 +716,10 @@ export function installGMRuntime(root, Phaser) {
                 const resolution = render.resolution || 1;
                 const w = render.cssWidth || scene.scale.width;
                 const h = render.cssHeight || scene.scale.height;
-                const next = resolveRoomLayout(w, h, cfg);
+                const parent = scene.game && scene.game.canvas ? scene.game.canvas.parentElement : null;
+                const documentLike = /** @type {any} */ (root).document;
+                const insetSource = parent || (documentLike && documentLike.documentElement) || null;
+                const next = resolveRoomLayout(w, h, cfg, readSafeInsets(root, insetSource));
 
                 state.layout.scale = next.scale;
                 state.layout.x = next.x;
@@ -725,6 +729,7 @@ export function installGMRuntime(root, Phaser) {
                 state.layout.profile = next.profile;
                 state.layout.orientation = next.orientation;
                 state.layout.scaleMode = next.scaleMode;
+                state.viewport = next.viewport;
 
                 if (state.world) {
                     state.world.setPosition(state.layout.x * resolution, state.layout.y * resolution);

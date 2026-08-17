@@ -9,6 +9,15 @@ import {
     textureFrameExists
 } from "./assets.js";
 import { createVirtualStick } from "./virtual-stick.js";
+import {
+    containsPoint,
+    copyInsets,
+    copyRect,
+    copyViewportSnapshot,
+    createEmptyViewportSnapshot,
+    roomToScreen,
+    screenToRoom
+} from "./viewport.js";
 
 /**
  * @typedef {{
@@ -333,10 +342,67 @@ export function installFacadeNamespaces(deps) {
         get library() { return root.Phaser || null; }
     };
 
+    function currentViewport() {
+        const activeRuntime = activeOrNull();
+        return (activeRuntime && activeRuntime.state && activeRuntime.state.viewport)
+            || createEmptyViewportSnapshot();
+    }
+
+    const viewport = {
+        get mode() { return currentViewport().mode; },
+        get fit() { return currentViewport().fit; },
+        get scaleStep() { return currentViewport().scaleStep; },
+        get fitArea() { return currentViewport().fitArea; },
+        get safeArea() { return currentViewport().safeArea; },
+        get logicalRect() { return copyRect(currentViewport().logicalRect); },
+        get screenRect() { return copyRect(currentViewport().screenRect); },
+        get safeScreenRect() { return copyRect(currentViewport().safeScreenRect); },
+        get gameScreenRect() { return copyRect(currentViewport().gameScreenRect); },
+        get visibleRoomRect() { return copyRect(currentViewport().visibleRoomRect); },
+        get frameRects() { return copyViewportSnapshot(currentViewport()).frameRects; },
+        get scale() { return currentViewport().scale; },
+        get scaleMode() { return currentViewport().scaleMode; },
+        get orientation() { return currentViewport().orientation; },
+        get profile() { return currentViewport().profile; },
+        get safeInsets() { return copyInsets(currentViewport().safeInsets); },
+        snapshot() { return copyViewportSnapshot(currentViewport()); },
+        /**
+         * @param {number} x
+         * @param {number} y
+         */
+        screenToRoom(x, y) {
+            const snap = currentViewport();
+            return screenToRoom(x, y, snap.gameScreenRect, snap.scale);
+        },
+        /**
+         * @param {number} x
+         * @param {number} y
+         */
+        roomToScreen(x, y) {
+            const snap = currentViewport();
+            return roomToScreen(x, y, snap.gameScreenRect, snap.scale);
+        },
+        /**
+         * @param {number} x
+         * @param {number} y
+         */
+        containsRoomPoint(x, y) {
+            return containsPoint(x, y, currentViewport().logicalRect);
+        },
+        /**
+         * @param {number} x
+         * @param {number} y
+         */
+        containsScreenPoint(x, y) {
+            return containsPoint(x, y, currentViewport().gameScreenRect);
+        }
+    };
+
     GM.installGlobals = installGlobals;
     GM.app = { start: GM.start };
     GM.runtime = runtime;
     GM.layout = runtime;
+    GM.viewport = viewport;
     GM.draw = draw;
     GM.gui = gui;
     GM.input = input;

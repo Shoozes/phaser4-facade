@@ -1422,74 +1422,397 @@ function setRuntimeAlarm(state, index, frames, inst) {
   target.__alarmSetFrame[numericIndex] = state.stepFrame || 0;
 }
 
-// phaser4-facade-runtime:src/core/layout.js
-function quantizeScale(scale, cfg) {
-  const step = numberOr(cfg.integerScaleStep, 0);
-  if (!(step > 0)) return { scale, scaleMode: "continuous" };
-  const units = Math.floor((scale + Number.EPSILON) / step);
-  if (units < 1) return { scale, scaleMode: "fit-fallback" };
-  return { scale: units * step, scaleMode: "integer" };
+// phaser4-facade-runtime:src/core/viewport.js
+var ALIGN_X = /* @__PURE__ */ new Set(["left", "center", "right"]);
+var ALIGN_Y = /* @__PURE__ */ new Set(["top", "center", "bottom"]);
+function makeRect(x, y, width, height) {
+  return {
+    x,
+    y,
+    width: Math.max(0, width),
+    height: Math.max(0, height)
+  };
 }
-function resolveRoomLayout(w, h, cfg) {
-  const baseWidth = Math.max(1, numberOr(cfg.width, 720));
-  const baseHeight = Math.max(1, numberOr(cfg.height, 1280));
-  const orientation = w >= h ? "landscape" : "portrait";
-  if (!cfg.responsive) {
-    const scaled2 = quantizeScale(Math.min(w / baseWidth, h / baseHeight), cfg);
-    const scale2 = scaled2.scale;
+function copyRect(rect) {
+  if (!rect) return makeRect(0, 0, 0, 0);
+  return makeRect(rect.x, rect.y, rect.width, rect.height);
+}
+function copyInsets(insets) {
+  return {
+    top: numberOr(insets && insets.top, 0),
+    right: numberOr(insets && insets.right, 0),
+    bottom: numberOr(insets && insets.bottom, 0),
+    left: numberOr(insets && insets.left, 0)
+  };
+}
+function parseCssPx(value) {
+  const numeric = parseFloat(String(value || "").trim());
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+function normalizeScaleStep(value, label = "scaleStep") {
+  if (value === false || value === null || value === void 0 || value === "") return false;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    throw new TypeError(`GM.app.start requires ${label} to be a non-negative finite number, false, or null.`);
+  }
+  return numeric === 0 ? false : numeric;
+}
+function normalizeAlignToken(value, fallback, allowed, label) {
+  if (value === void 0 || value === null || value === "") return fallback;
+  const token = String(value);
+  if (!allowed.has(token)) {
+    throw new TypeError(`GM.app.start viewport.${label} must be one of: ${Array.from(allowed).join(", ")}.`);
+  }
+  return (
+    /** @type {any} */
+    token
+  );
+}
+function normalizeAlign(value, fallback) {
+  if (!value || typeof value !== "object") return { x: fallback.x, y: fallback.y };
+  const raw = (
+    /** @type {{ x?: unknown, y?: unknown }} */
+    value
+  );
+  return {
+    x: normalizeAlignToken(raw.x, fallback.x, ALIGN_X, "align.x"),
+    y: normalizeAlignToken(raw.y, fallback.y, ALIGN_Y, "align.y")
+  };
+}
+function normalizeAlignByOrientation(value) {
+  const centered = { x: (
+    /** @type {const} */
+    "center"
+  ), y: (
+    /** @type {const} */
+    "center"
+  ) };
+  if (!value || typeof value !== "object") {
+    return { portrait: { ...centered }, landscape: { ...centered } };
+  }
+  const raw = (
+    /** @type {{ portrait?: unknown, landscape?: unknown, x?: unknown, y?: unknown }} */
+    value
+  );
+  if (raw.portrait !== void 0 || raw.landscape !== void 0) {
     return {
-      roomWidth: baseWidth,
-      roomHeight: baseHeight,
-      scale: scale2,
-      x: (w - baseWidth * scale2) / 2,
-      y: (h - baseHeight * scale2) / 2,
-      profile: "fixed",
-      orientation,
-      scaleMode: scaled2.scaleMode
+      portrait: normalizeAlign(raw.portrait, centered),
+      landscape: normalizeAlign(raw.landscape, centered)
     };
   }
-  const landscape = w >= h;
-  const desktopBreakpoint = numberOr(cfg.desktopBreakpoint, 1e3);
-  const isDesktop = landscape || w >= desktopBreakpoint;
+  const shared = normalizeAlign(raw, centered);
+  return { portrait: { ...shared }, landscape: { ...shared } };
+}
+function normalizeEnum(value, fallback, allowed, label) {
+  if (value === void 0 || value === null || value === "") return fallback;
+  const token = String(value);
+  if (!allowed.includes(token)) {
+    throw new TypeError(`GM.app.start viewport.${label} must be one of: ${allowed.join(", ")}.`);
+  }
+  return token;
+}
+function normalizeViewportConfig(cfg) {
+  const source = cfg && typeof cfg === "object" ? cfg : {};
+  const raw = source.viewport && typeof source.viewport === "object" ? source.viewport : {};
+  const width = numberOr(raw.width, numberOr(source.width, 720));
+  const height = numberOr(raw.height, numberOr(source.height, 1280));
+  if (!(width > 0) || !(height > 0)) {
+    throw new TypeError("GM.app.start viewport width and height must be positive finite numbers.");
+  }
+  let mode = raw.mode;
+  if (mode === void 0 || mode === null || mode === "") {
+    mode = source.responsive ? "adaptive" : "fixed";
+  }
+  mode = normalizeEnum(mode, "fixed", ["fixed", "adaptive"], "mode");
+  const scaleStep = normalizeScaleStep(
+    raw.scaleStep !== void 0 ? raw.scaleStep : source.integerScaleStep,
+    raw.scaleStep !== void 0 ? "viewport.scaleStep" : "integerScaleStep"
+  );
+  return {
+    mode: (
+      /** @type {NormalizedViewport["mode"]} */
+      mode
+    ),
+    width,
+    height,
+    fit: (
+      /** @type {NormalizedViewport["fit"]} */
+      normalizeEnum(raw.fit, "contain", ["contain", "cover"], "fit")
+    ),
+    scaleStep,
+    fitArea: (
+      /** @type {NormalizedViewport["fitArea"]} */
+      normalizeEnum(raw.fitArea, "viewport", ["viewport", "safe"], "fitArea")
+    ),
+    safeArea: (
+      /** @type {NormalizedViewport["safeArea"]} */
+      normalizeEnum(raw.safeArea, "none", ["none", "inset", "frame", "vertical"], "safeArea")
+    ),
+    align: normalizeAlignByOrientation(raw.align),
+    minHeight: Math.max(1, numberOr(raw.minHeight, numberOr(source.minHeight, height))),
+    targetHeight: Math.max(1, numberOr(raw.targetHeight, numberOr(source.targetHeight, height))),
+    maxHeight: Math.max(1, numberOr(raw.maxHeight, numberOr(source.maxHeight, height))),
+    desktopBreakpoint: Math.max(1, numberOr(raw.desktopBreakpoint, numberOr(source.desktopBreakpoint, 1e3))),
+    desktopMinWidth: Math.max(1, numberOr(raw.desktopMinWidth, numberOr(source.desktopMinWidth, 1280))),
+    desktopHeight: Math.max(1, numberOr(raw.desktopHeight, numberOr(source.desktopHeight, 720))),
+    desktopMaxWidth: Math.max(1, numberOr(raw.desktopMaxWidth, numberOr(source.desktopMaxWidth, 1920)))
+  };
+}
+function applyViewportToConfig(cfg) {
+  const viewport = normalizeViewportConfig(cfg);
+  cfg.viewport = viewport;
+  cfg.width = viewport.width;
+  cfg.height = viewport.height;
+  cfg.responsive = viewport.mode === "adaptive";
+  cfg.integerScaleStep = viewport.scaleStep === false ? null : viewport.scaleStep;
+  cfg.minHeight = viewport.minHeight;
+  cfg.targetHeight = viewport.targetHeight;
+  cfg.maxHeight = viewport.maxHeight;
+  cfg.desktopBreakpoint = viewport.desktopBreakpoint;
+  cfg.desktopMinWidth = viewport.desktopMinWidth;
+  cfg.desktopHeight = viewport.desktopHeight;
+  cfg.desktopMaxWidth = viewport.desktopMaxWidth;
+  return cfg;
+}
+function quantizeScale(scale, step) {
+  if (!(typeof step === "number" && step > 0)) return { scale, scaleMode: (
+    /** @type {const} */
+    "continuous"
+  ) };
+  const units = Math.floor((scale + Number.EPSILON) / step);
+  if (units < 1) return { scale, scaleMode: (
+    /** @type {const} */
+    "fit-fallback"
+  ) };
+  return { scale: units * step, scaleMode: (
+    /** @type {const} */
+    "integer"
+  ) };
+}
+function readSafeInsets(root, element) {
+  const empty = { top: 0, right: 0, bottom: 0, left: 0 };
+  const host = root;
+  if (!host || typeof host.getComputedStyle !== "function") return empty;
+  const documentLike = host.document || host;
+  const target = element || documentLike.documentElement || documentLike.body || null;
+  if (!target) return empty;
+  const style = host.getComputedStyle(target);
+  if (!style) return empty;
+  return {
+    top: parseCssPx(style.getPropertyValue("--gm-app-safe-area-top")),
+    right: parseCssPx(style.getPropertyValue("--gm-app-safe-area-right")),
+    bottom: parseCssPx(style.getPropertyValue("--gm-app-safe-area-bottom")),
+    left: parseCssPx(style.getPropertyValue("--gm-app-safe-area-left"))
+  };
+}
+function insetRect(screen, insets) {
+  const left = Math.max(0, insets.left);
+  const top = Math.max(0, insets.top);
+  const right = Math.max(0, insets.right);
+  const bottom = Math.max(0, insets.bottom);
+  return makeRect(
+    screen.x + left,
+    screen.y + top,
+    screen.width - left - right,
+    screen.height - top - bottom
+  );
+}
+function alignFactor(align) {
+  return {
+    x: align.x === "left" ? 0 : align.x === "right" ? 1 : 0.5,
+    y: align.y === "top" ? 0 : align.y === "bottom" ? 1 : 0.5
+  };
+}
+function frameRectsFrom(screen, game) {
+  const gameRight = game.x + game.width;
+  const gameBottom = game.y + game.height;
+  const screenRight = screen.x + screen.width;
+  const screenBottom = screen.y + screen.height;
+  const topHeight = game.y - screen.y;
+  const bottomHeight = screenBottom - gameBottom;
+  const leftWidth = game.x - screen.x;
+  const rightWidth = screenRight - gameRight;
+  return {
+    top: topHeight > 1e-6 ? makeRect(screen.x, screen.y, screen.width, topHeight) : null,
+    bottom: bottomHeight > 1e-6 ? makeRect(screen.x, gameBottom, screen.width, bottomHeight) : null,
+    left: leftWidth > 1e-6 ? makeRect(screen.x, game.y, leftWidth, game.height) : null,
+    right: rightWidth > 1e-6 ? makeRect(gameRight, game.y, rightWidth, game.height) : null
+  };
+}
+function visibleRoomRectFrom(screen, game, scale) {
+  const safeScale = scale > 0 ? scale : 1;
+  return makeRect(
+    (screen.x - game.x) / safeScale,
+    (screen.y - game.y) / safeScale,
+    screen.width / safeScale,
+    screen.height / safeScale
+  );
+}
+function screenToRoom(screenX, screenY, game, scale) {
+  const safeScale = scale > 0 ? scale : 1;
+  return {
+    x: (Number(screenX) - game.x) / safeScale,
+    y: (Number(screenY) - game.y) / safeScale
+  };
+}
+function roomToScreen(roomX, roomY, game, scale) {
+  return {
+    x: game.x + Number(roomX) * scale,
+    y: game.y + Number(roomY) * scale
+  };
+}
+function containsPoint(x, y, rect) {
+  return x >= rect.x && y >= rect.y && x <= rect.x + rect.width && y <= rect.y + rect.height;
+}
+function createEmptyViewportSnapshot() {
+  const zero = makeRect(0, 0, 0, 0);
+  return {
+    mode: "fixed",
+    fit: "contain",
+    scaleStep: false,
+    fitArea: "viewport",
+    safeArea: "none",
+    logicalRect: makeRect(0, 0, 0, 0),
+    screenRect: zero,
+    safeScreenRect: zero,
+    gameScreenRect: zero,
+    visibleRoomRect: zero,
+    frameRects: { left: null, right: null, top: null, bottom: null },
+    scale: 1,
+    scaleMode: "continuous",
+    orientation: "portrait",
+    profile: "fixed",
+    safeInsets: { top: 0, right: 0, bottom: 0, left: 0 }
+  };
+}
+function copyViewportSnapshot(snapshot) {
+  const source = snapshot || createEmptyViewportSnapshot();
+  return {
+    mode: source.mode,
+    fit: source.fit,
+    scaleStep: source.scaleStep,
+    fitArea: source.fitArea,
+    safeArea: source.safeArea,
+    logicalRect: copyRect(source.logicalRect),
+    screenRect: copyRect(source.screenRect),
+    safeScreenRect: copyRect(source.safeScreenRect),
+    gameScreenRect: copyRect(source.gameScreenRect),
+    visibleRoomRect: copyRect(source.visibleRoomRect),
+    frameRects: {
+      left: source.frameRects.left ? copyRect(source.frameRects.left) : null,
+      right: source.frameRects.right ? copyRect(source.frameRects.right) : null,
+      top: source.frameRects.top ? copyRect(source.frameRects.top) : null,
+      bottom: source.frameRects.bottom ? copyRect(source.frameRects.bottom) : null
+    },
+    scale: source.scale,
+    scaleMode: source.scaleMode,
+    orientation: source.orientation,
+    profile: source.profile,
+    safeInsets: copyInsets(source.safeInsets)
+  };
+}
+function resolveAdaptiveRoom(viewport, fitWidth, fitHeight) {
+  const landscape = fitWidth >= fitHeight;
+  const isDesktop = landscape || fitWidth >= viewport.desktopBreakpoint;
   if (!isDesktop) {
-    const minHeight = Math.max(baseHeight, numberOr(cfg.minHeight, baseHeight));
-    const maxHeight = Math.max(minHeight, numberOr(cfg.maxHeight, minHeight));
-    const targetHeight = clamp(numberOr(cfg.targetHeight, 1560), minHeight, maxHeight);
-    let scale2 = w / baseWidth;
-    let roomHeight = h / scale2;
-    roomHeight = clamp(roomHeight, minHeight, maxHeight);
-    scale2 = Math.min(w / baseWidth, h / roomHeight);
-    const scaled2 = quantizeScale(scale2, cfg);
-    scale2 = scaled2.scale;
+    const minHeight = Math.max(viewport.height, viewport.minHeight);
+    const maxHeight = Math.max(minHeight, viewport.maxHeight);
+    const targetHeight = clamp(viewport.targetHeight, minHeight, maxHeight);
+    let scale2 = fitWidth / viewport.width;
+    let roomHeight = clamp(fitHeight / scale2, minHeight, maxHeight);
+    scale2 = Math.min(fitWidth / viewport.width, fitHeight / roomHeight);
     const profile = roomHeight < targetHeight - 120 ? "portrait-compact" : roomHeight > targetHeight + 120 ? "portrait-tall" : "portrait-standard";
     return {
-      roomWidth: baseWidth,
+      roomWidth: viewport.width,
       roomHeight,
-      scale: scale2,
-      x: (w - baseWidth * scale2) / 2,
-      y: (h - roomHeight * scale2) / 2,
+      rawScale: scale2,
       profile,
-      orientation: "portrait",
-      scaleMode: scaled2.scaleMode
+      orientation: "portrait"
     };
   }
-  const desktopHeight = Math.max(1, numberOr(cfg.desktopHeight, 720));
-  const desktopMinWidth = Math.max(1, numberOr(cfg.desktopMinWidth, 1280));
-  const desktopMaxWidth = Math.max(desktopMinWidth, numberOr(cfg.desktopMaxWidth, 1920));
-  let scale = h / desktopHeight;
-  let roomWidth = clamp(w / scale, desktopMinWidth, desktopMaxWidth);
-  scale = Math.min(w / roomWidth, h / desktopHeight);
-  const scaled = quantizeScale(scale, cfg);
-  scale = scaled.scale;
+  let scale = fitHeight / viewport.desktopHeight;
+  const roomWidth = clamp(fitWidth / scale, viewport.desktopMinWidth, viewport.desktopMaxWidth);
+  scale = Math.min(fitWidth / roomWidth, fitHeight / viewport.desktopHeight);
   return {
     roomWidth,
-    roomHeight: desktopHeight,
-    scale,
-    x: (w - roomWidth * scale) / 2,
-    y: (h - desktopHeight * scale) / 2,
+    roomHeight: viewport.desktopHeight,
+    rawScale: scale,
     profile: "desktop",
-    orientation: landscape ? "landscape" : "portrait-wide",
-    scaleMode: scaled.scaleMode
+    orientation: landscape ? "landscape" : "portrait-wide"
+  };
+}
+function resolveViewport(screenWidth, screenHeight, cfg, safeInsets) {
+  const viewport = (
+    /** @type {NormalizedViewport} */
+    cfg && typeof cfg === "object" && cfg.mode && cfg.align && cfg.safeArea ? cfg : normalizeViewportConfig(
+      /** @type {Record<string, any>} */
+      cfg || {}
+    )
+  );
+  const rawInsets = copyInsets(safeInsets);
+  const insets = viewport.safeArea === "vertical" ? { top: rawInsets.top, right: 0, bottom: rawInsets.bottom, left: 0 } : rawInsets;
+  const screenRect = makeRect(0, 0, Math.max(1, numberOr(screenWidth, 1)), Math.max(1, numberOr(screenHeight, 1)));
+  const safeScreenRect = viewport.safeArea === "none" ? copyRect(screenRect) : insetRect(screenRect, insets);
+  const useSafeFit = viewport.safeArea === "inset" || viewport.safeArea === "frame" || viewport.safeArea === "vertical" || viewport.fitArea === "safe";
+  const fitRect = useSafeFit ? copyRect(safeScreenRect) : copyRect(screenRect);
+  const orientationKey = screenRect.width >= screenRect.height ? "landscape" : "portrait";
+  const align = viewport.align[orientationKey] || viewport.align.portrait;
+  let roomWidth = viewport.width;
+  let roomHeight = viewport.height;
+  let rawScale = viewport.fit === "cover" ? Math.max(fitRect.width / roomWidth, fitRect.height / roomHeight) : Math.min(fitRect.width / roomWidth, fitRect.height / roomHeight);
+  let profile = "fixed";
+  let orientation = orientationKey;
+  if (viewport.mode === "adaptive") {
+    const adaptive = resolveAdaptiveRoom(viewport, fitRect.width, fitRect.height);
+    roomWidth = adaptive.roomWidth;
+    roomHeight = adaptive.roomHeight;
+    rawScale = viewport.fit === "cover" ? Math.max(fitRect.width / roomWidth, fitRect.height / roomHeight) : adaptive.rawScale;
+    profile = adaptive.profile;
+    orientation = adaptive.orientation;
+  }
+  const scaled = quantizeScale(rawScale, viewport.scaleStep);
+  const factor = alignFactor(align);
+  const gameWidth = roomWidth * scaled.scale;
+  const gameHeight = roomHeight * scaled.scale;
+  const gameScreenRect = makeRect(
+    fitRect.x + (fitRect.width - gameWidth) * factor.x,
+    fitRect.y + (fitRect.height - gameHeight) * factor.y,
+    gameWidth,
+    gameHeight
+  );
+  return {
+    mode: viewport.mode,
+    fit: viewport.fit,
+    scaleStep: viewport.scaleStep,
+    fitArea: viewport.fitArea,
+    safeArea: viewport.safeArea,
+    logicalRect: makeRect(0, 0, roomWidth, roomHeight),
+    screenRect,
+    safeScreenRect,
+    gameScreenRect,
+    visibleRoomRect: visibleRoomRectFrom(screenRect, gameScreenRect, scaled.scale),
+    frameRects: frameRectsFrom(screenRect, gameScreenRect),
+    scale: scaled.scale,
+    scaleMode: scaled.scaleMode,
+    orientation,
+    profile,
+    safeInsets: insets
+  };
+}
+
+// phaser4-facade-runtime:src/core/layout.js
+function resolveRoomLayout(w, h, cfg, safeInsets) {
+  const viewport = resolveViewport(w, h, cfg, safeInsets);
+  return {
+    roomWidth: viewport.logicalRect.width,
+    roomHeight: viewport.logicalRect.height,
+    scale: viewport.scale,
+    x: viewport.gameScreenRect.x,
+    y: viewport.gameScreenRect.y,
+    profile: viewport.profile,
+    orientation: viewport.orientation,
+    scaleMode: viewport.scaleMode,
+    viewport
   };
 }
 
@@ -3162,10 +3485,98 @@ function installFacadeNamespaces(deps) {
       return root.Phaser || null;
     }
   };
+  function currentViewport() {
+    const activeRuntime = activeOrNull();
+    return activeRuntime && activeRuntime.state && activeRuntime.state.viewport || createEmptyViewportSnapshot();
+  }
+  const viewport = {
+    get mode() {
+      return currentViewport().mode;
+    },
+    get fit() {
+      return currentViewport().fit;
+    },
+    get scaleStep() {
+      return currentViewport().scaleStep;
+    },
+    get fitArea() {
+      return currentViewport().fitArea;
+    },
+    get safeArea() {
+      return currentViewport().safeArea;
+    },
+    get logicalRect() {
+      return copyRect(currentViewport().logicalRect);
+    },
+    get screenRect() {
+      return copyRect(currentViewport().screenRect);
+    },
+    get safeScreenRect() {
+      return copyRect(currentViewport().safeScreenRect);
+    },
+    get gameScreenRect() {
+      return copyRect(currentViewport().gameScreenRect);
+    },
+    get visibleRoomRect() {
+      return copyRect(currentViewport().visibleRoomRect);
+    },
+    get frameRects() {
+      return copyViewportSnapshot(currentViewport()).frameRects;
+    },
+    get scale() {
+      return currentViewport().scale;
+    },
+    get scaleMode() {
+      return currentViewport().scaleMode;
+    },
+    get orientation() {
+      return currentViewport().orientation;
+    },
+    get profile() {
+      return currentViewport().profile;
+    },
+    get safeInsets() {
+      return copyInsets(currentViewport().safeInsets);
+    },
+    snapshot() {
+      return copyViewportSnapshot(currentViewport());
+    },
+    /**
+     * @param {number} x
+     * @param {number} y
+     */
+    screenToRoom(x, y) {
+      const snap = currentViewport();
+      return screenToRoom(x, y, snap.gameScreenRect, snap.scale);
+    },
+    /**
+     * @param {number} x
+     * @param {number} y
+     */
+    roomToScreen(x, y) {
+      const snap = currentViewport();
+      return roomToScreen(x, y, snap.gameScreenRect, snap.scale);
+    },
+    /**
+     * @param {number} x
+     * @param {number} y
+     */
+    containsRoomPoint(x, y) {
+      return containsPoint(x, y, currentViewport().logicalRect);
+    },
+    /**
+     * @param {number} x
+     * @param {number} y
+     */
+    containsScreenPoint(x, y) {
+      return containsPoint(x, y, currentViewport().gameScreenRect);
+    }
+  };
   GM2.installGlobals = installGlobals;
   GM2.app = { start: GM2.start };
   GM2.runtime = runtime;
   GM2.layout = runtime;
+  GM2.viewport = viewport;
   GM2.draw = draw;
   GM2.gui = gui;
   GM2.input = input;
@@ -3220,6 +3631,10 @@ function resolveGameType(Phaser, raw) {
 }
 function mergeConfig(config) {
   const merged = Object.assign({}, DEFAULTS, config || {});
+  if (config && config.viewport && typeof config.viewport === "object") {
+    merged.viewport = Object.assign({}, config.viewport);
+  }
+  applyViewportToConfig(merged);
   const positiveFields = [
     "width",
     "height",
@@ -3241,9 +3656,6 @@ function mergeConfig(config) {
   }
   if (merged.desktopMinWidth > merged.desktopMaxWidth) {
     throw new RangeError("GM.app.start requires desktopMinWidth <= desktopMaxWidth.");
-  }
-  if (merged.integerScaleStep !== null && merged.integerScaleStep !== void 0 && (!Number.isFinite(Number(merged.integerScaleStep)) || Number(merged.integerScaleStep) <= 0)) {
-    throw new TypeError("GM.app.start requires integerScaleStep to be a positive number when provided.");
   }
   if (merged.renderResolution !== "auto" && (!Number.isFinite(Number(merged.renderResolution)) || Number(merged.renderResolution) <= 0)) {
     throw new TypeError("GM.app.start requires renderResolution to be a positive number or 'auto'.");
@@ -3639,8 +4051,10 @@ function createRuntimeState(scene, cfg) {
       roomWidth: cfg.width,
       roomHeight: cfg.height,
       profile: "fixed",
-      orientation: "portrait"
+      orientation: "portrait",
+      scaleMode: "continuous"
     },
+    viewport: createEmptyViewportSnapshot(),
     render: {
       cssWidth: 0,
       cssHeight: 0,
@@ -4257,7 +4671,13 @@ function installGMRuntime(root, Phaser) {
         const resolution = render.resolution || 1;
         const w = render.cssWidth || scene.scale.width;
         const h = render.cssHeight || scene.scale.height;
-        const next = resolveRoomLayout(w, h, cfg);
+        const parent = scene.game && scene.game.canvas ? scene.game.canvas.parentElement : null;
+        const documentLike = (
+          /** @type {any} */
+          root.document
+        );
+        const insetSource = parent || documentLike && documentLike.documentElement || null;
+        const next = resolveRoomLayout(w, h, cfg, readSafeInsets(root, insetSource));
         state.layout.scale = next.scale;
         state.layout.x = next.x;
         state.layout.y = next.y;
@@ -4266,6 +4686,7 @@ function installGMRuntime(root, Phaser) {
         state.layout.profile = next.profile;
         state.layout.orientation = next.orientation;
         state.layout.scaleMode = next.scaleMode;
+        state.viewport = next.viewport;
         if (state.world) {
           state.world.setPosition(state.layout.x * resolution, state.layout.y * resolution);
           state.world.setScale(state.layout.scale * resolution);
