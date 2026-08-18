@@ -164,6 +164,6 @@ assert.equal(sprite.originY, 0.5);
 
 assert.throws(() => drawRuntimeTextExt(state, createPool(item), parent, Number.NaN, 0, "bad", {}), /text x must be a finite number/);
 assert.throws(() => drawRuntimeTextFit(state, createPool(item), parent, 0, 0, "bad", { maxWidth: 0 }), /text maxWidth must be greater than zero/);
-assert.throws(() => drawRuntimeSpriteExt(state, { take: () => sprite }, "fruit", "apple", 10, 20, { rotation: Number.NaN }), /rotation must be a finite number/);
+assert.throws(() => drawRuntimeSpriteExt(state, { take: () => sprite }, "fruit", "apple", 10, 20, { rotation: Number.NaN }), /rotation: NaN/);
 
 console.log("[ok] Text/sprite options, fit bounds, and pool state-isolation tests passed.");

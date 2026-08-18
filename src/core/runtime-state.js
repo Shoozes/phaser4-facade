@@ -46,6 +46,7 @@ export function createRuntimeState(scene, cfg) {
             fixedDeltaSec: 0
         },
         pointers: new Map(),
+        primaryPointerId: null,
         layout: {
             x: 0,
             y: 0,

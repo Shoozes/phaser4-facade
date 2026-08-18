@@ -163,3 +163,95 @@ export function pickPrimaryPointer(pointers) {
     }
     return chosen;
 }
+
+/**
+ * @param {string} id
+ * @param {{ x: number, y: number, screenX: number, screenY: number, button?: string, kind?: string, time?: number }} seed
+ */
+export function createPointerRecord(id, seed) {
+    return {
+        id: String(id),
+        screenX: seed.screenX,
+        screenY: seed.screenY,
+        x: seed.x,
+        y: seed.y,
+        startX: seed.x,
+        startY: seed.y,
+        button: seed.button || "left",
+        kind: seed.kind || "mouse",
+        down: false,
+        active: true,
+        pressed: false,
+        released: false,
+        owner: null,
+        downTime: Number(seed.time) || 0
+    };
+}
+
+/**
+ * @param {Record<string, any>} record
+ * @param {{ x: number, y: number, time?: number }} coords
+ */
+export function applyPointerDown(record, coords) {
+    if (!record.down) {
+        record.startX = coords.x;
+        record.startY = coords.y;
+        record.downTime = Number(coords.time) || record.downTime || 0;
+        record.pressed = true;
+    }
+    record.down = true;
+    record.released = false;
+    record.active = true;
+    return record;
+}
+
+/**
+ * @param {Record<string, any>} record
+ */
+export function applyPointerRelease(record) {
+    record.down = false;
+    record.released = true;
+    record.active = true;
+    return record;
+}
+
+/**
+ * @param {Record<string, any>} record
+ */
+export function endPointerFrame(record) {
+    record.pressed = false;
+    record.released = false;
+    if (!record.down) record.active = false;
+    return record;
+}
+
+/**
+ * Keep one primary id from press through the end of the release frame.
+ * @param {string | null | undefined} currentId
+ * @param {Map<string, Record<string, any>> | Iterable<Record<string, any>>} pointers
+ * @param {string} candidateId
+ * @param {{ down?: boolean }} [flags]
+ */
+export function rememberPrimaryPointerId(currentId, pointers, candidateId, flags = {}) {
+    const records = pointers instanceof Map ? pointers : new Map(
+        Array.from(pointers || []).filter(Boolean).map((pointer) => [String(pointer.id), pointer])
+    );
+    if (currentId) {
+        const current = records.get(String(currentId));
+        if (current && (current.down || current.released || current.active)) return String(currentId);
+    }
+    if (flags.down === true) return String(candidateId);
+    return currentId ? String(currentId) : null;
+}
+
+/**
+ * @param {string | null | undefined} primaryId
+ * @param {Map<string, Record<string, any>>} pointers
+ */
+export function resolvePrimaryPointer(primaryId, pointers) {
+    if (primaryId && pointers.has(String(primaryId))) {
+        const record = pointers.get(String(primaryId));
+        if (record && (record.down || record.released || record.active)) return record;
+    }
+    return pickPrimaryPointer(Array.from(pointers.values()));
+}

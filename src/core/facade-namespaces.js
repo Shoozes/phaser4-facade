@@ -11,7 +11,7 @@ import {
     textureExists,
     textureFrameExists
 } from "./assets.js";
-import { inferPointerKind, pickPrimaryPointer } from "./input.js";
+import { inferPointerKind, resolvePrimaryPointer } from "./input.js";
 import { assertFinite } from "./debug.js";
 import { createVirtualStick } from "./virtual-stick.js";
 import {
@@ -245,8 +245,8 @@ export function installFacadeNamespaces(deps) {
         },
         primaryPointer() {
             const runtime = activeOrNull();
-            if (!runtime) return null;
-            const record = pickPrimaryPointer(runtime.active_pointers());
+            if (!runtime || !runtime.state || !(runtime.state.pointers instanceof Map)) return null;
+            const record = resolvePrimaryPointer(runtime.state.primaryPointerId, runtime.state.pointers);
             if (!record) return null;
             const button = record.button || INPUT.mb_left;
             return {
@@ -259,8 +259,8 @@ export function installFacadeNamespaces(deps) {
                 y: record.y,
                 insideGame: GM.viewport.containsRoomPoint(record.x, record.y),
                 down: !!record.down,
-                pressed: !!(runtime.state.mouse.pressed && runtime.state.mouse.pressed[button]),
-                released: !!(runtime.state.mouse.released && runtime.state.mouse.released[button]),
+                pressed: !!record.pressed,
+                released: !!record.released,
                 kind: record.kind || inferPointerKind(record),
                 button,
                 owner: record.owner || null

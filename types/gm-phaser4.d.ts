@@ -589,6 +589,8 @@ interface GMPointerState {
     kind?: "mouse" | "touch" | "pen";
     down: boolean;
     active: boolean;
+    pressed?: boolean;
+    released?: boolean;
     owner: string | null;
     downTime: number;
 }

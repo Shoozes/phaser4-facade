@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { compileFontAtlas, measureFontText } from "../../../../runtime-data/coordination/grout13/dist/grout13-font.mjs";
 import { assertFruitShot, DEFAULT_FRUIT_SHOT, defineFruitShot } from "../examples/fruit-shot/config.js";
 import { PIXEL_3X5, compileFruitShotFont, fruitRadiusFromFrame } from "../examples/fruit-shot/art.js";
 
@@ -17,12 +16,31 @@ assert.throws(() => defineFruitShot({
     tiers: DEFAULT_FRUIT_SHOT.tiers
 }), /hudHeight/);
 
-const font = compileFruitShotFont({ compileFontAtlas });
+const recorded = [];
+const font = compileFruitShotFont({
+    compileFontAtlas(options) {
+        recorded.push(options);
+        return {
+            name: options.name,
+            glyphs: { space: { name: "space", width: 8, height: 20, advance: 8 } },
+            metrics: {
+                sourceScale: options.sourceScale,
+                tracking: options.tracking,
+                lineHeight: options.lineHeight,
+                fallback: options.fallback,
+                fallbackFrame: "?"
+            }
+        };
+    }
+});
+assert.equal(recorded.length, 1);
+assert.equal(recorded[0].name, "pixel-3x5");
+assert.equal(recorded[0].sourceScale, 4);
+assert.equal(recorded[0].tracking, 4);
+assert.equal(recorded[0].lineHeight, 24);
+assert.equal(recorded[0].fallback, "?");
+assert.ok(recorded[0].glyphs.A);
 assert.equal(font.name, "pixel-3x5");
-assert.ok(!Object.prototype.hasOwnProperty.call(font.glyphs, " "), "space is stored as the space frame");
-assert.ok(font.glyphs.space);
-const score = measureFontText(font, "SCORE 000000");
-assert.ok(score.width > 0);
 
 const radius = fruitRadiusFromFrame({
     frameInfo() { return { sourceWidth: 88, sourceHeight: 88 }; }
@@ -32,4 +50,4 @@ assert.equal(radius, 44);
 assert.ok(PIXEL_3X5.A.length === 5);
 assert.doesNotThrow(() => assertFruitShot(DEFAULT_FRUIT_SHOT));
 
-console.log("[ok] Fruit Shot spec, font compile, and frame-derived radius contracts passed.");
+console.log("[ok] Fruit Shot spec, stubbed font options, and frame-derived radius contracts passed.");

@@ -15,12 +15,17 @@ import {
 } from "./core/cleanup.js";
 import { createMathApi } from "./core/math-api.js";
 import {
+    applyPointerDown,
+    applyPointerRelease,
     buttonFromPointer,
     consumeInputEvent,
+    createPointerRecord,
+    endPointerFrame,
     inferPointerKind,
     normalizeDelayMs,
     normalizeKey,
-    pointerGateKey
+    pointerGateKey,
+    rememberPrimaryPointerId
 } from "./core/input.js";
 import { createRuntimeButtonClass } from "./core/button.js";
 import {
@@ -320,8 +325,11 @@ export function installGMRuntime(root, Phaser) {
                 for (const pointer of state.pointers.values()) {
                     pointer.active = false;
                     pointer.down = false;
+                    pointer.pressed = false;
+                    pointer.released = false;
                 }
             }
+            state.primaryPointerId = null;
         }
 
         function recoverInputFocus() {
@@ -330,6 +338,7 @@ export function installGMRuntime(root, Phaser) {
             state.inputGate.pausedUntil = 0;
             clearTransientInput();
             if (state.pointers instanceof Map) state.pointers.clear();
+            state.primaryPointerId = null;
             if (api && typeof api.update_input_blocker === "function") api.update_input_blocker();
         }
 
@@ -368,21 +377,15 @@ export function installGMRuntime(root, Phaser) {
             const roomY = (screenY - state.layout.y) / scale;
             let record = state.pointers.get(id);
             if (!record) {
-                record = {
-                    id,
-                    screenX,
-                    screenY,
+                record = createPointerRecord(id, {
                     x: roomX,
                     y: roomY,
-                    startX: roomX,
-                    startY: roomY,
+                    screenX,
+                    screenY,
                     button: buttonFromPointer(pointer),
                     kind: inferPointerKind(pointer),
-                    down: false,
-                    active: true,
-                    owner: null,
-                    downTime: state.currentTime
-                };
+                    time: state.currentTime
+                });
                 state.pointers.set(id, record);
             } else {
                 record.screenX = screenX;
@@ -394,17 +397,12 @@ export function installGMRuntime(root, Phaser) {
                 record.active = true;
             }
             if (flags.down === true) {
-                if (!record.down) {
-                    record.startX = roomX;
-                    record.startY = roomY;
-                    record.downTime = state.currentTime;
-                }
-                record.down = true;
+                applyPointerDown(record, { x: roomX, y: roomY, time: state.currentTime });
             }
             if (flags.released === true) {
-                record.down = false;
-                record.active = false;
+                applyPointerRelease(record);
             }
+            state.primaryPointerId = rememberPrimaryPointerId(state.primaryPointerId, state.pointers, id, flags);
             return record;
         }
 
@@ -844,11 +842,7 @@ export function installGMRuntime(root, Phaser) {
                     delete state.inputGate.capturedPointers[key];
                 }
                 const record = state.pointers.get(key);
-                if (record) {
-                    record.owner = null;
-                    record.down = false;
-                    record.active = false;
-                }
+                if (record) record.owner = null;
                 api.update_input_blocker();
                 return api;
             },
@@ -920,6 +914,13 @@ export function installGMRuntime(root, Phaser) {
                 state.keysPressed = Object.create(null);
                 state.keysPressedRaw = Object.create(null);
                 state.keysReleased = Object.create(null);
+                if (state.pointers instanceof Map) {
+                    for (const record of state.pointers.values()) endPointerFrame(record);
+                }
+                const primary = state.primaryPointerId && state.pointers.get(state.primaryPointerId);
+                if (!primary || (!primary.down && !primary.released && !primary.active)) {
+                    state.primaryPointerId = null;
+                }
                 pruneUiButtons();
                 return api;
             },
