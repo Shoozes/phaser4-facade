@@ -66,6 +66,8 @@
                 atlasFrames: [],
                 grout13PayloadBytes: 0,
                 textMode: "GM.draw.textExt/textFit",
+                bitmapTextAvoided: true,
+                pixelTextFlipY: false,
                 perGlyphSprites: false,
                 interpolated: true,
                 nativeFullscreen: true,
@@ -197,20 +199,31 @@
 
             function startGame() {
                 const PIXEL_SOURCE_SCALE = 4;
-                const PIXEL_SCALE_STEP = null;
+                const PIXEL_SCALE_STEP = 0.25;
                 const PIXEL_RENDER_GRID = PIXEL_SOURCE_SCALE;
                 const ATLAS_KEY = "fruit-shot-showcase";
 
-                const VIEW = Object.freeze({
-                    width: 720,
-                    height: 720,
-                    wall: 18,
-                    ceiling: 84,
-                    floor: 500,
+                /* fruit-shot-spec:start */
+                const GAME = Object.freeze({
+                    viewport: { width: 720, height: 720 },
+                    hudHeight: 74,
                     dangerY: 160,
+                    floorY: 500,
                     cueY: 640,
-                    launcherTop: 500,
-                    cueRadius: 31
+                    launcher: { cueRadius: 31, cueBottomMargin: 80, minimumFruitGap: 70 }
+                });
+                /* fruit-shot-spec:end */
+
+                const VIEW = Object.freeze({
+                    width: GAME.viewport.width,
+                    height: GAME.viewport.height,
+                    wall: 18,
+                    ceiling: GAME.hudHeight,
+                    floor: GAME.floorY,
+                    dangerY: GAME.dangerY,
+                    cueY: GAME.cueY,
+                    launcherTop: GAME.floorY,
+                    cueRadius: GAME.launcher.cueRadius
                 });
 
                 const PHYSICS = Object.freeze({
@@ -268,11 +281,11 @@
                     fieldCenterX: VIEW.width * 0.5,
                     layout: {
                         height: VIEW.height,
-                        ceiling: 132,
-                        floor: 1080,
-                        dangerY: 250,
-                        cueY: 1150,
-                        launcherTop: 1102
+                        ceiling: VIEW.ceiling,
+                        floor: VIEW.floor,
+                        dangerY: VIEW.dangerY,
+                        cueY: VIEW.cueY,
+                        launcherTop: VIEW.launcherTop
                     },
                     ballId: 0,
                     shake: 0,
@@ -282,7 +295,7 @@
                         active: false,
                         pointerId: null,
                         x: VIEW.width * 0.5,
-                        y: 830
+                        y: VIEW.cueY
                     }
                 };
 
@@ -301,7 +314,7 @@
                 }
 
                 function roomHeight() {
-                    return Number(GM.runtime.roomHeight) || VIEW.targetHeight;
+                    return Number(GM.runtime.roomHeight) || VIEW.height;
                 }
 
                 function snap(value) {
@@ -1476,13 +1489,13 @@
                     width: VIEW.width,
                     height: VIEW.height,
                     responsive: false,
-                    integerScaleStep: 0.25,
+                    integerScaleStep: PIXEL_SCALE_STEP,
                     viewport: {
                         mode: "fixed",
                         width: VIEW.width,
                         height: VIEW.height,
                         fit: "contain",
-                        scaleStep: 0.25,
+                        scaleStep: PIXEL_SCALE_STEP,
                         fitArea: "viewport",
                         safeArea: "vertical",
                         align: {

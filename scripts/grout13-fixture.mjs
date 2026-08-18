@@ -35,3 +35,17 @@ export function resolveGrout13Fixture(root) {
         || candidates[0];
     return { ...fixture, hasOverride: false };
 }
+
+/**
+ * @param {{ modulePath?: string | null, globalPath?: string | null }} fixture
+ */
+export function grout13ModuleAvailable(fixture) {
+    return Boolean(fixture && fixture.modulePath && fs.existsSync(fixture.modulePath));
+}
+
+/**
+ * @param {{ globalPath?: string | null }} fixture
+ */
+export function grout13GlobalAvailable(fixture) {
+    return Boolean(fixture && fixture.globalPath && fs.existsSync(fixture.globalPath));
+}

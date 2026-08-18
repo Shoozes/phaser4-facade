@@ -48,16 +48,16 @@ the game canvas page.
   attempting an unsafe module load.
 
 All Fruit Shot variants use 4x authored pixel source cells for glyphs and
-fruit frames, native frame dimensions, nearest-neighbor rendering, 2-source-
-pixel coordinate snapping, and no arbitrary sprite rotation. Their fixed room
-uses `integerScaleStep: 0.5`: a phone at 390x844 letterboxes the 720x1280 room
-at exactly 0.5x, so every meaningful 4x cell becomes two CSS pixels instead of
-being stretched by an arbitrary viewport ratio. `renderResolution: "auto"`
-keeps that result sharp on common high-DPI displays. Extremely compact
-viewports below the first 360x640 presentation step safely use the documented
-fit fallback rather than crop content. The direct-pixel glyph assets avoid
-Grout13's optional bundled `bitmap_text` row-order issue, so no `flipY`
-workaround is applied.
+fruit frames, native frame dimensions, nearest-neighbor rendering, source-pixel
+coordinate snapping, and no arbitrary sprite rotation. The preferred Grout13
+showcase is a fixed 720x720 playfield with `integerScaleStep: 0.25` and a
+shared `GAME` spec from `fruit-shot/config.js` (`hud < danger < floor < cue`).
+The core and modular pages remain the taller 720x1280 room with
+`integerScaleStep: 0.5`. `renderResolution: "auto"` keeps both results sharp
+on common high-DPI displays. Extremely compact viewports below the first
+presentation step safely use the documented fit fallback rather than crop
+content. Direct-pixel glyph assets avoid Grout13's optional bundled
+`bitmap_text` row-order issue, so no `flipY` workaround is applied.
 
 `prototype-module.html` remains the smallest local package module proof.
 `prototype-cdn.html` remains the smallest plain-script global proof. Both use

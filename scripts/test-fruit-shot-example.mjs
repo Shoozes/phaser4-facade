@@ -157,7 +157,10 @@ function checkModular() {
         fail("Modular Fruit Shot must use GitHub-backed current CDN sources.");
     }
     assert.ok(new Function(launcher.replace(/^import .*$/gm, "")), "Modular launcher should parse after import declarations are removed.");
-    assert.ok(new Function(gameplay.replace(/^export /gm, "")), "Modular gameplay should parse after its export declaration is removed.");
+    assert.ok(
+        new Function(gameplay.replace(/^import .*$/gm, "").replace(/^export /gm, "")),
+        "Modular gameplay should parse after import and export declarations are removed."
+    );
 }
 
 checkNativeShell();
@@ -198,7 +201,12 @@ function checkGrout13Showcase() {
         "verticalAlign: \"top\"",
         "safeAreaPolicy: \"vertical-only\"",
         "function mergeBalls",
-        "function shootToward"
+        "function shootToward",
+        "/* fruit-shot-spec:start */",
+        "floorY: 500",
+        "GAME.floorY",
+        "GAME.dangerY",
+        "GAME.cueY"
     ]) {
         if (!html.includes(marker)) fail("Grout13 Fruit Shot is missing marker: " + marker);
     }
