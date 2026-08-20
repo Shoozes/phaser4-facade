@@ -16,11 +16,18 @@ const FACADE_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@4f0a34061
 const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.global.min.js";
 const GROUT_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@7546bfc198f16bc1c784e7c1af34de5e26550e86/dist/grout13.global.min.js";
 const PHASER_DIST = path.join(ROOT, "node_modules", "phaser", "dist", "phaser.min.js");
+const PHASER_MODULE_DIST = path.join(ROOT, "node_modules", "phaser", "dist", "phaser.esm.js");
 const FACADE_DIST = path.join(ROOT, "dist", "gm-phaser4.global.min.js");
+const FACADE_MODULE_DIST = path.join(ROOT, "dist", "gm-phaser4.module.js");
 const BRIDGE_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.global.min.js");
+const BRIDGE_MODULE_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.module.js");
 const CSS_DIST = path.join(ROOT, "examples", "native-app-shell.css");
+const FRUIT_SHOT_CONFIG = path.join(ROOT, "examples", "fruit-shot", "config.js");
+const FRUIT_SHOT_ART = path.join(ROOT, "examples", "fruit-shot", "art.js");
 const GROUT_FIXTURE = resolveGrout13Fixture(ROOT);
 const GROUT_DIST = GROUT_FIXTURE.globalPath;
+const GROUT_MODULE_DIST = GROUT_FIXTURE.modulePath;
+const GROUT_FONT_DIST = GROUT_MODULE_DIST ? path.join(path.dirname(GROUT_MODULE_DIST), "grout13-font.mjs") : null;
 const HAS_LOCAL_GROUT = Boolean(GROUT_DIST && fs.existsSync(GROUT_DIST));
 const HEADERS = { "access-control-allow-origin": "*" };
 
@@ -32,12 +39,45 @@ async function installRoutes(page) {
     await page.route(/^https:\/\/cdn\.jsdelivr\.net\/gh\//, (route) => {
         const url = route.request().url();
         const fulfill = (filePath, contentType) => route.fulfill({ path: filePath, contentType, headers: HEADERS });
-        if (url === CSS_CDN) return fulfill(CSS_DIST, "text/css; charset=utf-8");
+        if (url === CSS_CDN || /\/Shoozes\/phaser4-facade@[^/]+\/examples\/native-app-shell\.css$/.test(url)) {
+            return fulfill(CSS_DIST, "text/css; charset=utf-8");
+        }
         if (url === PHASER_CDN) return fulfill(PHASER_DIST, "text/javascript; charset=utf-8");
-        if (url === FACADE_MAIN + "gm-phaser4.global.min.js" || url === FACADE_PIN + "gm-phaser4.global.min.js") return fulfill(FACADE_DIST, "text/javascript; charset=utf-8");
-        if (url === FACADE_MAIN + "gm-phaser4-grout13.global.min.js" || url === FACADE_PIN + "gm-phaser4-grout13.global.min.js") return fulfill(BRIDGE_DIST, "text/javascript; charset=utf-8");
-        if (url === GROUT_MAIN || url === GROUT_PIN) {
+        if (url === PHASER_CDN || /\/phaserjs\/phaser@[^/]+\/dist\/phaser\.esm\.js$/.test(url)) {
+            return fulfill(PHASER_MODULE_DIST, "text/javascript; charset=utf-8");
+        }
+        if (url === FACADE_MAIN + "gm-phaser4.global.min.js" || url === FACADE_PIN + "gm-phaser4.global.min.js" ||
+            /\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4\.global\.min\.js$/.test(url)) {
+            return fulfill(FACADE_DIST, "text/javascript; charset=utf-8");
+        }
+        if (url === FACADE_MAIN + "gm-phaser4-grout13.global.min.js" || url === FACADE_PIN + "gm-phaser4-grout13.global.min.js" ||
+            /\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4-grout13\.global\.min\.js$/.test(url)) {
+            return fulfill(BRIDGE_DIST, "text/javascript; charset=utf-8");
+        }
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4\.module\.js$/.test(url)) {
+            return fulfill(FACADE_MODULE_DIST, "text/javascript; charset=utf-8");
+        }
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4-grout13\.module\.js$/.test(url)) {
+            return fulfill(BRIDGE_MODULE_DIST, "text/javascript; charset=utf-8");
+        }
+        if (url === GROUT_MAIN || url === GROUT_PIN || /\/Shoozes\/grout13@[^/]+\/dist\/grout13\.global\.min\.js$/.test(url)) {
             return HAS_LOCAL_GROUT ? fulfill(GROUT_DIST, "text/javascript; charset=utf-8") : route.continue();
+        }
+        if (/\/Shoozes\/grout13@[^/]+\/dist\/grout13\.mjs$/.test(url)) {
+            return GROUT_MODULE_DIST && fs.existsSync(GROUT_MODULE_DIST)
+                ? fulfill(GROUT_MODULE_DIST, "text/javascript; charset=utf-8")
+                : route.continue();
+        }
+        if (/\/Shoozes\/grout13@[^/]+\/dist\/grout13-font\.mjs$/.test(url)) {
+            return GROUT_FONT_DIST && fs.existsSync(GROUT_FONT_DIST)
+                ? fulfill(GROUT_FONT_DIST, "text/javascript; charset=utf-8")
+                : route.continue();
+        }
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/examples\/fruit-shot\/config\.js$/.test(url)) {
+            return fulfill(FRUIT_SHOT_CONFIG, "text/javascript; charset=utf-8");
+        }
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/examples\/fruit-shot\/art\.js$/.test(url)) {
+            return fulfill(FRUIT_SHOT_ART, "text/javascript; charset=utf-8");
         }
         return route.abort("blockedbyclient");
     });
@@ -72,7 +112,7 @@ ensureFrontendDeps(ROOT);
 if (GROUT_FIXTURE.hasOverride && !HAS_LOCAL_GROUT) {
     fail("Fruit Shot file-origin proof received a missing GROUT13_GLOBAL_PATH fixture override.");
 }
-for (const assetPath of [PHASER_DIST, FACADE_DIST, BRIDGE_DIST, CSS_DIST]) {
+for (const assetPath of [PHASER_DIST, PHASER_MODULE_DIST, FACADE_DIST, FACADE_MODULE_DIST, BRIDGE_DIST, BRIDGE_MODULE_DIST, CSS_DIST]) {
     if (!fs.existsSync(assetPath)) fail("Fruit Shot file-origin proof needs local fixture: " + assetPath);
 }
 fs.mkdirSync(REPORT_ROOT, { recursive: true });
@@ -84,8 +124,9 @@ try {
     const desktop = await launch.browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
     try {
         const grout = await desktop.newPage();
-        const groutProof = await assertAllInOneFile(grout, "fruit-shot-grout13.html", "__fruitShotGrout13Proof");
-        assert.equal(groutProof.pixelTextFlipY, false, "Grout13 direct-file text stays upright");
+        const groutProof = await assertAllInOneFile(grout, "fruit-shot-grout13.html", "__fruitMergeProof");
+        assert.equal(groutProof.fileMode, true, "Grout13 direct-file proof records file mode");
+        assert.equal(groutProof.fixedSimulation, true, "Grout13 direct-file proof uses fixed simulation");
         await grout.screenshot({ path: path.join(REPORT_ROOT, "fruit-shot-grout13-direct-file.png") });
         const core = await desktop.newPage();
         const coreProof = await assertAllInOneFile(core, "fruit-shot.html", "__fruitShotProof");

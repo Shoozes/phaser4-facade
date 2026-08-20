@@ -2,6 +2,46 @@
 
 import { ALARM_COUNT } from "./constants.js";
 
+const INSTANCE_OWNER = Symbol("gm-phaser4.instance-owner");
+const PROTECTED_CREATE_KEYS = new Set([
+    "id",
+    "object_index",
+    "__active",
+    "__alarmSetFrame",
+    "layer",
+    "layerDepth"
+]);
+const BLOCKED_CREATE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
+/**
+ * @param {any} state
+ * @param {any} target
+ */
+function isOwnedRuntimeInstance(state, target) {
+    return Boolean(
+        target &&
+        (typeof target === "object" || typeof target === "function") &&
+        state.instances.includes(target) &&
+        target[INSTANCE_OWNER] === state.instanceOwner
+    );
+}
+
+/**
+ * @param {any} instance
+ * @param {Record<string, unknown>} createVars
+ */
+function applyCreateVars(instance, createVars) {
+    for (const key of Object.keys(createVars)) {
+        if (PROTECTED_CREATE_KEYS.has(key) || BLOCKED_CREATE_KEYS.has(key)) continue;
+        Object.defineProperty(instance, key, {
+            configurable: true,
+            enumerable: true,
+            value: createVars[key],
+            writable: true
+        });
+    }
+}
+
 /**
  * @param {any} state
  * @param {any} api
@@ -91,6 +131,12 @@ export function drawRuntimeInstances(state, api) {
 export function createRuntimeInstance(state, api, x, y, layer, objectDef, createVars) {
     const source = objectDef || {};
     const inst = Object.assign({}, source);
+    Object.defineProperty(inst, INSTANCE_OWNER, {
+        configurable: false,
+        enumerable: false,
+        value: state.instanceOwner,
+        writable: false
+    });
     inst.id = state.nextInstanceId++;
     inst.object_index = objectDef;
     inst.x = x;
@@ -114,7 +160,7 @@ export function createRuntimeInstance(state, api, x, y, layer, objectDef, create
 
     // GameMaker creation structs are applied before the Create event.
     if (createVars && typeof createVars === "object") {
-        Object.assign(inst, createVars);
+        applyCreateVars(inst, createVars);
     }
 
     state.instances.push(inst);
@@ -140,7 +186,7 @@ export function createRuntimeInstance(state, api, x, y, layer, objectDef, create
  */
 export function destroyRuntimeInstance(state, api, inst) {
     const target = inst || state.currentInstance;
-    if (!target) return;
+    if (!isOwnedRuntimeInstance(state, target)) return;
     if (target.__active === false) return;
     target.__active = false;
     if (typeof target.destroy === "function") target.destroy.call(target, api);
@@ -152,7 +198,8 @@ export function destroyRuntimeInstance(state, api, inst) {
  */
 export function runtimeInstanceExists(state, target) {
     if (!target) return false;
-    if (target.__active !== undefined) return !!target.__active;
+    if (isOwnedRuntimeInstance(state, target)) return !!target.__active;
+    if (typeof target === "object" && target.__active !== undefined) return false;
     return state.instances.some((/** @type {any} */ inst) => inst.__active && inst.object_index === target);
 }
 

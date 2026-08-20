@@ -20,6 +20,20 @@ The module entry uses `import * as Phaser from "phaser"` and exports
 `{ installGMRuntime, GM }`. The global entry requires a usable global Phaser
 before installing `GM`.
 
+For tests, SSR-like setup, or multiple Phaser roots, use the pure installer
+entrypoint instead of the compatibility module entrypoint:
+
+```js
+import * as Phaser from "phaser";
+import { createGMRuntime } from "phaser4-facade/install";
+
+const GM = createGMRuntime(globalThis, Phaser);
+```
+
+`phaser4-facade/install` does not install onto `globalThis` during import. The
+default `phaser4-facade` entry remains the backwards-compatible browser entry
+and installs its shared runtime as before.
+
 ## Durable runtime behavior
 
 - Namespaced `GM.*` APIs are primary; legacy GML-style globals are opt-in.
@@ -113,6 +127,9 @@ separate release decisions.
   all-in-one GitHub-CDN playable merge shooter with Grout13.
 - `examples/fruit-shot.html`: directly-openable all-in-one core-facade
   playable merge shooter without Grout13.
+- `examples/phaser4-facade-grout13-canvas-stack-clipped.html`: module-based
+  full-canvas stack proof with generated Grout13 assets, a clipped room
+  camera, and persistent underlay/world/frame/overlay planes.
 - `examples/fruit-shot-modular.html`: HTTP-served import-map architecture
   split between a dependency launcher and `examples/fruit-shot-gameplay.js`.
 

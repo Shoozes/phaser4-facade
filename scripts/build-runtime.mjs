@@ -11,6 +11,7 @@ const RUNTIME_ROOT = ROOT;
 const SRC_DIR = path.join(ROOT, "src");
 const DIST_DIR = path.join(ROOT, "dist");
 const TYPES_SOURCE = path.join(ROOT, "types", "gm-phaser4.d.ts");
+const INSTALL_TYPES_SOURCE = path.join(ROOT, "types", "gm-phaser4.install.d.ts");
 const PACKAGE_JSON = path.join(ROOT, "package.json");
 
 const PHASER_DEFAULT_IMPORT = 'import Phaser from "phaser"';
@@ -33,6 +34,12 @@ function ensure(predicate, message) {
 
 function normalizeLineEndings(text) {
     return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function readRuntimeVersion(source, label) {
+    const version = source.match(/(?:export\s+)?(?:const|let|var)\s+RUNTIME_VERSION\s*=\s*["']([^"']+)["']/)?.[1];
+    ensure(Boolean(version), `${label} is missing RUNTIME_VERSION.`);
+    return version;
 }
 
 function ensureNoPhaserImport(text, label) {
@@ -69,13 +76,16 @@ function checkJavaScriptArtifact(fileName) {
 
 function checkInputs() {
     const moduleEntry = read(path.join(SRC_DIR, "index.module.js"));
+    const installEntry = read(path.join(SRC_DIR, "index.install.js"));
     const globalEntry = read(path.join(SRC_DIR, "index.global.js"));
     const coreEntry = read(path.join(SRC_DIR, "gm-phaser4.js"));
 
     ensureNoPhaserImport(globalEntry, "src/index.global.js");
     ensureNoPhaserImport(coreEntry, "src/gm-phaser4.js");
     ensure(PHASER_NS_IMPORT.test(moduleEntry), "src/index.module.js must use import * as Phaser from \"phaser\".");
+    ensure(PHASER_NS_IMPORT.test(installEntry), "src/index.install.js must use import * as Phaser from \"phaser\".");
     ensure(!moduleEntry.includes(PHASER_DEFAULT_IMPORT), "source/runtime/gm-phaser4/src/index.module.js must not default-import Phaser.");
+    ensure(!installEntry.includes("installGMRuntime(runtimeRoot"), "source/runtime/gm-phaser4/src/index.install.js must remain side-effect free on import.");
     ensure(globalEntry.includes("installGMRuntime(root, Phaser)"), "source/runtime/gm-phaser4/src/index.global.js should install the runtime after validating root.Phaser.");
     ensure(moduleEntry.includes("installGMRuntime"), "module entry must install and re-export the runtime.");
 }
@@ -91,27 +101,30 @@ async function main() {
     const packageVersion = String(pkg.version || "").trim();
     ensure(Boolean(packageVersion), "package.json is missing version.");
 
-    // Keep source constants synchronized with package.json at build time.
+    // Source is a checked-in build input. Require an explicit version update
+    // instead of rewriting it as a side effect of a build.
     const constantsPath = path.join(SRC_DIR, "core", "constants.js");
     const constantsSource = read(constantsPath);
-    const syncedConstants = syncRuntimeVersion(constantsSource, packageVersion);
-    if (syncedConstants !== constantsSource) {
-        write(constantsPath, syncedConstants);
-    }
+    ensure(readRuntimeVersion(constantsSource, "src/core/constants.js") === packageVersion,
+        `package.json version ${packageVersion} must match src/core/constants.js RUNTIME_VERSION before building.`);
 
     const moduleEntry = read(path.join(SRC_DIR, "index.module.js"));
+    const installEntry = read(path.join(SRC_DIR, "index.install.js"));
     const globalEntry = read(path.join(SRC_DIR, "index.global.js"));
     const coreSource = read(path.join(SRC_DIR, "gm-phaser4.js"));
 
     fs.mkdirSync(DIST_DIR, { recursive: true });
 
     const moduleBundle = await bundleWithEsbuild(moduleEntry, "src/index.module.js", "esm", true);
+    const installBundle = await bundleWithEsbuild(installEntry, "src/index.install.js", "esm", true);
     const globalBundle = await bundleWithEsbuild(`${coreSource}\n\n${globalEntry}`, "src/index.global.js", "iife", false);
 
     buildArtifact("gm-phaser4.module.js", syncRuntimeVersion(moduleBundle, packageVersion));
+    buildArtifact("gm-phaser4.install.module.js", syncRuntimeVersion(installBundle, packageVersion));
     buildArtifact("gm-phaser4.global.js", syncRuntimeVersion(globalBundle, packageVersion));
     buildArtifact("gm-phaser4.global.min.js", await minifyJavaScript(globalBundle, "gm-phaser4.global.js"));
     fs.copyFileSync(TYPES_SOURCE, path.join(DIST_DIR, "gm-phaser4.d.ts"));
+    fs.copyFileSync(INSTALL_TYPES_SOURCE, path.join(DIST_DIR, "gm-phaser4.install.d.ts"));
 
     const bridgeBuild = spawnSync(process.execPath, [path.join(ROOT, "scripts", "build-grout13-bridge.mjs")], {
         cwd: ROOT,
@@ -120,7 +133,7 @@ async function main() {
     });
     ensure(bridgeBuild.status === 0, "Grout13 bridge artifact build failed.");
 
-    for (const name of ["gm-phaser4.module.js", "gm-phaser4.global.js", "gm-phaser4.global.min.js"]) {
+    for (const name of ["gm-phaser4.module.js", "gm-phaser4.install.module.js", "gm-phaser4.global.js", "gm-phaser4.global.min.js"]) {
         checkJavaScriptArtifact(name);
     }
     for (const name of ["gm-phaser4-grout13.module.js", "gm-phaser4-grout13.global.js", "gm-phaser4-grout13.global.min.js"]) {
@@ -131,7 +144,10 @@ async function main() {
     const moduleOut = read(path.join(DIST_DIR, "gm-phaser4.module.js"));
     ensure(PHASER_NS_IMPORT.test(moduleOut), "module dist must retain import * as ... from \"phaser\".");
     ensure(moduleOut.includes("installGMRuntime"), "module dist must retain installGMRuntime.");
-    for (const name of ["gm-phaser4.module.js", "gm-phaser4.global.js", "gm-phaser4.global.min.js"]) {
+    const installOut = read(path.join(DIST_DIR, "gm-phaser4.install.module.js"));
+    ensure(PHASER_NS_IMPORT.test(installOut), "install module dist must retain import * as ... from \"phaser\".");
+    ensure(installOut.includes("createGMRuntime"), "install module dist must retain createGMRuntime.");
+    for (const name of ["gm-phaser4.module.js", "gm-phaser4.install.module.js", "gm-phaser4.global.js", "gm-phaser4.global.min.js"]) {
         const coreArtifact = read(path.join(DIST_DIR, name));
         ensure(!coreArtifact.includes("installGrout13Bridge"), `${name} must not include the optional Grout13 bridge.`);
         ensure(!coreArtifact.includes("GROUT13"), `${name} must not include the optional Grout13 dependency.`);
@@ -139,9 +155,11 @@ async function main() {
 
     const artifacts = [
         "gm-phaser4.module.js",
+        "gm-phaser4.install.module.js",
         "gm-phaser4.global.js",
         "gm-phaser4.global.min.js",
         "gm-phaser4.d.ts",
+        "gm-phaser4.install.d.ts",
         "gm-phaser4-grout13.module.js",
         "gm-phaser4-grout13.global.js",
         "gm-phaser4-grout13.global.min.js",

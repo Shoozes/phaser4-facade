@@ -1,1596 +1,439 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#070916">
-    <title>Fruit Shot Merge - Fixed Playfield Centered</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@06aba3eeadd027cb4854b6a34fde6ce454aa06a1/examples/native-app-shell.css">
-
-    <style>
-        /*
-         * Center the game across the physical viewport in landscape.
-         * Preserve only the vertical safe-area insets.
-         */
-        #game.gm-app-safe-area {
-            left: 0;
-            right: 0;
-            width: auto;
-            height: auto;
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05050c">
+<title>Fruit Shot Merge - Compact Grout13 + Phaser4 Facade</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@06aba3eeadd027cb4854b6a34fde6ce454aa06a1/examples/native-app-shell.css">
+<style>
+:root{
+  --gm-app-safe-area-top:env(safe-area-inset-top,0px);
+  --gm-app-safe-area-right:env(safe-area-inset-right,0px);
+  --gm-app-safe-area-bottom:env(safe-area-inset-bottom,0px);
+  --gm-app-safe-area-left:env(safe-area-inset-left,0px)
+}
+*{box-sizing:border-box}
+html,body,#game{margin:0;width:100%;height:100%;overflow:hidden;background:#11131f}
+body{position:fixed;inset:0;touch-action:none;user-select:none;-webkit-user-select:none}
+#game,canvas{display:block;width:100%;height:100%}
+canvas{image-rendering:pixelated;touch-action:none}
+#status,#error{
+  position:fixed;z-index:10;right:max(12px,var(--gm-app-safe-area-right));
+  font:12px/1.4 ui-monospace,monospace;pointer-events:none
+}
+#status{top:max(12px,var(--gm-app-safe-area-top));color:#fff}
+#error{left:12px;bottom:max(12px,var(--gm-app-safe-area-bottom));padding:8px;background:#8e1830;color:#fff;white-space:pre-wrap}
+</style>
 </head>
 <body data-gm-app-shell="locked">
-    <div id="status" class="gm-app-status" role="status">Fruit Shot Showcase booting...</div>
-    <pre id="proof-error" class="gm-app-error" role="alert" hidden></pre>
-    <div class="gm-app-shell">
-        <div id="game" class="gm-app-surface gm-app-safe-area gm-app-surface--pixel-art"></div>
-    </div>
-
-    <script>
-        (function () {
-            "use strict";
-
-            const PHASER_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
-            const FACADE_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@06aba3eeadd027cb4854b6a34fde6ce454aa06a1/dist/";
-            const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
-            const GROUT_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@7546bfc198f16bc1c784e7c1af34de5e26550e86/dist/grout13.global.min.js";
-            const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.global.min.js";
-            const SCRIPT_TIMEOUT_MS = 12000;
-            const query = new URLSearchParams(window.location.search);
-            const renderType = query.get("render") === "canvas" ? "CANVAS" : "WEBGL";
-            const useEdge = query.get("edge") === "1";
-            const statusBox = document.getElementById("status");
-            const errorBox = document.getElementById("proof-error");
-            const reportedErrors = new Set();
-            const loadedSources = Object.create(null);
-
-            const proof = window.__fruitShotShowcaseProof = {
-                architecture: "showcase-grout13-facade-fixed-playfield",
-                phase: "loading",
-                complete: false,
-                failed: false,
-                errors: [],
-                loadedSources,
-                render: renderType,
-                frames: 0,
-                fixedSteps: 0,
-                shotsFired: 0,
-                hits: 0,
-                merges: 0,
-                bursts: 0,
-                score: 0,
-                restarts: 0,
-                playable: false,
-                inputReady: false,
-                atlasFrames: [],
-                grout13PayloadBytes: 0,
-                textMode: "GM.draw.textExt/textFit",
-                bitmapTextAvoided: true,
-                pixelTextFlipY: false,
-                perGlyphSprites: false,
-                interpolated: true,
-                nativeFullscreen: true,
-                adaptiveRoom: false,
-                gameplayViewport: { width: 720, height: 720 },
-                gameplayViewportFixed: true,
-                horizontalAlign: "center",
-                verticalAlign: "top",
-                safeAreaPolicy: "vertical-only",
-                pointerCapture: true,
-                anywhereAim: true,
-                touchAim: true,
-                tapToShoot: true,
-                squarePlayfield: true,
-                launcherChamberSeparated: true,
-                launcherSpaceTuned: true,
-                transparentHud: true,
-                aimVisibleThroughLauncher: true,
-                perf: null
-            };
-
-            function textOf(value) {
-                if (value instanceof Error) return value.stack || value.message;
-                try {
-                    return typeof value === "string" ? value : JSON.stringify(value);
-                } catch {
-                    return String(value);
-                }
-            }
-
-            function report(error) {
-                const text = textOf(error);
-                if (reportedErrors.has(text)) return;
-                reportedErrors.add(text);
-                proof.failed = true;
-                proof.complete = false;
-                proof.phase = "failed";
-                proof.errors.push(text);
-                errorBox.hidden = false;
-                errorBox.textContent += (errorBox.textContent ? "\n\n" : "") + text;
-                statusBox.hidden = false;
-                statusBox.textContent = "Fruit Shot Showcase failed";
-                console.error(error);
-            }
-
-            function setStatus(text) {
-                statusBox.hidden = false;
-                statusBox.textContent = text;
-            }
-
-            function loadScript(source) {
-                return new Promise(function (resolve, reject) {
-                    const script = document.createElement("script");
-                    let settled = false;
-                    const timeout = window.setTimeout(function () {
-                        finish(new Error("Script timed out: " + source));
-                    }, SCRIPT_TIMEOUT_MS);
-
-                    function finish(error) {
-                        if (settled) return;
-                        settled = true;
-                        window.clearTimeout(timeout);
-                        script.onload = null;
-                        script.onerror = null;
-                        if (error) {
-                            script.remove();
-                            reject(error);
-                            return;
-                        }
-                        resolve(script);
-                    }
-
-                    script.crossOrigin = "anonymous";
-                    script.async = false;
-                    script.src = source;
-                    script.onload = function () { finish(); };
-                    script.onerror = function () { finish(new Error("Script failed to load: " + source)); };
-                    document.head.appendChild(script);
-                });
-            }
-
-            async function loadFirst(label, sources, validate) {
-                if (validate()) return "already loaded";
-                let lastError = null;
-                for (const source of sources) {
-                    try {
-                        setStatus("Loading " + label + "...");
-                        await loadScript(source);
-                        if (!validate()) throw new Error(label + " loaded without its expected public API.");
-                        loadedSources[label] = source;
-                        return source;
-                    } catch (error) {
-                        lastError = error;
-                    }
-                }
-                throw lastError || new Error("Unable to load " + label + ".");
-            }
-
-            async function boot() {
-                const facadeBases = useEdge ? [FACADE_MAIN, FACADE_PIN] : [FACADE_PIN, FACADE_MAIN];
-                const groutSources = useEdge ? [GROUT_MAIN, GROUT_PIN] : [GROUT_PIN, GROUT_MAIN];
-
-                await loadFirst("Phaser 4.2.1", [PHASER_CDN], function () {
-                    return Boolean(window.Phaser && window.Phaser.Game && window.Phaser.Scene);
-                });
-                await loadFirst("phaser4-facade", facadeBases.map(function (base) {
-                    return base + "gm-phaser4.global.min.js";
-                }), function () {
-                    return Boolean(
-                        window.GM &&
-                        window.GM.app &&
-                        typeof window.GM.app.start === "function" &&
-                        window.GM.draw &&
-                        typeof window.GM.draw.textExt === "function" &&
-                        window.GM.input &&
-                        typeof window.GM.input.capturePointer === "function"
-                    );
-                });
-                await loadFirst("Grout13", groutSources, function () {
-                    return Boolean(window.GROUT13 && typeof window.GROUT13.compileGrout13Atlas === "function");
-                });
-                await loadFirst("phaser4-facade Grout13 bridge", facadeBases.map(function (base) {
-                    return base + "gm-phaser4-grout13.global.min.js";
-                }), function () {
-                    return Boolean(window.GM && window.GM.grout13 && typeof window.GM.grout13.addAtlas === "function");
-                });
-                startGame();
-            }
-
-            function startGame() {
-                const PIXEL_SOURCE_SCALE = 4;
-                const PIXEL_SCALE_STEP = 0.25;
-                const PIXEL_RENDER_GRID = PIXEL_SOURCE_SCALE;
-                const ATLAS_KEY = "fruit-shot-showcase";
-
-                /* fruit-shot-spec:start */
-                const GAME = Object.freeze({
-                    viewport: { width: 720, height: 720 },
-                    hudHeight: 74,
-                    dangerY: 160,
-                    floorY: 500,
-                    cueY: 640,
-                    launcher: { cueRadius: 31, cueBottomMargin: 80, minimumFruitGap: 70 }
-                });
-                /* fruit-shot-spec:end */
-
-                const VIEW = Object.freeze({
-                    width: GAME.viewport.width,
-                    height: GAME.viewport.height,
-                    wall: 18,
-                    ceiling: GAME.hudHeight,
-                    floor: GAME.floorY,
-                    dangerY: GAME.dangerY,
-                    cueY: GAME.cueY,
-                    launcherTop: GAME.floorY,
-                    cueRadius: GAME.launcher.cueRadius
-                });
-
-                const PHYSICS = Object.freeze({
-                    gravity: 112,
-                    frictionAt60Hz: 0.994,
-                    bounce: 0.88,
-                    floorBounce: 0.70,
-                    cuePower: 1000,
-                    cuePowerBonus: 520,
-                    cueLifetime: 1.75,
-                    restingSpeed: 44,
-                    mergeCooldown: 0.34,
-                    mergeKick: 148,
-                    maxSpeed: 1500
-                });
-
-                const RULES = Object.freeze({
-                    seedCount: 8,
-                    maxFruit: 24,
-                    dangerCount: 4,
-                    dangerHold: 2.2,
-                    spawnEvery: 4.4,
-                    maxParticles: 96,
-                    maxLabels: 12,
-                    maxAimDistance: 720,
-                    maxAimBounces: 4
-                });
-
-                const TIERS = Object.freeze([
-                    { name: "BERRY", size: 58, body: 0xff4f75, shade: 0x9d2449, light: 0xffc2d0, leaf: 0x67dc75, css: "#ff4f75", points: 25 },
-                    { name: "PEACH", size: 68, body: 0xff9a62, shade: 0xb94d38, light: 0xffd7b5, leaf: 0x67dc75, css: "#ff9a62", points: 55 },
-                    { name: "PLUM", size: 78, body: 0xb86bff, shade: 0x6530a4, light: 0xe8c9ff, leaf: 0x67dc75, css: "#b86bff", points: 105 },
-                    { name: "LEMON", size: 88, body: 0xffdc58, shade: 0xb48516, light: 0xfff4b8, leaf: 0x67dc75, css: "#ffdc58", points: 190 },
-                    { name: "LIME", size: 98, body: 0x61e985, shade: 0x198b4f, light: 0xc9ffda, leaf: 0x3dc864, css: "#61e985", points: 330 },
-                    { name: "MELON", size: 108, body: 0x47d7ff, shade: 0x176b9d, light: 0xc1f4ff, leaf: 0x35b85a, css: "#47d7ff", points: 560 }
-                ]);
-
-                const state = {
-                    balls: [],
-                    particles: [],
-                    labels: [],
-                    stars: [],
-                    score: 0,
-                    combo: 1,
-                    comboAge: 0,
-                    canShoot: true,
-                    cue: null,
-                    cueAge: 0,
-                    spawnAge: 0,
-                    dangerAge: 0,
-                    gameOver: false,
-                    restarts: 0,
-                    fieldLeft: 0,
-                    fieldRight: VIEW.width,
-                    fieldCenterX: VIEW.width * 0.5,
-                    layout: {
-                        height: VIEW.height,
-                        ceiling: VIEW.ceiling,
-                        floor: VIEW.floor,
-                        dangerY: VIEW.dangerY,
-                        cueY: VIEW.cueY,
-                        launcherTop: VIEW.launcherTop
-                    },
-                    ballId: 0,
-                    shake: 0,
-                    shakeX: 0,
-                    shakeY: 0,
-                    aim: {
-                        active: false,
-                        pointerId: null,
-                        x: VIEW.width * 0.5,
-                        y: VIEW.cueY
-                    }
-                };
-
-                const aimPoints = Array.from({ length: RULES.maxAimBounces + 3 }, function () {
-                    return { x: 0, y: 0 };
-                });
-                let aimPointCount = 0;
-                let aimTarget = null;
-
-                function clamp(value, min, max) {
-                    return GM.math.clamp(value, min, max);
-                }
-
-                function roomWidth() {
-                    return Number(GM.runtime.roomWidth) || VIEW.width;
-                }
-
-                function roomHeight() {
-                    return Number(GM.runtime.roomHeight) || VIEW.height;
-                }
-
-                function snap(value) {
-                    return Math.round(Number(value) / PIXEL_RENDER_GRID) * PIXEL_RENDER_GRID;
-                }
-
-                function tierRadius(type) {
-                    const tier = TIERS[clamp(type, 0, TIERS.length - 1)];
-                    return tier.size * 0.44;
-                }
-
-                function randomFruitType() {
-                    const roll = GM.math.random(1);
-                    if (roll < 0.60) return 0;
-                    if (roll < 0.90) return 1;
-                    return 2;
-                }
-
-                function pushRect(steps, x, y, w, h, color) {
-                    steps.push({ type: "rect_filled", x, y, w, h, col: color });
-                }
-
-                function rasterDisc(steps, cx, cy, radius, color) {
-                    const minX = Math.floor(cx - radius);
-                    const maxX = Math.ceil(cx + radius);
-                    const minY = Math.floor(cy - radius);
-                    const maxY = Math.ceil(cy + radius);
-                    const radiusSq = radius * radius;
-                    for (let y = minY; y <= maxY; y += PIXEL_SOURCE_SCALE) {
-                        let runStart = -1;
-                        for (let x = minX; x <= maxX + PIXEL_SOURCE_SCALE; x += PIXEL_SOURCE_SCALE) {
-                            const inside = x <= maxX && ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= radiusSq);
-                            if (inside && runStart < 0) runStart = x;
-                            if (!inside && runStart >= 0) {
-                                pushRect(steps, runStart, y, x - runStart, PIXEL_SOURCE_SCALE, color);
-                                runStart = -1;
-                            }
-                        }
-                    }
-                }
-
-                function fruitAsset(type) {
-                    const tier = TIERS[type];
-                    const size = tier.size;
-                    const center = size * 0.5;
-                    const radius = size * 0.42;
-                    const steps = [];
-
-                    rasterDisc(steps, center, center + 3, radius + 4, 0x251b38);
-                    rasterDisc(steps, center + 3, center + 6, radius, tier.shade);
-                    rasterDisc(steps, center - 2, center, radius - 3, tier.body);
-                    rasterDisc(steps, center - radius * 0.28, center - radius * 0.30, Math.max(6, radius * 0.21), tier.light);
-                    pushRect(steps, Math.floor(center - 2), 0, 5, Math.max(8, Math.floor(size * 0.18)), 0x69432e);
-                    pushRect(steps, Math.floor(center + 2), 5, Math.max(8, Math.floor(size * 0.18)), 5, tier.leaf);
-                    pushRect(steps, Math.floor(center + 5), 9, Math.max(6, Math.floor(size * 0.13)), 4, 0x2f9d55);
-
-                    return {
-                        name: "fruit-" + type,
-                        spec: { w: size, h: size, steps }
-                    };
-                }
-
-                function discAsset() {
-                    const steps = [];
-                    rasterDisc(steps, 16, 16, 15, 0xffffff);
-                    return { name: "disc", spec: { w: 32, h: 32, steps } };
-                }
-
-                function cueAsset() {
-                    const steps = [];
-                    rasterDisc(steps, 32, 32, 30, 0x26243b);
-                    rasterDisc(steps, 32, 32, 27, 0xf4fbff);
-                    rasterDisc(steps, 23, 22, 8, 0xbfeeff);
-                    pushRect(steps, 15, 42, 34, 4, 0xc9d4e3);
-                    return { name: "cue", spec: { w: 64, h: 64, steps } };
-                }
-
-                function sparkleAsset() {
-                    return {
-                        name: "spark",
-                        spec: {
-                            w: 24,
-                            h: 24,
-                            steps: [
-                                { type: "rect_filled", x: 10, y: 0, w: 4, h: 24, col: 0xffffff },
-                                { type: "rect_filled", x: 0, y: 10, w: 24, h: 4, col: 0xffffff },
-                                { type: "rect_filled", x: 6, y: 6, w: 12, h: 12, col: 0xffffff }
-                            ]
-                        }
-                    };
-                }
-
-                function aimDotAsset() {
-                    const steps = [];
-                    rasterDisc(steps, 8, 8, 7, 0x4b4d68);
-                    rasterDisc(steps, 8, 8, 4, 0xffffff);
-                    return { name: "aim-dot", spec: { w: 16, h: 16, steps } };
-                }
-
-                function makeAssets() {
-                    return TIERS.map(function (_tier, type) {
-                        return fruitAsset(type);
-                    }).concat([discAsset(), cueAsset(), sparkleAsset(), aimDotAsset()]);
-                }
-
-                function installAtlas() {
-                    const atlas = GM.grout13.addAtlas(ATLAS_KEY, makeAssets(), {
-                        replace: true,
-                        preset: "pixel",
-                        compileOptions: {
-                            atlasOptions: { maxWidth: 512, maxHeight: 512 }
-                        }
-                    });
-                    proof.atlasFrames = atlas.frameNames.slice();
-                    proof.grout13PayloadBytes = Number(atlas.payloadBytes || 0);
-                    for (const frame of ["fruit-0", "fruit-5", "cue", "disc", "spark", "aim-dot"]) {
-                        if (!GM.asset.frameExists(ATLAS_KEY, frame)) {
-                            throw new Error("Missing Grout13 atlas frame: " + frame);
-                        }
-                    }
-                }
-
-                function configureUi() {
-                    GM.ui.setTheme({
-                        button: {
-                            fillTop: "#ffdf70",
-                            fillBottom: "#ff9d3d",
-                            stroke: "#fff2bd",
-                            strokeWidth: 3,
-                            innerStroke: "#7c3f25",
-                            innerStrokeWidth: 2,
-                            shadow: "#000000",
-                            shadowBlur: 0,
-                            shadowOffsetY: 8,
-                            textColor: "#24172f",
-                            radius: 18
-                        }
-                    });
-                }
-
-                function updateField() {
-                    // Canonical gameplay coordinates never change with device size.
-                    state.fieldLeft = 0;
-                    state.fieldRight = VIEW.width;
-                    state.fieldCenterX = VIEW.width * 0.5;
-                    state.layout.height = VIEW.height;
-                    state.layout.ceiling = VIEW.ceiling;
-                    state.layout.floor = VIEW.floor;
-                    state.layout.dangerY = VIEW.dangerY;
-                    state.layout.cueY = VIEW.cueY;
-                    state.layout.launcherTop = VIEW.launcherTop;
-                }
-
-                function facadeOwnsViewport() {
-                    return Boolean(GM.viewport && typeof GM.viewport.snapshot === "function");
-                }
-
-                function anchorGameplayViewportTop() {
-                    // New facade applies align/safe-area from the start config.
-                    if (facadeOwnsViewport()) return;
-                    const runtimeState = GM.runtime.state;
-                    if (!runtimeState || !runtimeState.layout || !runtimeState.world) return;
-
-                    const resolution = Number(runtimeState.render && runtimeState.render.resolution) || 1;
-                    const scale = Number(runtimeState.layout.scale) || 1;
-                    const displayWidth = Number(GM.runtime.displayWidth) || VIEW.width * scale;
-                    const centeredX = (displayWidth - VIEW.width * scale) * 0.5;
-
-                    runtimeState.layout.x = centeredX;
-                    runtimeState.layout.y = 0;
-                    runtimeState.world.setPosition(
-                        centeredX * resolution,
-                        0
-                    );
-                }
-
-                function visiblePresentationBounds() {
-                    if (facadeOwnsViewport() && GM.viewport.visibleRoomRect) {
-                        const room = GM.viewport.visibleRoomRect;
-                        return {
-                            left: room.x,
-                            top: room.y,
-                            right: room.x + room.width,
-                            bottom: room.y + room.height
-                        };
-                    }
-                    const runtimeState = GM.runtime.state;
-                    const layout = runtimeState && runtimeState.layout;
-                    const scale = Number(layout && layout.scale) || 1;
-                    const offsetX = Number(layout && layout.x) || 0;
-                    const offsetY = Number(layout && layout.y) || 0;
-                    const displayWidth = Number(GM.runtime.displayWidth) || VIEW.width;
-                    const displayHeight = Number(GM.runtime.displayHeight) || VIEW.height;
-
-                    return {
-                        left: -offsetX / scale,
-                        top: -offsetY / scale,
-                        right: (displayWidth - offsetX) / scale,
-                        bottom: (displayHeight - offsetY) / scale
-                    };
-                }
-
-                function pointerInsideGame(pointer) {
-                    return Boolean(
-                        pointer &&
-                        pointer.x >= 0 &&
-                        pointer.x <= VIEW.width &&
-                        pointer.y >= 0 &&
-                        pointer.y <= VIEW.height
-                    );
-                }
-
-                function spawnBall(x, y, type, radius) {
-                    const resolvedType = type === undefined ? randomFruitType() : Number(type);
-                    const fallbackRadius = resolvedType < 0
-                        ? VIEW.cueRadius
-                        : tierRadius(resolvedType);
-                    const requestedRadius = radius === undefined ? fallbackRadius : Number(radius);
-
-                    const safeX = Number.isFinite(Number(x))
-                        ? Number(x)
-                        : state.fieldCenterX;
-                    const safeY = Number.isFinite(Number(y))
-                        ? Number(y)
-                        : state.layout.ceiling + fallbackRadius + 8;
-                    const safeRadius = Number.isFinite(requestedRadius) && requestedRadius > 0
-                        ? requestedRadius
-                        : fallbackRadius;
-
-                    const ball = {
-                        id: ++state.ballId,
-                        type: Number.isFinite(resolvedType) ? resolvedType : 0,
-                        x: safeX,
-                        y: safeY,
-                        px: safeX,
-                        py: safeY,
-                        r: safeRadius,
-                        vx: resolvedType < 0 ? 0 : GM.math.random_range(-22, 22),
-                        vy: resolvedType < 0 ? 0 : GM.math.random_range(-12, 12),
-                        age: 0,
-                        mergeCooldown: 0,
-                        squash: 0,
-                        alive: true
-                    };
-                    state.balls.push(ball);
-                    return ball;
-                }
-
-                function countFruit(test) {
-                    let count = 0;
-                    for (const ball of state.balls) {
-                        if (!ball.alive || ball.type < 0) continue;
-                        if (!test || test(ball)) count += 1;
-                    }
-                    return count;
-                }
-
-                function compactList(list) {
-                    let write = 0;
-                    for (let read = 0; read < list.length; read += 1) {
-                        const item = list[read];
-                        if (!item.alive) continue;
-                        list[write] = item;
-                        write += 1;
-                    }
-                    list.length = write;
-                }
-
-                function addParticle(x, y, color, speed, life) {
-                    if (state.particles.length >= RULES.maxParticles) return;
-                    const angle = GM.math.random_range(0, Math.PI * 2);
-                    const velocity = speed * GM.math.random_range(0.55, 1);
-                    state.particles.push({
-                        x,
-                        y,
-                        px: x,
-                        py: y,
-                        vx: Math.cos(angle) * velocity,
-                        vy: Math.sin(angle) * velocity - speed * 0.28,
-                        age: 0,
-                        life,
-                        spin: GM.math.random_range(-220, 220),
-                        rotation: GM.math.random_range(0, 360),
-                        scale: GM.math.random_range(0.45, 1.05),
-                        color,
-                        alive: true
-                    });
-                }
-
-                function burstParticles(x, y, color, count, speed) {
-                    for (let index = 0; index < count; index += 1) {
-                        addParticle(x, y, color, speed, GM.math.random_range(0.34, 0.66));
-                    }
-                }
-
-                function addLabel(text, x, y, color, size) {
-                    if (state.labels.length >= RULES.maxLabels) state.labels.shift();
-                    state.labels.push({
-                        text,
-                        x,
-                        y,
-                        py: y,
-                        age: 0,
-                        life: 0.82,
-                        color,
-                        size,
-                        alive: true
-                    });
-                }
-
-                function seedStars() {
-                    state.stars.length = 0;
-                    const localRng = GM.math.createRng("fruit-shot-stars");
-                    for (let index = 0; index < 34; index += 1) {
-                        state.stars.push({
-                            x: localRng.randomRange(36, VIEW.width - 36),
-                            y: localRng.randomRange(state.layout.ceiling + 24, state.layout.floor - 30),
-                            size: localRng.choose(0.35, 0.45, 0.55, 0.7),
-                            alpha: localRng.randomRange(0.08, 0.26),
-                            phase: localRng.randomRange(0, Math.PI * 2)
-                        });
-                    }
-                }
-
-                function fruitRadiusForType(type) {
-                    const numericType = Number(type);
-                    const index = Math.max(
-                        0,
-                        Math.min(
-                            TIERS.length - 1,
-                            Number.isFinite(numericType) ? Math.floor(numericType) : 0
-                        )
-                    );
-                    return Number(TIERS[index].size) * 0.5;
-                }
-
-                function seedBoard() {
-                    const left = state.fieldLeft;
-                    const right = state.fieldRight;
-                    const centerX = state.fieldCenterX;
-                    const usableWidth = right - left - VIEW.wall * 2;
-
-                    const seeds = [
-                        { x: 0.18, y: 0.52, type: 1 },
-                        { x: 0.34, y: 0.64, type: 2 },
-                        { x: 0.48, y: 0.46, type: 1 },
-                        { x: 0.62, y: 0.60, type: 2 },
-                        { x: 0.78, y: 0.50, type: 1 }
-                    ];
-
-                    for (const seed of seeds) {
-                        const type = seed.type;
-                        const radius = fruitRadiusForType(type);
-                        const ball = spawnBall(
-                            left + VIEW.wall + radius +
-                                (usableWidth - radius * 2) * seed.x,
-                            state.layout.ceiling +
-                                (state.layout.floor - state.layout.ceiling) * seed.y,
-                            type,
-                            radius
-                        );
-                        ball.vx *= 0.35;
-                        ball.vy *= 0.35;
-                    }
-
-                    // Guaranteed merge opportunity near the floor without crowding the launcher.
-                    const radius = fruitRadiusForType(1);
-                    spawnBall(centerX - radius * 0.55, state.layout.floor - radius - 8, 1, radius);
-                    spawnBall(centerX + radius * 0.55, state.layout.floor - radius - 8, 1, radius);
-                }
-
-                function resetGame(countRestart) {
-                    releaseAim();
-                    state.balls.length = 0;
-                    state.particles.length = 0;
-                    state.labels.length = 0;
-                    state.score = 0;
-                    state.combo = 1;
-                    state.comboAge = 0;
-                    state.canShoot = true;
-                    state.cue = null;
-                    state.cueAge = 0;
-                    state.spawnAge = 0;
-                    state.dangerAge = 0;
-                    state.gameOver = false;
-                    state.shake = 0;
-                    state.shakeX = 0;
-                    state.shakeY = 0;
-                    if (countRestart) state.restarts += 1;
-                    updateField();
-                    seedBoard();
-                    Object.assign(proof, {
-                        shotsFired: 0,
-                        hits: 0,
-                        merges: 0,
-                        bursts: 0,
-                        score: 0,
-                        restarts: state.restarts
-                    });
-                }
-
-                function releaseAim() {
-                    if (state.aim.pointerId !== null) {
-                        try {
-                            GM.input.releasePointer(state.aim.pointerId, "fruit-shot-aim");
-                        } catch {
-                            // Runtime cleanup still resets captures.
-                        }
-                    }
-                    state.aim.active = false;
-                    state.aim.pointerId = null;
-                }
-
-                function beginAim() {
-                    if (!state.canShoot || state.gameOver || state.aim.active) return;
-
-                    const pointers = GM.input.activePointers();
-                    let pointer = null;
-
-                    for (const candidate of pointers) {
-                        if (!candidate || !candidate.down) continue;
-
-                        // Mouse primary button and touch both use the same gameplay path.
-                        const primaryPointer =
-                            candidate.button === GM.pointer.LEFT ||
-                            candidate.button === undefined ||
-                            candidate.button === null;
-
-                        if (!primaryPointer) continue;
-                        if (!pointer || candidate.downTime > pointer.downTime) pointer = candidate;
-                    }
-
-                    if (!pointer) return;
-
-                    state.aim.active = true;
-                    state.aim.pointerId = pointer.id;
-                    state.aim.x = pointer.x;
-                    state.aim.y = pointer.y;
-                    GM.input.capturePointer(pointer.id, "fruit-shot-aim");
-                }
-
-                function updateAimInput() {
-                    if (state.gameOver) {
-                        releaseAim();
-                        return;
-                    }
-                    if (GM.input.pointerPressed(GM.pointer.LEFT)) beginAim();
-                    if (!state.aim.active) return;
-                    const pointer = GM.input.getPointer(state.aim.pointerId);
-                    if (pointer) {
-                        state.aim.x = pointer.x;
-                        state.aim.y = pointer.y;
-                    }
-                    if (pointer && pointer.down) return;
-                    if (GM.input.pointerReleased(GM.pointer.LEFT) || !pointer || !pointer.active) {
-                        const releaseX = pointer ? pointer.x : GM.runtime.mouseX;
-                        const releaseY = pointer ? pointer.y : GM.runtime.mouseY;
-                        releaseAim();
-                        shootToward(releaseX, releaseY);
-                    }
-                }
-
-                function resolveShotTarget(targetX, targetY) {
-                    const x = Number.isFinite(Number(targetX))
-                        ? Number(targetX)
-                        : state.fieldCenterX;
-                    const y = Number.isFinite(Number(targetY))
-                        ? Number(targetY)
-                        : state.layout.cueY - 180;
-
-                    // Every click/tap must produce a legal upward shot. Points below
-                    // the launcher mirror upward so the whole viewport remains usable.
-                    const dx = x - state.fieldCenterX;
-                    const rawDy = y - state.layout.cueY;
-                    const upwardDistance = Math.max(72, Math.abs(rawDy));
-
-                    return {
-                        x: state.fieldCenterX + dx,
-                        y: state.layout.cueY - upwardDistance
-                    };
-                }
-
-                function shootToward(targetX, targetY) {
-                    if (!state.canShoot || state.gameOver) return;
-
-                    const target = resolveShotTarget(targetX, targetY);
-                    const normalized = GM.math.normalize2(
-                        target.x - state.fieldCenterX,
-                        target.y - state.layout.cueY
-                    );
-
-                    if (normalized.length < 1) return;
-
-                    const power = PHYSICS.cuePower + Math.min(PHYSICS.cuePowerBonus, normalized.length * 1.35);
-                    const cue = spawnBall(state.fieldCenterX, state.layout.cueY, -1, VIEW.cueRadius);
-                    cue.vx = normalized.x * power;
-                    cue.vy = normalized.y * power;
-                    cue.age = 0;
-                    state.cue = cue;
-                    state.cueAge = 0;
-                    state.canShoot = false;
-                    proof.shotsFired += 1;
-                }
-
-                function fireKeyboard() {
-                    if (!state.canShoot || state.gameOver) return;
-                    shootToward(state.fieldCenterX, state.layout.cueY - 360);
-                }
-
-                function ballMass(ball) {
-                    if (ball.type < 0) return ball.r * ball.r * 0.72;
-                    return ball.r * ball.r;
-                }
-
-                function moveBall(ball, deltaSeconds) {
-                    ball.px = ball.x;
-                    ball.py = ball.y;
-                    ball.age += deltaSeconds;
-                    ball.mergeCooldown = Math.max(0, ball.mergeCooldown - deltaSeconds);
-                    ball.squash *= Math.pow(0.08, deltaSeconds);
-
-                    const damping = Math.pow(PHYSICS.frictionAt60Hz, deltaSeconds * 60);
-                    ball.vy += PHYSICS.gravity * deltaSeconds;
-                    ball.vx *= damping;
-                    ball.vy *= damping;
-                    const speed = Math.hypot(ball.vx, ball.vy);
-                    if (speed > PHYSICS.maxSpeed) {
-                        const ratio = PHYSICS.maxSpeed / speed;
-                        ball.vx *= ratio;
-                        ball.vy *= ratio;
-                    }
-                    ball.x += ball.vx * deltaSeconds;
-                    ball.y += ball.vy * deltaSeconds;
-
-                    const left = state.fieldLeft + VIEW.wall;
-                    const right = state.fieldRight - VIEW.wall;
-                    if (ball.x - ball.r < left) {
-                        ball.x = left + ball.r;
-                        ball.vx = Math.abs(ball.vx) * PHYSICS.bounce;
-                        ball.squash = Math.max(ball.squash, 0.10);
-                    } else if (ball.x + ball.r > right) {
-                        ball.x = right - ball.r;
-                        ball.vx = -Math.abs(ball.vx) * PHYSICS.bounce;
-                        ball.squash = Math.max(ball.squash, 0.10);
-                    }
-
-                    if (ball.y - ball.r < state.layout.ceiling) {
-                        ball.y = state.layout.ceiling + ball.r;
-                        ball.vy = Math.abs(ball.vy) * PHYSICS.bounce;
-                        ball.squash = Math.max(ball.squash, 0.12);
-                    } else if (ball.y + ball.r > state.layout.floor) {
-                        ball.y = state.layout.floor - ball.r;
-                        ball.vy = -Math.abs(ball.vy) * PHYSICS.floorBounce;
-                        ball.vx *= 0.94;
-                        ball.squash = Math.max(ball.squash, 0.16);
-                    }
-                }
-
-                function mergeBalls(a, b) {
-                    const type = a.type;
-                    const tier = TIERS[type];
-                    const x = (a.x + b.x) * 0.5;
-                    const y = (a.y + b.y) * 0.5;
-                    const massA = ballMass(a);
-                    const massB = ballMass(b);
-                    const totalMass = massA + massB;
-                    const momentumX = (a.vx * massA + b.vx * massB) / totalMass;
-                    const momentumY = (a.vy * massA + b.vy * massB) / totalMass;
-
-                    a.alive = false;
-                    b.alive = false;
-                    proof.hits += 1;
-                    proof.merges += 1;
-                    state.combo = Math.min(9.9, state.combo + 0.35);
-                    state.comboAge = 0;
-                    state.shake = Math.min(14, state.shake + 3.2 + type * 0.8);
-                    burstParticles(x, y, tier.css, 8 + type * 2, 180 + type * 24);
-
-                    if (type >= TIERS.length - 1) {
-                        const points = Math.floor(tier.points * 2.5 * state.combo);
-                        state.score += points;
-                        proof.bursts += 1;
-                        addLabel("MAX +" + points, x, y - 18, "#ffffff", 29);
-                        return;
-                    }
-
-                    const nextType = type + 1;
-                    const merged = spawnBall(x, y, nextType);
-                    merged.vx = momentumX;
-                    merged.vy = momentumY - PHYSICS.mergeKick;
-                    merged.mergeCooldown = PHYSICS.mergeCooldown;
-                    merged.squash = 0.22;
-                    const points = Math.floor(TIERS[nextType].points * state.combo);
-                    state.score += points;
-                    addLabel("+" + points, x, y - merged.r, TIERS[nextType].css, 25 + nextType * 2);
-                }
-
-                function collide(a, b) {
-                    const dx = b.x - a.x;
-                    const dy = b.y - a.y;
-                    const minDistance = a.r + b.r;
-                    const distanceSq = dx * dx + dy * dy;
-                    if (distanceSq >= minDistance * minDistance) return;
-
-                    const distance = Math.sqrt(distanceSq) || 0.001;
-                    const nx = distanceSq > 0 ? dx / distance : 1;
-                    const ny = distanceSq > 0 ? dy / distance : 0;
-                    const massA = ballMass(a);
-                    const massB = ballMass(b);
-                    const inverseA = 1 / massA;
-                    const inverseB = 1 / massB;
-                    const inverseTotal = inverseA + inverseB;
-                    const overlap = minDistance - distance;
-                    const correction = overlap / inverseTotal;
-                    a.x -= nx * correction * inverseA;
-                    a.y -= ny * correction * inverseA;
-                    b.x += nx * correction * inverseB;
-                    b.y += ny * correction * inverseB;
-
-                    const relativeX = b.vx - a.vx;
-                    const relativeY = b.vy - a.vy;
-                    const velocityAlongNormal = relativeX * nx + relativeY * ny;
-                    if (velocityAlongNormal < 0) {
-                        const restitution = a.type < 0 || b.type < 0 ? 0.92 : 0.78;
-                        const impulse = -(1 + restitution) * velocityAlongNormal / inverseTotal;
-                        const impulseX = impulse * nx;
-                        const impulseY = impulse * ny;
-                        a.vx -= impulseX * inverseA;
-                        a.vy -= impulseY * inverseA;
-                        b.vx += impulseX * inverseB;
-                        b.vy += impulseY * inverseB;
-                        const impact = Math.abs(velocityAlongNormal);
-                        a.squash = Math.max(a.squash, Math.min(0.18, impact / 2200));
-                        b.squash = Math.max(b.squash, Math.min(0.18, impact / 2200));
-                        if ((a.type < 0 || b.type < 0) && impact > 110) proof.hits += 1;
-                    }
-
-                    if (
-                        a.type >= 0 &&
-                        a.type === b.type &&
-                        a.mergeCooldown <= 0 &&
-                        b.mergeCooldown <= 0
-                    ) {
-                        mergeBalls(a, b);
-                    }
-                }
-
-                function updateCue(deltaSeconds) {
-                    if (!state.cue || !state.cue.alive) return;
-                    state.cueAge += deltaSeconds;
-                    const speed = Math.hypot(state.cue.vx, state.cue.vy);
-                    if (
-                        state.cueAge >= PHYSICS.cueLifetime ||
-                        (state.cueAge > 0.62 && speed < PHYSICS.restingSpeed)
-                    ) {
-                        state.cue.alive = false;
-                        state.cue = null;
-                        state.cueAge = 0;
-                        state.canShoot = true;
-                            state.combo = Math.max(1, state.combo - 0.12);
-                    }
-                }
-
-                function chooseSpawnX(type) {
-                    const radius = tierRadius(type);
-                    const minX = state.fieldLeft + VIEW.wall + radius + 8;
-                    const maxX = state.fieldRight - VIEW.wall - radius - 8;
-                    let bestX = GM.math.random_range(minX, maxX);
-                    let bestClearance = -Infinity;
-                    for (let attempt = 0; attempt < 8; attempt += 1) {
-                        const candidate = GM.math.random_range(minX, maxX);
-                        let clearance = Infinity;
-                        for (const ball of state.balls) {
-                            if (!ball.alive || ball.type < 0 || ball.y > state.layout.ceiling + 180) continue;
-                            clearance = Math.min(clearance, Math.abs(candidate - ball.x) - radius - ball.r);
-                        }
-                        if (clearance > bestClearance) {
-                            bestClearance = clearance;
-                            bestX = candidate;
-                        }
-                    }
-                    return bestX;
-                }
-
-                function updateSpawning(deltaSeconds) {
-                    state.spawnAge += deltaSeconds;
-                    if (state.spawnAge < RULES.spawnEvery) return;
-                    state.spawnAge -= RULES.spawnEvery;
-                    if (countFruit() >= RULES.maxFruit) return;
-                    const type = randomFruitType();
-                    const ball = spawnBall(chooseSpawnX(type), state.layout.ceiling + tierRadius(type) + 5, type);
-                    ball.vx = GM.math.random_range(-40, 40);
-                    ball.vy = GM.math.random_range(8, 42);
-                }
-
-                function updateDanger(deltaSeconds) {
-                    let dangerCount = 0;
-                    for (const ball of state.balls) {
-                        if (!ball.alive || ball.type < 0 || ball.age < 1.15) continue;
-                        const speed = Math.hypot(ball.vx, ball.vy);
-                        if (ball.y - ball.r < state.layout.dangerY && speed < 260) dangerCount += 1;
-                    }
-                    if (dangerCount >= RULES.dangerCount) {
-                        state.dangerAge = Math.min(RULES.dangerHold, state.dangerAge + deltaSeconds);
-                    } else {
-                        state.dangerAge = Math.max(0, state.dangerAge - deltaSeconds * 1.8);
-                    }
-                    if (state.dangerAge >= RULES.dangerHold) {
-                        state.gameOver = true;
-                        releaseAim();
-                    }
-                }
-
-                function updateEffects(deltaSeconds) {
-                    for (const particle of state.particles) {
-                        particle.px = particle.x;
-                        particle.py = particle.y;
-                        particle.age += deltaSeconds;
-                        particle.vy += 260 * deltaSeconds;
-                        particle.vx *= Math.pow(0.965, deltaSeconds * 60);
-                        particle.vy *= Math.pow(0.982, deltaSeconds * 60);
-                        particle.x += particle.vx * deltaSeconds;
-                        particle.y += particle.vy * deltaSeconds;
-                        particle.rotation += particle.spin * deltaSeconds;
-                        if (particle.age >= particle.life) particle.alive = false;
-                    }
-                    compactList(state.particles);
-
-                    for (const label of state.labels) {
-                        label.py = label.y;
-                        label.age += deltaSeconds;
-                        label.y -= 48 * deltaSeconds;
-                        if (label.age >= label.life) label.alive = false;
-                    }
-                    compactList(state.labels);
-                }
-
-                function updateShake(deltaSeconds) {
-                    state.shake = Math.max(0, state.shake - 24 * deltaSeconds);
-                    if (state.shake <= 0) {
-                        state.shakeX = 0;
-                        state.shakeY = 0;
-                        return;
-                    }
-                    state.shakeX = GM.math.random_range(-state.shake, state.shake);
-                    state.shakeY = GM.math.random_range(-state.shake, state.shake);
-                }
-
-                function simulate(deltaSeconds) {
-                    updateField();
-                    if (GM.input.keyPressed("R")) {
-                        resetGame(true);
-                        return;
-                    }
-                    if (state.gameOver) {
-                        if (GM.input.keyPressed(GM.key.SPACE) || GM.input.keyPressed(GM.key.ENTER)) {
-                            resetGame(true);
-                            return;
-                        }
-                        updateEffects(deltaSeconds);
-                        updateShake(deltaSeconds);
-                        return;
-                    }
-                    updateAimInput();
-                    if (GM.input.keyPressed(GM.key.SPACE) || GM.input.keyPressed(GM.key.ENTER)) {
-                        fireKeyboard();
-                    }
-
-                    for (const ball of state.balls) {
-                        if (ball.alive) moveBall(ball, deltaSeconds);
-                    }
-                    for (let first = 0; first < state.balls.length; first += 1) {
-                        const a = state.balls[first];
-                        if (!a.alive) continue;
-                        for (let second = first + 1; second < state.balls.length; second += 1) {
-                            const b = state.balls[second];
-                            if (b.alive) collide(a, b);
-                            if (!a.alive) break;
-                        }
-                    }
-                    compactList(state.balls);
-                    updateCue(deltaSeconds);
-                    updateSpawning(deltaSeconds);
-                    updateDanger(deltaSeconds);
-                    updateEffects(deltaSeconds);
-                    updateShake(deltaSeconds);
-
-                    state.comboAge += deltaSeconds;
-                    if (state.comboAge > 2.4) {
-                        state.combo = Math.max(1, state.combo - deltaSeconds * 0.55);
-                    }
-                    proof.score = state.score;
-                }
-
-                function rayCircleDistance(ox, oy, dx, dy, ball, padding) {
-                    const cx = ball.x - ox;
-                    const cy = ball.y - oy;
-                    const projection = cx * dx + cy * dy;
-                    if (projection <= 0) return Infinity;
-                    const radius = ball.r + padding;
-                    const closestSq = cx * cx + cy * cy - projection * projection;
-                    const radiusSq = radius * radius;
-                    if (closestSq > radiusSq) return Infinity;
-                    return projection - Math.sqrt(Math.max(0, radiusSq - closestSq));
-                }
-
-                function buildAimPath(targetX, targetY) {
-                    aimPointCount = 1;
-                    aimTarget = null;
-                    aimPoints[0].x = state.fieldCenterX;
-                    aimPoints[0].y = state.layout.cueY;
-
-                    const normalized = GM.math.normalize2(targetX - state.fieldCenterX, targetY - state.layout.cueY);
-                    if (normalized.y >= -0.05 || normalized.length < 1) return;
-
-                    let x = state.fieldCenterX;
-                    let y = state.layout.cueY;
-                    let dx = normalized.x;
-                    let dy = normalized.y;
-                    let remaining = RULES.maxAimDistance;
-                    const left = state.fieldLeft + VIEW.wall + VIEW.cueRadius;
-                    const right = state.fieldRight - VIEW.wall - VIEW.cueRadius;
-                    const top = state.layout.ceiling + VIEW.cueRadius;
-                    const bottom = state.layout.floor - VIEW.cueRadius;
-
-                    for (let bounce = 0; bounce <= RULES.maxAimBounces && remaining > 0.01; bounce += 1) {
-                        let wallDistance = Infinity;
-                        let wallAxis = "";
-                        if (dx < -0.0001) {
-                            const distance = (left - x) / dx;
-                            if (distance > 0 && distance < wallDistance) {
-                                wallDistance = distance;
-                                wallAxis = "x";
-                            }
-                        } else if (dx > 0.0001) {
-                            const distance = (right - x) / dx;
-                            if (distance > 0 && distance < wallDistance) {
-                                wallDistance = distance;
-                                wallAxis = "x";
-                            }
-                        }
-                        if (dy < -0.0001) {
-                            const distance = (top - y) / dy;
-                            if (distance > 0 && distance < wallDistance) {
-                                wallDistance = distance;
-                                wallAxis = "y";
-                            }
-                        } else if (dy > 0.0001) {
-                            const distance = (bottom - y) / dy;
-                            if (distance > 0 && distance < wallDistance) {
-                                wallDistance = distance;
-                                wallAxis = "y";
-                            }
-                        }
-
-                        let fruitDistance = Infinity;
-                        let fruit = null;
-                        for (const ball of state.balls) {
-                            if (!ball.alive || ball.type < 0) continue;
-                            const distance = rayCircleDistance(x, y, dx, dy, ball, VIEW.cueRadius);
-                            if (distance > 2 && distance < fruitDistance) {
-                                fruitDistance = distance;
-                                fruit = ball;
-                            }
-                        }
-
-                        const travel = Math.min(remaining, wallDistance, fruitDistance);
-                        x += dx * travel;
-                        y += dy * travel;
-                        aimPoints[aimPointCount].x = x;
-                        aimPoints[aimPointCount].y = y;
-                        aimPointCount += 1;
-                        remaining -= travel;
-
-                        if (fruit && fruitDistance <= wallDistance && fruitDistance <= remaining + travel) {
-                            aimTarget = fruit;
-                            break;
-                        }
-                        if (!Number.isFinite(wallDistance) || wallDistance > travel + 0.001) break;
-                        if (wallAxis === "x") dx = -dx;
-                        if (wallAxis === "y") dy = -dy;
-                        x += dx * 0.02;
-                        y += dy * 0.02;
-                    }
-                }
-
-                function drawSprite(frame, x, y, options) {
-                    return GM.draw.spriteExt(ATLAS_KEY, frame, snap(x), snap(y), options || {
-                        originX: 0.5,
-                        originY: 0.5
-                    });
-                }
-
-                function drawBackdrop() {
-                    const D = GM.draw;
-                    const bounds = visiblePresentationBounds();
-                    const left = state.fieldLeft;
-                    const right = state.fieldRight;
-
-                    D.layer("Background");
-
-                    // Filler is presentation only. It never extends the simulation.
-                    D.rect(bounds.left, bounds.top, bounds.right, bounds.bottom, { color: "#11131f" });
-                    D.rect(bounds.left, bounds.top, 0, bounds.bottom, { color: "#181b2b" });
-                    D.rect(VIEW.width, bounds.top, bounds.right, bounds.bottom, { color: "#181b2b" });
-                    D.rect(0, bounds.top, VIEW.width, 0, { color: "#141725" });
-                    D.rect(0, VIEW.height, VIEW.width, bounds.bottom, { color: "#141725" });
-
-                    // Pixel rails make extra viewport space look intentional.
-                    const railStep = 32;
-                    for (let y = Math.floor(bounds.top / railStep) * railStep; y < bounds.bottom; y += railStep) {
-                        if (bounds.left < -12) {
-                            D.rect(bounds.left + 12, y + 8, -12, y + 12, { color: "#252a42", alpha: 0.72 });
-                        }
-                        if (bounds.right > VIEW.width + 12) {
-                            D.rect(VIEW.width + 12, y + 8, bounds.right - 12, y + 12, { color: "#252a42", alpha: 0.72 });
-                        }
-                    }
-
-                    // Fixed game screen.
-                    D.rect(left, 0, right, VIEW.height, { color: "#05050c" });
-                    D.rect(left, 0, right, state.layout.floor + 8, { color: "#09091a" });
-                    D.rect(left, state.layout.floor, right, VIEW.height, { color: "#0d0d1d" });
-                    D.line(left + 128, state.layout.launcherTop + 28, right - 128, state.layout.launcherTop + 28, { color: "#2a2f4b", alpha: 0.9, lineWidth: 2 });
-
-                    // Hard bezel around the canonical gameplay viewport.
-                    D.line(0, 0, VIEW.width, 0, { color: "#3a3e62", lineWidth: 4 });
-                    D.line(0, VIEW.height, VIEW.width, VIEW.height, { color: "#3a3e62", lineWidth: 4 });
-                    D.line(0, 0, 0, VIEW.height, { color: "#3a3e62", lineWidth: 4 });
-                    D.line(VIEW.width, 0, VIEW.width, VIEW.height, { color: "#3a3e62", lineWidth: 4 });
-
-                    for (let y = state.layout.ceiling; y < state.layout.floor; y += 48) {
-                        D.line(left + 18, y, right - 18, y, {
-                            color: "#25294d",
-                            alpha: y % 96 === 0 ? 0.28 : 0.15,
-                            lineWidth: 2
-                        });
-                    }
-
-                    for (const star of state.stars) {
-                        const pulse = 0.72 + Math.sin(GM.runtime.currentTime * 0.0018 + star.phase) * 0.28;
-                        drawSprite("spark", left + star.x, star.y, {
-                            scale: star.size,
-                            color: "#9ea7ff",
-                            alpha: star.alpha * pulse,
-                            originX: 0.5,
-                            originY: 0.5
-                        });
-                    }
-                }
-
-                function drawDanger() {
-                    const D = GM.draw;
-                    const left = state.fieldLeft + 18;
-                    const right = state.fieldRight - 18;
-                    const dangerRatio = clamp(state.dangerAge / RULES.dangerHold, 0, 1);
-                    D.layer("World", 0);
-                    D.line(left, state.layout.dangerY, right, state.layout.dangerY, {
-                        color: dangerRatio > 0 ? "#ff486b" : "#59233d",
-                        alpha: 0.42 + dangerRatio * 0.48,
-                        lineWidth: 3 + dangerRatio * 3
-                    });
-                    D.rect(left, state.layout.dangerY - 11, left + (right - left) * dangerRatio, state.layout.dangerY - 5, {
-                        color: "#ff486b",
-                        alpha: 0.72
-                    });
-                    D.textExt(right - 8, state.layout.dangerY - 38, dangerRatio > 0 ? "DANGER " + Math.ceil((1 - dangerRatio) * RULES.dangerHold * 10) / 10 : "DANGER LINE", {
-                        font: "monospace",
-                        size: 15,
-                        bold: true,
-                        color: dangerRatio > 0 ? "#ff8ba3" : "#7f5870",
-                        hAlign: "right",
-                        vAlign: "middle"
-                    });
-                }
-
-                function drawBalls() {
-                    const alpha = clamp(Number(GM.runtime.simulationAlpha), 0, 1);
-                    const offsetX = state.shakeX;
-                    const offsetY = state.shakeY;
-                    GM.draw.layer("Balls");
-                    for (const ball of state.balls) {
-                        if (!ball.alive) continue;
-
-                        const x = GM.math.lerp(ball.px, ball.x, alpha) + offsetX;
-                        const y = GM.math.lerp(ball.py, ball.y, alpha) + offsetY;
-
-                        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(ball.r)) {
-                            ball.alive = false;
-                            continue;
-                        }
-
-                        drawSprite("disc", x + 4, Math.min(state.layout.floor + 2, y + ball.r * 0.84), {
-                            width: Math.round(ball.r * 1.55 / 4) * 4,
-                            height: Math.max(8, Math.round(ball.r * 0.30 / 4) * 4),
-                            color: "#000000",
-                            alpha: 0.24,
-                            originX: 0.5,
-                            originY: 0.5
-                        });
-
-                        if (ball.type < 0) {
-                            drawSprite("cue", x, y, {
-                                scale: 1,
-                                color: GM.color.WHITE,
-                                alpha: 1,
-                                originX: 0.5,
-                                originY: 0.5
-                            });
-                            continue;
-                        }
-
-                        const tier = TIERS[ball.type];
-                        drawSprite("fruit-" + ball.type, x, y, {
-                            scale: 1,
-                            color: GM.color.WHITE,
-                            alpha: 1,
-                            originX: 0.5,
-                            originY: 0.5
-                        });
-                    }
-                }
-
-                function drawParticles() {
-                    const alpha = clamp(Number(GM.runtime.simulationAlpha), 0, 1);
-                    GM.draw.layer("Effects");
-                    for (const particle of state.particles) {
-                        const life = 1 - particle.age / particle.life;
-                        drawSprite("spark", GM.math.lerp(particle.px, particle.x, alpha), GM.math.lerp(particle.py, particle.y, alpha), {
-                            scale: particle.scale * (0.45 + life * 0.75),
-                            rotation: particle.rotation,
-                            color: particle.color,
-                            alpha: clamp(life, 0, 1),
-                            originX: 0.5,
-                            originY: 0.5
-                        });
-                    }
-                    for (const label of state.labels) {
-                        const life = 1 - label.age / label.life;
-                        GM.draw.textExt(label.x, GM.math.lerp(label.py, label.y, alpha), label.text, {
-                            font: "monospace",
-                            size: label.size,
-                            bold: true,
-                            color: label.color,
-                            alpha: clamp(life, 0, 1),
-                            hAlign: "center",
-                            vAlign: "middle",
-                            scale: 0.85 + life * 0.25
-                        });
-                    }
-                }
-
-                function drawAim() {
-                    if (!state.canShoot || state.gameOver || !state.aim.active) return;
-                    const target = resolveShotTarget(state.aim.x, state.aim.y);
-                    buildAimPath(target.x, target.y);
-                    if (aimPointCount < 2) return;
-                    GM.draw.layer("Aim");
-                    let distanceCarry = 0;
-                    for (let segment = 1; segment < aimPointCount; segment += 1) {
-                        const a = aimPoints[segment - 1];
-                        const b = aimPoints[segment];
-                        const dx = b.x - a.x;
-                        const dy = b.y - a.y;
-                        const length = Math.hypot(dx, dy);
-                        if (length <= 0) continue;
-                        const ux = dx / length;
-                        const uy = dy / length;
-                        for (let distance = 18 - distanceCarry; distance < length; distance += 28) {
-                            drawSprite("aim-dot", a.x + ux * distance, a.y + uy * distance, {
-                                scale: 0.70,
-                                color: aimTarget ? "#ffd166" : "#ffffff",
-                                alpha: 0.88,
-                                originX: 0.5,
-                                originY: 0.5
-                            });
-                        }
-                        distanceCarry = (distanceCarry + length) % 28;
-                    }
-                    const end = aimPoints[aimPointCount - 1];
-                    drawSprite("spark", end.x, end.y, {
-                        scale: aimTarget ? 1.05 : 0.72,
-                        color: aimTarget ? "#ffd166" : "#9ea7ff",
-                        alpha: 0.88,
-                        originX: 0.5,
-                        originY: 0.5
-                    });
-                    if (aimTarget) {
-                        GM.draw.circle(aimTarget.x, aimTarget.y, aimTarget.r + 10, {
-                            color: "#ffd166",
-                            alpha: 0.62,
-                            outline: true,
-                            lineWidth: 4
-                        });
-                    }
-                }
-
-                function drawLauncher() {
-                    const D = GM.draw;
-                    const cx = state.fieldCenterX;
-                    const left = state.fieldLeft;
-                    const right = state.fieldRight;
-                    D.layer("Launcher");
-                    D.rect(left, state.layout.launcherTop, right, state.layout.height, { color: "#0a0a1a" });
-                    D.line(left, state.layout.floor, right, state.layout.floor, { color: "#ff2244", lineWidth: 4 });
-                    D.line(cx - 64, state.layout.cueY + 36, cx + 64, state.layout.cueY + 36, { color: "#4e527d", lineWidth: 4 });
-                    if (state.canShoot && !state.gameOver) {
-                        drawSprite("cue", cx, state.layout.cueY, {
-                            scale: 1,
-                            color: "#ffffff",
-                            alpha: 1,
-                            originX: 0.5,
-                            originY: 0.5
-                        });
-                    }
-                }
-
-                function drawHud() {
-                    const D = GM.draw;
-                    const left = state.fieldLeft;
-                    const right = state.fieldRight;
-                    const cx = state.fieldCenterX;
-                    D.layer("HUD");
-
-                    D.rect(left, 0, right, 74, { color: "#05050c", alpha: 0.42 });
-                    D.line(left, 74, right, 74, { color: "#232347", alpha: 0.82, lineWidth: 2 });
-                    D.textExt(left + 20, 22, "FRUIT SHOT", {
-                        font: "monospace", size: 26, bold: true, color: "#ffffff", hAlign: "left", vAlign: "middle"
-                    });
-                    D.textExt(left + 20, 52, "SCORE " + String(state.score).padStart(6, "0"), {
-                        font: "monospace", size: 18, bold: true, color: "#ffffff", hAlign: "left", vAlign: "middle"
-                    });
-                    D.textExt(right - 20, 52, "X" + state.combo.toFixed(1), {
-                        font: "monospace", size: 18, bold: true, color: state.combo > 1.05 ? "#ffd166" : "#8d92bd", hAlign: "right", vAlign: "middle"
-                    });
-
-                    if (!state.gameOver) {
-                        D.textFit(cx, state.layout.height - 18, state.canShoot ? "CLICK OR TAP ANYWHERE" : "CUE BALL ACTIVE", {
-                            font: "monospace", size: 14, minSize: 10, maxWidth: Math.min(520, right - left - 40), bold: true,
-                            color: state.canShoot ? "#b9bddb" : "#ffd166", hAlign: "center", vAlign: "bottom"
-                        });
-                        return;
-                    }
-
-                    const panelW = Math.min(500, right - left - 56);
-                    const panelLeft = cx - panelW * 0.5;
-                    const panelRight = cx + panelW * 0.5;
-                    const panelTop = Math.max(220, state.layout.height * 0.34);
-                    D.rect(0, 0, roomWidth(), state.layout.height, { color: "#000000", alpha: 0.74 });
-                    D.rect(panelLeft, panelTop, panelRight, panelTop + 250, { color: "#0b0b1d" });
-                    D.rect(panelLeft, panelTop, panelRight, panelTop + 250, { color: "#4b4f79", outline: true, lineWidth: 4 });
-                    D.textExt(cx, panelTop + 54, "BOARD FULL", { font: "monospace", size: 34, bold: true, color: "#ff718e", hAlign: "center", vAlign: "middle" });
-                    D.textExt(cx, panelTop + 110, "FINAL SCORE", { font: "monospace", size: 16, bold: true, color: "#8d92bd", hAlign: "center", vAlign: "middle" });
-                    D.textExt(cx, panelTop + 156, String(state.score).padStart(6, "0"), { font: "monospace", size: 30, bold: true, color: "#ffffff", hAlign: "center", vAlign: "middle" });
-                }
-
-                function drawUi() {
-                    if (!state.gameOver) return;
-                    const panelTop = Math.max(220, state.layout.height * 0.34);
-                    GM.ui.buttonCenter(state.fieldCenterX, panelTop + 208, 244, 58, "PLAY AGAIN", function () {
-                        resetGame(true);
-                    }, {
-                        id: "fruit-shot-play-again",
-                        fill: "#ffd166", hoverFill: "#ffe39a", activeFill: "#e7a93e",
-                        color: "#17131f", hoverColor: "#17131f", activeColor: "#17131f",
-                        radius: 0, font: "monospace", size: 18, shadow: false, hoverScale: 1, downScale: 1
-                    });
-                }
-
-                GM.app.start({
-                    parent: "game",
-                    width: VIEW.width,
-                    height: VIEW.height,
-                    responsive: false,
-                    integerScaleStep: PIXEL_SCALE_STEP,
-                    viewport: {
-                        mode: "fixed",
-                        width: VIEW.width,
-                        height: VIEW.height,
-                        fit: "contain",
-                        scaleStep: PIXEL_SCALE_STEP,
-                        fitArea: "viewport",
-                        safeArea: "vertical",
-                        align: {
-                            portrait: { x: "center", y: "top" },
-                            landscape: { x: "center", y: "top" }
-                        }
-                    },
-                    simulationHz: 60,
-                    maxFrameDeltaMs: 100,
-                    maxCatchUpSteps: 5,
-                    randomSeed: 1337,
-                    bleed: 1536,
-                    stage: false,
-                    curtain: false,
-                    globals: false,
-                    background: "#070916",
-                    renderQuality: "pixel-art",
-                    pixelArt: true,
-                    antialias: false,
-                    roundPixels: true,
-                    renderResolution: "auto",
-                    maxRenderResolution: 3,
-                    perfProbe: true,
-                    type: renderType,
-                    create: function () {
-                        GM.layer.define({
-                            Background: -100,
-                            World: -20,
-                            Balls: 0,
-                            Effects: 20,
-                            Launcher: 40,
-                            Aim: 70,
-                            HUD: 100
-                        });
-                        installAtlas();
-                        configureUi();
-                        seedStars();
-                        updateField();
-                        resetGame(false);
-                        proof.playable = true;
-                        proof.inputReady = Boolean(
-                            GM.input &&
-                            typeof GM.input.activePointers === "function" &&
-                            typeof GM.input.getPointer === "function" &&
-                            typeof GM.input.capturePointer === "function"
-                        );
-                        proof.phase = "running";
-                        setStatus(
-                            "Ready\nPhaser " + (window.Phaser.VERSION || "4.2.1") +
-                            "\nGrout13 " + proof.atlasFrames.length + " frames"
-                        );
-                        window.setTimeout(function () {
-                            if (!proof.failed) statusBox.hidden = true;
-                        }, 2600);
-                    },
-                    step: function (_gm, deltaSeconds) {
-                        proof.fixedSteps += 1;
-                        anchorGameplayViewportTop();
-                        updateField();
-                        simulate(deltaSeconds);
-                    },
-                    draw: function () {
-                        proof.frames += 1;
-                        anchorGameplayViewportTop();
-                        drawBackdrop();
-                        drawDanger();
-                        drawBalls();
-                        drawParticles();
-                        drawLauncher();
-                        drawAim();
-                        drawHud();
-                        proof.perf = GM.perf;
-                        if (!proof.failed && proof.fixedSteps >= 8 && proof.playable && proof.inputReady) {
-                            proof.complete = true;
-                            proof.phase = "complete";
-                        }
-                    },
-                    ui: function () {
-                        drawUi();
-                    },
-                    onError: function (error) {
-                        report(error);
-                    }
-                });
-            }
-
-            window.addEventListener("error", function (event) {
-                report(event.error || event.message || "window error");
-            });
-            window.addEventListener("unhandledrejection", function (event) {
-                report(event.reason || "unhandled rejection");
-            });
-
-            boot().catch(report);
-        }());
-    </script>
+<div id="game"></div>
+<div id="status">Loading...</div>
+<pre id="error" hidden></pre>
+
+<script type="importmap">
+{
+  "imports": {
+    "phaser": "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js",
+    "phaser4-facade": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4.module.js",
+    "phaser4-facade/grout13": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4-grout13.module.js",
+    "grout13": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13.mjs",
+    "grout13/font": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13-font.mjs",
+    "fruit-shot/config": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/examples/fruit-shot/config.js",
+    "fruit-shot/art": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/examples/fruit-shot/art.js"
+  }
+}
+</script>
+
+<script type="module">
+import { GM } from "phaser4-facade";
+import { installGrout13Bridge } from "phaser4-facade/grout13";
+import * as GROUT13 from "grout13";
+import { compileFontAtlas } from "grout13/font";
+import { DEFAULT_FRUIT_SHOT as GAME } from "fruit-shot/config";
+import { compileFruitShotFont, fruitRadiusFromFrame } from "fruit-shot/art";
+
+installGrout13Bridge(GM, GROUT13);
+
+const status = document.querySelector("#status");
+const errorBox = document.querySelector("#error");
+const proof = globalThis.__fruitMergeProof = {
+  complete:false, failed:false, fileMode:location.protocol === "file:", errors:[], viewport:"720x720", mouse:true, touch:true,
+  atlasText:true, grout13:true, fixedSimulation:true
+};
+
+const ATLAS = "fruit-merge";
+const FONT = "pixel-3x5";
+const WALL = 18;
+const CEILING = GAME.hudHeight + 10;
+const TIERS = [
+  ["BERRY",58,0xff4f75,0x9d2449,0xffc2d0],
+  ["PEACH",68,0xff9a62,0xb94d38,0xffd7b5],
+  ["PLUM",78,0xb86bff,0x6530a4,0xe8c9ff],
+  ["LEMON",88,0xffdc58,0xb48516,0xfff4b8],
+  ["LIME",98,0x61e985,0x198b4f,0xc9ffda],
+  ["MELON",108,0x47d7ff,0x176b9d,0xc1f4ff]
+];
+const P = {
+  gravity:112, damping:.994, bounce:.88, floorBounce:.70,
+  shot:1000, shotBonus:520, cueLife:1.75, mergeLock:.34, mergeKick:148
+};
+const R = { maxFruit:24, spawnEvery:4.4, dangerCount:4, dangerHold:2.2 };
+
+const state = {
+  balls:[], particles:[], score:0, combo:1, comboAge:0,
+  cue:null, cueAge:0, spawnAge:0, dangerAge:0,
+  canShoot:true, gameOver:false, id:0,
+  aim:{active:false,id:null,x:GAME.viewport.width/2,y:GAME.cueY}
+};
+
+const clamp = (v,a,b) => GM.math.clamp(v,a,b);
+const rand = (a,b) => GM.math.random_range(a,b);
+const irand = (a,b) => GM.math.irandom_range(a,b);
+const radius = type => fruitRadiusFromFrame(GM.asset, ATLAS, GAME.tiers[type].frame);
+const fruitCount = () => {
+  let n=0;
+  for(const b of state.balls) if(b.alive && b.type>=0) n++;
+  return n;
+};
+
+const PIXEL = 4;
+function rect(steps,x,y,w,h,col){ steps.push({type:"rect_filled",x,y,w,h,col}); }
+function disc(steps,cx,cy,r,col){
+  const x0=Math.floor(cx-r),x1=Math.ceil(cx+r),y0=Math.floor(cy-r),y1=Math.ceil(cy+r),rr=r*r;
+  for(let y=y0;y<=y1;y+=PIXEL){
+    let start=-1;
+    for(let x=x0;x<=x1+PIXEL;x+=PIXEL){
+      const inside=x<=x1&&((x-cx)**2+(y-cy)**2<=rr);
+      if(inside&&start<0) start=x;
+      if(!inside&&start>=0){rect(steps,start,y,x-start,PIXEL,col);start=-1;}
+    }
+  }
+}
+function fruitAsset([,size,body,shade,light], type){
+  const c=size/2,r=size*.42,s=[];
+  disc(s,c,c+3,r+4,0x251b38);
+  disc(s,c+3,c+6,r,shade);
+  disc(s,c-2,c,r-3,body);
+  disc(s,c-r*.28,c-r*.30,Math.max(6,r*.21),light);
+  rect(s,Math.floor(c-2),0,5,Math.max(8,size*.18|0),0x69432e);
+  rect(s,Math.floor(c+2),5,Math.max(8,size*.18|0),5,0x67dc75);
+  rect(s,Math.floor(c+5),9,Math.max(6,size*.13|0),4,0x2f9d55);
+  return {name:`fruit-${type}`,spec:{w:size,h:size,steps:s}};
+}
+function circleAsset(name,size,rings){
+  const s=[],c=size/2;
+  for(const [r,col,dx=0,dy=0] of rings) disc(s,c+dx,c+dy,r,col);
+  return {name,spec:{w:size,h:size,steps:s}};
+}
+function installAssets(){
+  const art = TIERS.map(fruitAsset);
+  const cue=circleAsset("cue",64,[[30,0x26243b],[27,0xf4fbff], [8,0xbfeeff,-9,-10]]);
+  rect(cue.spec.steps,15,42,34,4,0xc9d4e3);
+  art.push(
+    cue,
+    circleAsset("disc",32,[[15,0xffffff]]),
+    {name:"spark",spec:{w:24,h:24,steps:[
+      {type:"rect_filled",x:10,y:0,w:4,h:24,col:0xffffff},
+      {type:"rect_filled",x:0,y:10,w:24,h:4,col:0xffffff},
+      {type:"rect_filled",x:6,y:6,w:12,h:12,col:0xffffff}
+    ]}},
+    circleAsset("aim-dot",16,[[7,0x4b4d68],[4,0xffffff]])
+  );
+  GM.grout13.addAtlas(ATLAS, art, {
+    replace:true, preset:"pixel",
+    compileOptions:{atlasOptions:{maxWidth:512,maxHeight:512}}
+  });
+  const font = compileFruitShotFont({compileFontAtlas});
+  GM.grout13.addFont(FONT,font,{replace:true});
+}
+
+function spawn(x,y,type=irand(0,2),r=null){
+  const rr = r ?? radius(type);
+  const b = {
+    id:++state.id,type,x,y,px:x,py:y,r:rr,
+    vx:rand(-18,18),vy:rand(-12,12),lock:0,alive:true,age:0
+  };
+  GM.debug.assertFinite("fruit spawn",{x,y,radius:rr});
+  state.balls.push(b);
+  return b;
+}
+function seed(){
+  const rows = [[.18,.48,0],[.34,.63,1],[.50,.43,0],[.66,.59,2],[.82,.48,1]];
+  for(const [nx,ny,t] of rows){
+    const r=radius(t);
+    spawn(WALL+r+(GAME.viewport.width-WALL*2-r*2)*nx,
+      CEILING+(GAME.floorY-CEILING)*ny,t,r);
+  }
+  const r=radius(0);
+  spawn(360-r*.55,GAME.floorY-r-8,0,r);
+  spawn(360+r*.55,GAME.floorY-r-8,0,r);
+}
+function reset(){
+  state.balls.length=state.particles.length=0;
+  Object.assign(state,{
+    score:0,combo:1,comboAge:0,cue:null,cueAge:0,spawnAge:0,dangerAge:0,
+    canShoot:true,gameOver:false
+  });
+  state.aim.active=false;
+  seed();
+}
+
+function move(b,dt){
+  b.px=b.x; b.py=b.y; b.age+=dt; b.lock=Math.max(0,b.lock-dt);
+  const d=Math.pow(P.damping,dt*60);
+  b.vy+=P.gravity*dt; b.vx*=d; b.vy*=d;
+  b.x+=b.vx*dt; b.y+=b.vy*dt;
+
+  if(b.x-b.r<WALL){ b.x=WALL+b.r; b.vx=Math.abs(b.vx)*P.bounce; }
+  if(b.x+b.r>GAME.viewport.width-WALL){
+    b.x=GAME.viewport.width-WALL-b.r; b.vx=-Math.abs(b.vx)*P.bounce;
+  }
+  if(b.y-b.r<CEILING){ b.y=CEILING+b.r; b.vy=Math.abs(b.vy)*P.bounce; }
+  if(b.type<0 && b.y+b.r>GAME.viewport.height){
+    b.y=GAME.viewport.height-b.r;
+    b.vy=-Math.abs(b.vy)*P.bounce;
+  }
+  if(b.type>=0 && b.y+b.r>GAME.floorY){
+    b.y=GAME.floorY-b.r;
+    b.vy=-Math.abs(b.vy)*P.floorBounce;
+    b.vx*=.94;
+  }
+}
+function burst(x,y,color,count=7){
+  while(count-- && state.particles.length<80){
+    const a=rand(0,Math.PI*2), s=rand(70,190);
+    state.particles.push({x,y,px:x,py:y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,age:0,life:rand(.3,.65),color});
+  }
+}
+function merge(a,b){
+  const next=a.type+1;
+  a.alive=b.alive=false;
+  if(next>=TIERS.length){
+    state.score+=GAME.tiers[a.type].score*4*state.combo;
+    burst((a.x+b.x)/2,(a.y+b.y)/2,"#ffd166",14);
+    return;
+  }
+  const m=spawn((a.x+b.x)/2,(a.y+b.y)/2,next,radius(next));
+  m.vx=(a.vx+b.vx)*.35;
+  m.vy=(a.vy+b.vy)*.35-P.mergeKick;
+  m.lock=P.mergeLock;
+  state.score+=Math.round(GAME.tiers[next].score*state.combo);
+  state.combo=Math.min(9.9,state.combo+.25);
+  state.comboAge=0;
+  burst(m.x,m.y,"#ffd166");
+}
+function collide(a,b){
+  const dx=b.x-a.x,dy=b.y-a.y,min=a.r+b.r,d2=dx*dx+dy*dy;
+  if(d2>=min*min) return;
+  const d=Math.sqrt(d2)||.001,nx=dx/d,ny=dy/d,push=(min-d)/2;
+  a.x-=nx*push;a.y-=ny*push;b.x+=nx*push;b.y+=ny*push;
+  const rv=(a.vx-b.vx)*nx+(a.vy-b.vy)*ny;
+  if(rv>0){
+    const k=rv*.9;
+    a.vx-=k*nx;a.vy-=k*ny;b.vx+=k*nx;b.vy+=k*ny;
+  }
+  if(a.type>=0 && a.type===b.type && !a.lock && !b.lock) merge(a,b);
+}
+
+function resolveShotTarget(x,y){
+  const dx=x-360, dy=y-GAME.cueY;
+  return {x:360+dx,y:GAME.cueY-Math.max(72,Math.abs(dy))};
+}
+function shoot(x,y){
+  if(!state.canShoot||state.gameOver) return;
+  const t=resolveShotTarget(x,y);
+  const n=GM.math.normalize2(t.x-360,t.y-GAME.cueY);
+  const power=P.shot+Math.min(P.shotBonus,n.length*1.35);
+  const cue=spawn(360,GAME.cueY,-1,GAME.launcher.cueRadius);
+  cue.vx=n.x*power; cue.vy=n.y*power; cue.age=0;
+  state.cue=cue; state.cueAge=0; state.canShoot=false;
+}
+function input(){
+  const p=GM.input.primaryPointer();
+  if(state.gameOver){
+    if(p?.released||GM.input.keyPressed(GM.key.SPACE)) reset();
+    return;
+  }
+  if(state.canShoot && p?.pressed && !state.aim.active){
+    state.aim={active:true,id:p.id,x:p.roomX,y:p.roomY};
+    GM.input.capturePrimary("aim");
+  }
+  if(state.aim.active && p && p.id===state.aim.id){
+    state.aim.x=p.roomX; state.aim.y=p.roomY;
+    if(p.released){
+      shoot(p.roomX,p.roomY);
+      GM.input.releasePrimary("aim");
+      state.aim.active=false;
+    }
+  }
+  if(state.canShoot && GM.input.keyPressed(GM.key.SPACE)) shoot(360,GAME.dangerY+80);
+}
+
+function step(dt){
+  input();
+  for(const b of state.balls) if(b.alive) move(b,dt);
+
+  for(let i=0;i<state.balls.length;i++){
+    const a=state.balls[i]; if(!a.alive) continue;
+    for(let j=i+1;j<state.balls.length;j++){
+      const b=state.balls[j]; if(b.alive) collide(a,b);
+      if(!a.alive) break;
+    }
+  }
+  state.balls=state.balls.filter(b=>b.alive);
+
+  for(const p of state.particles){
+    p.px=p.x;p.py=p.y;p.age+=dt;p.vy+=260*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;
+  }
+  state.particles=state.particles.filter(p=>p.age<p.life);
+
+  if(state.cue){
+    state.cueAge+=dt;
+    if(!state.cue.alive||state.cueAge>P.cueLife){
+      if(state.cue) state.cue.alive=false;
+      state.cue=null;state.canShoot=true;
+    }
+  }
+
+  state.spawnAge+=dt;
+  if(state.spawnAge>=R.spawnEvery){
+    state.spawnAge-=R.spawnEvery;
+    if(fruitCount()<R.maxFruit){
+      const t=irand(0,2),r=radius(t);
+      spawn(rand(WALL+r,720-WALL-r),CEILING-r-10,t,r);
+    }
+  }
+
+  state.comboAge+=dt;
+  if(state.comboAge>2.1){state.combo=Math.max(1,state.combo-dt*.8);}
+  let danger=0;
+  for(const b of state.balls)
+    if(b.type>=0 && b.y-b.r<GAME.dangerY && Math.hypot(b.vx,b.vy)<250) danger++;
+  state.dangerAge=danger>=R.dangerCount?state.dangerAge+dt:Math.max(0,state.dangerAge-dt*2);
+  if(state.dangerAge>=R.dangerHold) state.gameOver=true;
+}
+
+function drawFrame(){
+  const D=GM.draw,v=GM.viewport.visibleRoomRect;
+  D.layer("Background");
+  D.rect(v.x,v.y,v.x+v.width,v.y+v.height,{color:"#11131f"});
+  D.rect(0,0,720,720,{color:"#09091a"});
+  D.rect(0,GAME.floorY,720,720,{color:"#0a0a1a"});
+  for(let y=CEILING;y<GAME.floorY;y+=48)
+    D.line(WALL,y,720-WALL,y,{color:"#25294d",alpha:y%96?0.14:0.26,lineWidth:2});
+
+  D.layer("World");
+  D.line(WALL,GAME.dangerY,720-WALL,GAME.dangerY,{color:"#59233d",alpha:.7,lineWidth:3});
+
+  D.layer("Launcher");
+  D.line(0,GAME.floorY,720,GAME.floorY,{color:"#ff2244",lineWidth:4});
+  D.line(296,GAME.cueY+36,424,GAME.cueY+36,{color:"#4e527d",lineWidth:4});
+  if(state.canShoot&&!state.gameOver)
+    D.spriteExt(ATLAS,"cue",360,GAME.cueY,{originX:.5,originY:.5});
+
+  const alpha=clamp(GM.runtime.simulationAlpha,0,1);
+  D.layer("Balls");
+  for(const b of state.balls){
+    const x=GM.math.lerp(b.px,b.x,alpha),y=GM.math.lerp(b.py,b.y,alpha);
+    if(!Number.isFinite(x+y+b.r)) continue;
+    D.spriteExt(ATLAS,"disc",x+4,Math.min(GAME.floorY+2,y+b.r*.84),{
+      width:b.r*1.55,height:Math.max(8,b.r*.3),color:"#000000",alpha:.24
+    });
+    D.spriteExt(ATLAS,b.type<0?"cue":GAME.tiers[b.type].frame,x,y,{originX:.5,originY:.5});
+  }
+
+  D.layer("Effects");
+  for(const p of state.particles){
+    const life=1-p.age/p.life;
+    D.spriteExt(ATLAS,"spark",GM.math.lerp(p.px,p.x,alpha),GM.math.lerp(p.py,p.y,alpha),{
+      scale:.45+life*.6,color:p.color,alpha:life
+    });
+  }
+
+  drawAim();
+
+  D.layer("HUD");
+  D.rect(0,0,720,GAME.hudHeight,{color:"#05050c",alpha:.42});
+  D.line(0,GAME.hudHeight,720,GAME.hudHeight,{color:"#232347",alpha:.82,lineWidth:2});
+  D.atlasText(FONT,"FRUIT SHOT",20,14,{scale:1.35,color:"#ffffff"});
+  D.atlasText(FONT,`SCORE ${String(state.score|0).padStart(6,"0")}`,20,44,{scale:1,color:"#ffffff"});
+  D.atlasText(FONT,`X${state.combo.toFixed(1)}`,700,44,{
+    scale:1,color:state.combo>1.05?"#ffd166":"#8d92bd",align:"right"
+  });
+  D.atlasTextFit(FONT,state.canShoot?"CLICK OR TAP ANYWHERE":"CUE BALL ACTIVE",360,690,{
+    maxWidth:500,scale:.9,minScale:.55,color:state.canShoot?"#b9bddb":"#ffd166",align:"center"
+  });
+
+  if(state.gameOver){
+    D.rect(0,0,720,720,{color:"#000000",alpha:.7});
+    D.atlasText(FONT,"BOARD FULL",360,280,{scale:2,color:"#ff718e",align:"center"});
+    D.atlasText(FONT,`SCORE ${String(state.score|0).padStart(6,"0")}`,360,340,{scale:1.25,color:"#ffffff",align:"center"});
+  }
+}
+
+function drawAim(){
+  if(!state.aim.active||!state.canShoot||state.gameOver) return;
+  const D=GM.draw,t=resolveShotTarget(state.aim.x,state.aim.y);
+  let n=GM.math.normalize2(t.x-360,t.y-GAME.cueY),x=360,y=GAME.cueY,remain=620;
+  D.layer("Aim");
+  for(let bounce=0;bounce<4&&remain>0;bounce++){
+    let wall=Infinity;
+    if(n.x<-.001) wall=(WALL+GAME.launcher.cueRadius-x)/n.x;
+    if(n.x>.001) wall=(720-WALL-GAME.launcher.cueRadius-x)/n.x;
+    const travel=wall>0&&wall<remain?wall:remain;
+    const x2=x+n.x*travel,y2=y+n.y*travel;
+    D.line(x,y,x2,y2,{color:"#ffffff",alpha:.26,lineWidth:2});
+    const dots=Math.floor(travel/30);
+    for(let i=1;i<=dots;i++){
+      const q=i/(dots+1);
+      D.spriteExt(ATLAS,"aim-dot",x+(x2-x)*q,y+(y2-y)*q,{scale:.7,alpha:.88});
+    }
+    remain-=travel;x=x2;y=y2;
+    if(travel===wall){n.x=-n.x;x+=n.x*.01;}else break;
+  }
+  D.spriteExt(ATLAS,"spark",x,y,{scale:.75,color:"#ffd166",alpha:.9});
+}
+
+function create(){
+  GM.layer.stack(["Background","World","Balls","Effects","Launcher","Aim","HUD"],{start:-100,step:20});
+  GM.layer.assertAbove("Aim","Launcher");
+  installAssets();
+  reset();
+  status.hidden=true;
+  proof.complete=true;
+}
+
+GM.app.start({
+  parent:"game",
+  viewport:{
+    mode:"fixed",width:GAME.viewport.width,height:GAME.viewport.height,
+    fit:"contain",scaleStep:.25,fitArea:"viewport",safeArea:"vertical",
+    align:{
+      portrait:{x:"center",y:"top"},
+      landscape:{x:"center",y:"center"}
+    }
+  },
+  simulationHz:60,maxFrameDeltaMs:100,maxCatchUpSteps:5,randomSeed:1337,
+  renderQuality:"pixel-art",pixelArt:true,antialias:false,roundPixels:true,
+  renderResolution:"auto",maxRenderResolution:3,
+  stage:false,curtain:false,globals:false,drawValidation:"report",layerAssertions:true,
+  background:"#11131f",
+  create,step:(_gm,dt)=>step(dt),draw:drawFrame,
+  ui(){
+    if(!state.gameOver) return;
+    GM.ui.buttonCenter(360,410,220,58,"PLAY AGAIN",reset,{
+      id:"again",fill:"#ffd166",hoverFill:"#ffe39a",activeFill:"#e7a93e",
+      color:"#17131f",radius:0,font:"monospace",size:18,shadow:false
+    });
+  },
+  onError(error){
+    const text=error instanceof Error?(error.stack||error.message):String(error);
+    proof.errors.push(text);
+    errorBox.hidden=false;
+    errorBox.textContent=text;
+  }
+});
+</script>
 </body>
 </html>

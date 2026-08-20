@@ -178,6 +178,33 @@ assert.equal(coreSource.includes("GROUT13"), false, "Core Fruit Shot must not lo
 function checkGrout13Showcase() {
     const html = read(GROUT_HTML);
     if (/<script\s+type=["']module["']/i.test(html) || /<script\s+type=["']importmap["']/i.test(html)) {
+        for (const marker of [
+            "data-gm-app-shell=\"locked\"",
+            "type=\"importmap\"",
+            'import { GM } from "phaser4-facade";',
+            'import { installGrout13Bridge } from "phaser4-facade/grout13";',
+            'import { DEFAULT_FRUIT_SHOT as GAME } from "fruit-shot/config";',
+            "installGrout13Bridge(GM, GROUT13);",
+            "GM.grout13.addAtlas",
+            "GM.grout13.addFont",
+            "GM.app.start",
+            "GM.layer.stack",
+            "D.atlasText",
+            "GM.input.primaryPointer",
+            "GAME.floorY",
+            "__fruitMergeProof"
+        ]) {
+            if (!html.includes(marker)) fail("Grout13 Fruit Shot module example is missing marker: " + marker);
+        }
+        const moduleScript = getExecutableInlineScript(html, "Grout13 Fruit Shot module example");
+        try {
+            new Function(moduleScript.replace(/^import .*$/gm, ""));
+        } catch (error) {
+            fail("Grout13 Fruit Shot module example has a syntax error: " + (error instanceof Error ? error.message : String(error)));
+        }
+        return;
+    }
+    if (/<script\s+type=["']module["']/i.test(html) || /<script\s+type=["']importmap["']/i.test(html)) {
         fail("Grout13 Fruit Shot must remain a plain-script all-in-one CDN example.");
     }
     if (/\bimport\s+/.test(html)) fail("Grout13 Fruit Shot must not use module import syntax.");

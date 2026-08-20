@@ -516,6 +516,67 @@
     }
     return chosen;
   }
+  function createPointerRecord(id, seed) {
+    return {
+      id: String(id),
+      screenX: seed.screenX,
+      screenY: seed.screenY,
+      x: seed.x,
+      y: seed.y,
+      startX: seed.x,
+      startY: seed.y,
+      button: seed.button || "left",
+      kind: seed.kind || "mouse",
+      down: false,
+      active: true,
+      pressed: false,
+      released: false,
+      owner: null,
+      downTime: Number(seed.time) || 0
+    };
+  }
+  function applyPointerDown(record, coords) {
+    if (!record.down) {
+      record.startX = coords.x;
+      record.startY = coords.y;
+      record.downTime = Number(coords.time) || record.downTime || 0;
+      record.pressed = true;
+    }
+    record.down = true;
+    record.released = false;
+    record.active = true;
+    return record;
+  }
+  function applyPointerRelease(record) {
+    record.down = false;
+    record.released = true;
+    record.active = true;
+    return record;
+  }
+  function endPointerFrame(record) {
+    record.pressed = false;
+    record.released = false;
+    if (!record.down) record.active = false;
+    return record;
+  }
+  function rememberPrimaryPointerId(currentId, pointers, candidateId, flags = {}) {
+    const records = pointers instanceof Map ? pointers : new Map(
+      Array.from(pointers || []).filter(Boolean).map((pointer) => [String(pointer.id), pointer])
+    );
+    if (currentId) {
+      const current = records.get(String(currentId));
+      if (current && (current.down || current.released || current.active)) return String(currentId);
+    }
+    if (flags.down === true) return String(candidateId);
+    return currentId ? String(currentId) : null;
+  }
+  function resolvePrimaryPointer(primaryId, pointers) {
+    if (primaryId && pointers.has(String(primaryId))) {
+      const record = pointers.get(String(primaryId));
+      if (record && (record.down || record.released || record.active)) return record;
+    }
+    return pickPrimaryPointer(Array.from(pointers.values()));
+  }
 
   // phaser4-facade-runtime:src/core/perf-metrics.js
   function nowMs() {
@@ -1396,6 +1457,32 @@ ${details}`);
   }
 
   // phaser4-facade-runtime:src/core/entity.js
+  var INSTANCE_OWNER = Symbol("gm-phaser4.instance-owner");
+  var PROTECTED_CREATE_KEYS = /* @__PURE__ */ new Set([
+    "id",
+    "object_index",
+    "__active",
+    "__alarmSetFrame",
+    "layer",
+    "layerDepth"
+  ]);
+  var BLOCKED_CREATE_KEYS = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]);
+  function isOwnedRuntimeInstance(state, target) {
+    return Boolean(
+      target && (typeof target === "object" || typeof target === "function") && state.instances.includes(target) && target[INSTANCE_OWNER] === state.instanceOwner
+    );
+  }
+  function applyCreateVars(instance, createVars) {
+    for (const key of Object.keys(createVars)) {
+      if (PROTECTED_CREATE_KEYS.has(key) || BLOCKED_CREATE_KEYS.has(key)) continue;
+      Object.defineProperty(instance, key, {
+        configurable: true,
+        enumerable: true,
+        value: createVars[key],
+        writable: true
+      });
+    }
+  }
   function stepRuntimeAlarms(state, api, inst) {
     if (!inst.alarm) return;
     for (let i = 0; i < ALARM_COUNT; i += 1) {
@@ -1455,6 +1542,12 @@ ${details}`);
   function createRuntimeInstance(state, api, x, y, layer, objectDef, createVars) {
     const source = objectDef || {};
     const inst = Object.assign({}, source);
+    Object.defineProperty(inst, INSTANCE_OWNER, {
+      configurable: false,
+      enumerable: false,
+      value: state.instanceOwner,
+      writable: false
+    });
     inst.id = state.nextInstanceId++;
     inst.object_index = objectDef;
     inst.x = x;
@@ -1475,7 +1568,7 @@ ${details}`);
       return Number.isFinite(value) ? value : -1;
     });
     if (createVars && typeof createVars === "object") {
-      Object.assign(inst, createVars);
+      applyCreateVars(inst, createVars);
     }
     state.instances.push(inst);
     state.currentInstance = inst;
@@ -1492,14 +1585,15 @@ ${details}`);
   }
   function destroyRuntimeInstance(state, api, inst) {
     const target = inst || state.currentInstance;
-    if (!target) return;
+    if (!isOwnedRuntimeInstance(state, target)) return;
     if (target.__active === false) return;
     target.__active = false;
     if (typeof target.destroy === "function") target.destroy.call(target, api);
   }
   function runtimeInstanceExists(state, target) {
     if (!target) return false;
-    if (target.__active !== void 0) return !!target.__active;
+    if (isOwnedRuntimeInstance(state, target)) return !!target.__active;
+    if (typeof target === "object" && target.__active !== void 0) return false;
     return state.instances.some((inst) => inst.__active && inst.object_index === target);
   }
   function countRuntimeInstances(state, objectDef) {
@@ -3598,8 +3692,8 @@ ${details}`);
       },
       primaryPointer() {
         const runtime2 = activeOrNull();
-        if (!runtime2) return null;
-        const record = pickPrimaryPointer(runtime2.active_pointers());
+        if (!runtime2 || !runtime2.state || !(runtime2.state.pointers instanceof Map)) return null;
+        const record = resolvePrimaryPointer(runtime2.state.primaryPointerId, runtime2.state.pointers);
         if (!record) return null;
         const button = record.button || INPUT2.mb_left;
         return {
@@ -3612,8 +3706,8 @@ ${details}`);
           y: record.y,
           insideGame: GM.viewport.containsRoomPoint(record.x, record.y),
           down: !!record.down,
-          pressed: !!(runtime2.state.mouse.pressed && runtime2.state.mouse.pressed[button]),
-          released: !!(runtime2.state.mouse.released && runtime2.state.mouse.released[button]),
+          pressed: !!record.pressed,
+          released: !!record.released,
           kind: record.kind || inferPointerKind(record),
           button,
           owner: record.owner || null
@@ -4469,6 +4563,7 @@ ${details}`);
       cleanedUp: false,
       modals: [],
       instances: [],
+      instanceOwner: Symbol("gm-phaser4-runtime"),
       nextInstanceId: 1,
       currentInstance: null,
       stepFrame: 0,
@@ -4485,6 +4580,7 @@ ${details}`);
         fixedDeltaSec: 0
       },
       pointers: /* @__PURE__ */ new Map(),
+      primaryPointerId: null,
       layout: {
         x: 0,
         y: 0,
@@ -4716,8 +4812,11 @@ ${details}`);
           for (const pointer of state.pointers.values()) {
             pointer.active = false;
             pointer.down = false;
+            pointer.pressed = false;
+            pointer.released = false;
           }
         }
+        state.primaryPointerId = null;
       }
       function recoverInputFocus() {
         state.inputGate.capturedPointers = /* @__PURE__ */ Object.create(null);
@@ -4725,6 +4824,7 @@ ${details}`);
         state.inputGate.pausedUntil = 0;
         clearTransientInput();
         if (state.pointers instanceof Map) state.pointers.clear();
+        state.primaryPointerId = null;
         if (api && typeof api.update_input_blocker === "function") api.update_input_blocker();
       }
       function captureBlocksGameplay(owner) {
@@ -4752,21 +4852,15 @@ ${details}`);
         const roomY = (screenY - state.layout.y) / scale;
         let record = state.pointers.get(id);
         if (!record) {
-          record = {
-            id,
-            screenX,
-            screenY,
+          record = createPointerRecord(id, {
             x: roomX,
             y: roomY,
-            startX: roomX,
-            startY: roomY,
+            screenX,
+            screenY,
             button: buttonFromPointer(pointer),
             kind: inferPointerKind(pointer),
-            down: false,
-            active: true,
-            owner: null,
-            downTime: state.currentTime
-          };
+            time: state.currentTime
+          });
           state.pointers.set(id, record);
         } else {
           record.screenX = screenX;
@@ -4778,17 +4872,12 @@ ${details}`);
           record.active = true;
         }
         if (flags.down === true) {
-          if (!record.down) {
-            record.startX = roomX;
-            record.startY = roomY;
-            record.downTime = state.currentTime;
-          }
-          record.down = true;
+          applyPointerDown(record, { x: roomX, y: roomY, time: state.currentTime });
         }
         if (flags.released === true) {
-          record.down = false;
-          record.active = false;
+          applyPointerRelease(record);
         }
+        state.primaryPointerId = rememberPrimaryPointerId(state.primaryPointerId, state.pointers, id, flags);
         return record;
       }
       function pruneUiButtons() {
@@ -5224,11 +5313,7 @@ ${details}`);
             delete state.inputGate.capturedPointers[key];
           }
           const record = state.pointers.get(key);
-          if (record) {
-            record.owner = null;
-            record.down = false;
-            record.active = false;
-          }
+          if (record) record.owner = null;
           api.update_input_blocker();
           return api;
         },
@@ -5295,6 +5380,13 @@ ${details}`);
           state.keysPressed = /* @__PURE__ */ Object.create(null);
           state.keysPressedRaw = /* @__PURE__ */ Object.create(null);
           state.keysReleased = /* @__PURE__ */ Object.create(null);
+          if (state.pointers instanceof Map) {
+            for (const record of state.pointers.values()) endPointerFrame(record);
+          }
+          const primary = state.primaryPointerId && state.pointers.get(state.primaryPointerId);
+          if (!primary || !primary.down && !primary.released && !primary.active) {
+            state.primaryPointerId = null;
+          }
           pruneUiButtons();
           return api;
         },

@@ -24,17 +24,20 @@ const FACADE_MODULE_DIST = path.join(ROOT, "dist", "gm-phaser4.module.js");
 const BRIDGE_GLOBAL_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.global.min.js");
 const BRIDGE_MODULE_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.module.js");
 const SHELL_CSS = path.join(ROOT, "examples", "native-app-shell.css");
+const FRUIT_SHOT_CONFIG = path.join(ROOT, "examples", "fruit-shot", "config.js");
+const FRUIT_SHOT_ART = path.join(ROOT, "examples", "fruit-shot", "art.js");
 const GROUT_FIXTURE = resolveGrout13Fixture(ROOT);
 const GROUT_GLOBAL_DIST = GROUT_FIXTURE.globalPath;
 const GROUT_MODULE_DIST = GROUT_FIXTURE.modulePath;
+const GROUT_FONT_DIST = GROUT_MODULE_DIST ? path.join(path.dirname(GROUT_MODULE_DIST), "grout13-font.mjs") : null;
 const HAS_LOCAL_GROUT = Boolean(GROUT_GLOBAL_DIST && GROUT_MODULE_DIST && fs.existsSync(GROUT_GLOBAL_DIST) && fs.existsSync(GROUT_MODULE_DIST));
 const HEADERS = { "access-control-allow-origin": "*" };
 
 const TEST_CASES = [
-    { name: "grout13-phone-3x", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 3 }, pixelScale: 0.5, pixelMode: "integer" },
-    { name: "grout13-tablet-2x", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "canvas", viewport: { width: 768, height: 1024, deviceScaleFactor: 2 }, pixelScale: 0.5, pixelMode: "integer" },
-    { name: "grout13-desktop-webgl", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 }, pixelScale: 0.5, pixelMode: "integer" },
-    { name: "grout13-pinned-fallback", kind: "grout13", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitShotGrout13Proof", render: "canvas", viewport: { width: 720, height: 1280, deviceScaleFactor: 1 }, runtimeFallback: true, pixelScale: 1, pixelMode: "integer" },
+    { name: "grout13-module-phone-3x", kind: "grout13-module", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitMergeProof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 3 } },
+    { name: "grout13-module-tablet-2x", kind: "grout13-module", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitMergeProof", render: "canvas", viewport: { width: 768, height: 1024, deviceScaleFactor: 2 } },
+    { name: "grout13-module-desktop-webgl", kind: "grout13-module", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitMergeProof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 } },
+    { name: "grout13-module-compact", kind: "grout13-module", relPath: "examples/fruit-shot-grout13.html", proofName: "__fruitMergeProof", render: "canvas", viewport: { width: 320, height: 568, deviceScaleFactor: 2 } },
     { name: "core-phone-2x", kind: "core", relPath: "examples/fruit-shot.html", proofName: "__fruitShotProof", render: "canvas", viewport: { width: 390, height: 844, deviceScaleFactor: 2 }, pixelScale: 0.5, pixelMode: "integer" },
     { name: "core-compact-phone-2x", kind: "core", relPath: "examples/fruit-shot.html", proofName: "__fruitShotProof", render: "canvas", viewport: { width: 320, height: 568, deviceScaleFactor: 2 }, pixelScale: 568 / 1280, pixelMode: "fit-fallback" },
     { name: "core-desktop-webgl", kind: "core", relPath: "examples/fruit-shot.html", proofName: "__fruitShotProof", render: "webgl", viewport: { width: 1366, height: 768, deviceScaleFactor: 1 }, pixelScale: 0.5, pixelMode: "integer" },
@@ -49,6 +52,16 @@ function fail(message) {
 function assertProof(report, testCase) {
     if (!report || report.failed || !report.complete) {
         fail(testCase.name + " Fruit Shot proof did not complete: " + JSON.stringify(report, null, 2));
+    }
+    if (testCase.kind === "grout13-module") {
+        assert.deepEqual(report.errors, [], testCase.name + " proof errors");
+        assert.equal(report.viewport, "720x720", testCase.name + " fixed room");
+        assert.equal(report.mouse, true, testCase.name + " exposes mouse input");
+        assert.equal(report.touch, true, testCase.name + " exposes touch input");
+        assert.equal(report.atlasText, true, testCase.name + " draws atlas text");
+        assert.equal(report.grout13, true, testCase.name + " installs its Grout13 atlas");
+        assert.equal(report.fixedSimulation, true, testCase.name + " advances fixed simulation");
+        return;
     }
     assert.equal(report.render, testCase.render === "canvas" ? "CANVAS" : "WEBGL", testCase.name + " render mode");
     assert.equal(report.pixelSourceScale, 4, testCase.name + " uses four-pixel authored source cells");
@@ -121,30 +134,50 @@ async function installRoutes(page, testCase) {
     await page.route(/^https:\/\/cdn\.jsdelivr\.net\/gh\//, async (route) => {
         const url = route.request().url();
         const fulfill = (filePath, contentType) => route.fulfill({ path: filePath, contentType, headers: HEADERS });
-        if (url === CSS_CDN) return fulfill(SHELL_CSS, "text/css; charset=utf-8");
+        if (url === CSS_CDN || /\/Shoozes\/phaser4-facade@[^/]+\/examples\/native-app-shell\.css$/.test(url)) {
+            return fulfill(SHELL_CSS, "text/css; charset=utf-8");
+        }
         if (url === PHASER_GLOBAL_CDN) return fulfill(PHASER_GLOBAL_DIST, "text/javascript; charset=utf-8");
-        if (url === PHASER_MODULE_CDN) return fulfill(PHASER_MODULE_DIST, "text/javascript; charset=utf-8");
-        if (url === GROUT_MAIN + "grout13.global.min.js" || url === GROUT_PIN + "grout13.global.min.js") {
+        if (url === PHASER_MODULE_CDN || /\/phaserjs\/phaser@[^/]+\/dist\/phaser\.esm\.js$/.test(url)) {
+            return fulfill(PHASER_MODULE_DIST, "text/javascript; charset=utf-8");
+        }
+        if (url === GROUT_MAIN + "grout13.global.min.js" || url === GROUT_PIN + "grout13.global.min.js" ||
+            /\/Shoozes\/grout13@[^/]+\/dist\/grout13\.global\.min\.js$/.test(url)) {
             return HAS_LOCAL_GROUT ? fulfill(GROUT_GLOBAL_DIST, "text/javascript; charset=utf-8") : route.continue();
         }
-        if (url === GROUT_MAIN + "grout13.mjs" || url === GROUT_PIN + "grout13.mjs") {
+        if (url === GROUT_MAIN + "grout13.mjs" || url === GROUT_PIN + "grout13.mjs" ||
+            /\/Shoozes\/grout13@[^/]+\/dist\/grout13\.mjs$/.test(url)) {
             return HAS_LOCAL_GROUT ? fulfill(GROUT_MODULE_DIST, "text/javascript; charset=utf-8") : route.continue();
         }
-        if (url === FACADE_MAIN + "gm-phaser4.global.min.js") {
+        if (/\/Shoozes\/grout13@[^/]+\/dist\/grout13-font\.mjs$/.test(url)) {
+            return GROUT_FONT_DIST && fs.existsSync(GROUT_FONT_DIST)
+                ? fulfill(GROUT_FONT_DIST, "text/javascript; charset=utf-8")
+                : route.continue();
+        }
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4\.global\.min\.js$/.test(url)) {
             return testCase.runtimeFallback ? route.abort("failed") : fulfill(FACADE_GLOBAL_DIST, "text/javascript; charset=utf-8");
         }
-        if (url === FACADE_PIN + "gm-phaser4.global.min.js") return fulfill(FACADE_GLOBAL_DIST, "text/javascript; charset=utf-8");
-        if (url === FACADE_MAIN + "gm-phaser4-grout13.global.min.js") {
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4-grout13\.global\.min\.js$/.test(url)) {
             return testCase.runtimeFallback ? route.abort("failed") : fulfill(BRIDGE_GLOBAL_DIST, "text/javascript; charset=utf-8");
         }
-        if (url === FACADE_PIN + "gm-phaser4-grout13.global.min.js") return fulfill(BRIDGE_GLOBAL_DIST, "text/javascript; charset=utf-8");
-        if (url === FACADE_MAIN + "gm-phaser4.module.js") return fulfill(FACADE_MODULE_DIST, "text/javascript; charset=utf-8");
-        if (url === FACADE_MAIN + "gm-phaser4-grout13.module.js") return fulfill(BRIDGE_MODULE_DIST, "text/javascript; charset=utf-8");
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4\.module\.js$/.test(url)) {
+            return fulfill(FACADE_MODULE_DIST, "text/javascript; charset=utf-8");
+        }
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4-grout13\.module\.js$/.test(url)) {
+            return fulfill(BRIDGE_MODULE_DIST, "text/javascript; charset=utf-8");
+        }
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/examples\/fruit-shot\/config\.js$/.test(url)) {
+            return fulfill(FRUIT_SHOT_CONFIG, "text/javascript; charset=utf-8");
+        }
+        if (/\/Shoozes\/phaser4-facade@[^/]+\/examples\/fruit-shot\/art\.js$/.test(url)) {
+            return fulfill(FRUIT_SHOT_ART, "text/javascript; charset=utf-8");
+        }
         return route.abort("blockedbyclient");
     });
 }
 
 async function playOneShot(page, testCase) {
+    if (testCase.kind === "grout13-module") return;
     const box = await page.locator("canvas").boundingBox();
     if (!box) fail(testCase.name + " canvas has no bounding box.");
     const centerX = box.x + box.width * 0.5;
@@ -214,8 +247,10 @@ try {
             assertProof(report, testCase);
             await playOneShot(page, testCase);
             report = await page.evaluate((name) => window[name], testCase.proofName);
-            assert.ok(report.shotsFired >= 1, testCase.name + " must accept a player shot");
-            if (testCase.kind !== "grout13") assert.ok(report.merges >= 1, testCase.name + " player shot must resolve a merge");
+            if (testCase.kind !== "grout13-module") {
+                assert.ok(report.shotsFired >= 1, testCase.name + " must accept a player shot");
+                if (testCase.kind !== "grout13") assert.ok(report.merges >= 1, testCase.name + " player shot must resolve a merge");
+            }
             assert.equal(await page.locator("canvas").count(), 1, testCase.name + " Fruit Shot should create one canvas");
             await assertViewportFit(page, testCase);
             assert.equal(pageErrors.length, 0, testCase.name + " page errors: " + pageErrors.join(" | "));

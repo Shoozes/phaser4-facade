@@ -71,6 +71,18 @@ if (legacyResult.status !== 0) {
     fail(`opt-in legacy package consumer failed to compile:\n${legacyResult.stdout || legacyResult.stderr}`);
 }
 
+const install = writeConsumer("install-consumer.ts", [
+    "import { createGMRuntime, installGMRuntime } from \"phaser4-facade/install\";",
+    "const create: typeof createGMRuntime = createGMRuntime;",
+    "const installRuntime: typeof installGMRuntime = installGMRuntime;",
+    "void create;",
+    "void installRuntime;"
+].join("\n"));
+const installResult = runTsc(install);
+if (installResult.status !== 0) {
+    fail(`pure install package consumer failed to compile:\n${installResult.stdout || installResult.stderr}`);
+}
+
 const bridgeConsumer = writeConsumer("grout13-consumer.ts", [
     "import { GM } from \"phaser4-facade\";",
     "import { installGrout13Bridge } from \"phaser4-facade/grout13\";",

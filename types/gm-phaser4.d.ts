@@ -877,6 +877,7 @@ declare var GM: GMFacade;
 
 declare module "phaser4-facade" {
     export function installGMRuntime(root: typeof globalThis, Phaser: unknown): GMFacade;
+    export function createGMRuntime(root?: typeof globalThis, Phaser?: unknown): GMFacade;
     export const GM: GMFacade;
     export default GM;
 }

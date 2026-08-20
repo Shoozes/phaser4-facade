@@ -16,6 +16,29 @@ const ARTIFACTS = [
     "dist/gm-phaser4-grout13.global.min.js",
     "dist/grout13.d.ts"
 ];
+const INPUTS = [
+    "package.json",
+    "src",
+    "types",
+    "scripts/build-runtime.mjs",
+    "scripts/build-grout13-bridge.mjs"
+];
+
+function listFiles(relativePath) {
+    const absolute = path.join(ROOT, relativePath);
+    if (fs.statSync(absolute).isFile()) return [relativePath];
+    const files = [];
+    const stack = [absolute];
+    while (stack.length > 0) {
+        const current = stack.pop();
+        for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+            const full = path.join(current, entry.name);
+            if (entry.isDirectory()) stack.push(full);
+            else if (entry.isFile()) files.push(path.relative(ROOT, full).replaceAll(path.sep, "/"));
+        }
+    }
+    return files;
+}
 
 function digest(relativePath) {
     const file = path.join(ROOT, relativePath);
@@ -23,6 +46,8 @@ function digest(relativePath) {
 }
 
 const before = new Map(ARTIFACTS.map((file) => [file, digest(file)]));
+const inputFiles = INPUTS.flatMap(listFiles);
+const inputsBefore = new Map(inputFiles.map((file) => [file, digest(file)]));
 const result = spawnSync(process.execPath, [path.join(ROOT, "scripts", "build-runtime.mjs")], {
     cwd: ROOT,
     encoding: "utf8",
@@ -34,4 +59,8 @@ const changed = ARTIFACTS.filter((file) => before.get(file) !== digest(file));
 if (changed.length > 0) {
     throw new Error(`Runtime build is not deterministic; changed artifacts: ${changed.join(", ")}`);
 }
-console.log(`[ok] Runtime dist reproducibility passed (${ARTIFACTS.length} artifacts).`);
+const changedInputs = inputFiles.filter((file) => inputsBefore.get(file) !== digest(file));
+if (changedInputs.length > 0) {
+    throw new Error(`Runtime build mutated checked-in inputs: ${changedInputs.join(", ")}`);
+}
+console.log(`[ok] Runtime build reproducibility passed (${ARTIFACTS.length} artifacts, ${inputFiles.length} inputs).`);

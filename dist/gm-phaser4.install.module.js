@@ -1,4 +1,4 @@
-// src/index.module.js
+// src/index.install.js
 import * as PhaserImport from "phaser";
 
 // phaser4-facade-runtime:src/core/constants.js
@@ -3446,7 +3446,7 @@ function drawAtlasTextFit(state, pool, atlasKey, font, text, x, y, options) {
 // phaser4-facade-runtime:src/core/facade-namespaces.js
 function installFacadeNamespaces(deps) {
   const {
-    GM: GM2,
+    GM,
     root,
     COLORS: COLORS2,
     INPUT: INPUT2,
@@ -3499,26 +3499,26 @@ function installFacadeNamespaces(deps) {
       return activeOrNull();
     },
     get scene() {
-      return activeOrNull() ? GM2._active.scene : null;
+      return activeOrNull() ? GM._active.scene : null;
     },
     get state() {
-      return activeOrNull() ? GM2._active.state : null;
+      return activeOrNull() ? GM._active.state : null;
     }
   };
-  defineReadonly(runtime, "roomWidth", () => activeOrNull() ? GM2._active.room_width : 0);
-  defineReadonly(runtime, "roomHeight", () => activeOrNull() ? GM2._active.room_height : 0);
-  defineReadonly(runtime, "centerX", () => (activeOrNull() ? GM2._active.room_width : 0) / 2);
-  defineReadonly(runtime, "centerY", () => (activeOrNull() ? GM2._active.room_height : 0) / 2);
-  defineReadonly(runtime, "displayWidth", () => activeOrNull() ? GM2._active.display_width : 0);
-  defineReadonly(runtime, "displayHeight", () => activeOrNull() ? GM2._active.display_height : 0);
-  defineReadonly(runtime, "profile", () => activeOrNull() ? GM2._active.layout_profile : "fixed");
-  defineReadonly(runtime, "orientation", () => activeOrNull() ? GM2._active.orientation : "portrait");
-  defineReadonly(runtime, "scale", () => activeOrNull() ? GM2._active.layout_scale : 1);
-  defineReadonly(runtime, "mouseX", () => activeOrNull() ? GM2._active.mouse_x : 0);
-  defineReadonly(runtime, "mouseY", () => activeOrNull() ? GM2._active.mouse_y : 0);
-  defineReadonly(runtime, "currentTime", () => activeOrNull() ? GM2._active.current_time : 0);
-  defineReadonly(runtime, "deltaMs", () => activeOrNull() ? GM2._active.delta_time : 0);
-  defineReadonly(runtime, "deltaSec", () => activeOrNull() ? GM2._active.delta_sec : 0);
+  defineReadonly(runtime, "roomWidth", () => activeOrNull() ? GM._active.room_width : 0);
+  defineReadonly(runtime, "roomHeight", () => activeOrNull() ? GM._active.room_height : 0);
+  defineReadonly(runtime, "centerX", () => (activeOrNull() ? GM._active.room_width : 0) / 2);
+  defineReadonly(runtime, "centerY", () => (activeOrNull() ? GM._active.room_height : 0) / 2);
+  defineReadonly(runtime, "displayWidth", () => activeOrNull() ? GM._active.display_width : 0);
+  defineReadonly(runtime, "displayHeight", () => activeOrNull() ? GM._active.display_height : 0);
+  defineReadonly(runtime, "profile", () => activeOrNull() ? GM._active.layout_profile : "fixed");
+  defineReadonly(runtime, "orientation", () => activeOrNull() ? GM._active.orientation : "portrait");
+  defineReadonly(runtime, "scale", () => activeOrNull() ? GM._active.layout_scale : 1);
+  defineReadonly(runtime, "mouseX", () => activeOrNull() ? GM._active.mouse_x : 0);
+  defineReadonly(runtime, "mouseY", () => activeOrNull() ? GM._active.mouse_y : 0);
+  defineReadonly(runtime, "currentTime", () => activeOrNull() ? GM._active.current_time : 0);
+  defineReadonly(runtime, "deltaMs", () => activeOrNull() ? GM._active.delta_time : 0);
+  defineReadonly(runtime, "deltaSec", () => activeOrNull() ? GM._active.delta_sec : 0);
   defineReadonly(runtime, "simulationAlpha", () => {
     const activeRuntime = activeOrNull();
     return activeRuntime ? Number(activeRuntime.state.simulation?.alpha || 0) : 0;
@@ -3527,8 +3527,8 @@ function installFacadeNamespaces(deps) {
     const activeRuntime = activeOrNull();
     return activeRuntime ? Number(activeRuntime.state.simulation?.stepsThisFrame || 0) : 0;
   });
-  defineReadonly(GM2, "perf", () => {
-    const perf = activeOrNull() ? GM2._active.state.perf : null;
+  defineReadonly(GM, "perf", () => {
+    const perf = activeOrNull() ? GM._active.state.perf : null;
     if (!perf?.enabled) return null;
     return {
       frame: { ...perf.frame },
@@ -3594,7 +3594,7 @@ function installFacadeNamespaces(deps) {
     resolveAtlasFont(font) {
       if (font && typeof font === "object" && font.glyphs && font.metrics) return font;
       const name = String(font || "").trim();
-      const record = GM2.grout13 && typeof GM2.grout13.getFont === "function" ? GM2.grout13.getFont(name) : null;
+      const record = GM.grout13 && typeof GM.grout13.getFont === "function" ? GM.grout13.getFont(name) : null;
       if (!record) throw new TypeError(`GM.draw.atlasText font is not registered: ${name || "(empty)"}`);
       return record;
     },
@@ -3706,7 +3706,7 @@ function installFacadeNamespaces(deps) {
         roomY: record.y,
         x: record.x,
         y: record.y,
-        insideGame: GM2.viewport.containsRoomPoint(record.x, record.y),
+        insideGame: GM.viewport.containsRoomPoint(record.x, record.y),
         down: !!record.down,
         pressed: !!record.pressed,
         released: !!record.released,
@@ -3933,7 +3933,7 @@ function installFacadeNamespaces(deps) {
         return activeRuntime.ui_set_theme(theme);
       }
       uiToolkit.setTheme(theme);
-      return GM2;
+      return GM;
     },
     getTheme() {
       return uiToolkit.getTheme();
@@ -3992,10 +3992,10 @@ function installFacadeNamespaces(deps) {
   };
   const phaser = {
     get scene() {
-      return activeOrNull() ? GM2._active.scene : null;
+      return activeOrNull() ? GM._active.scene : null;
     },
     get game() {
-      return activeOrNull() ? GM2._active.game : GM2._game || null;
+      return activeOrNull() ? GM._active.game : GM._game || null;
     },
     get library() {
       return root.Phaser || null;
@@ -4088,8 +4088,8 @@ function installFacadeNamespaces(deps) {
       return containsPoint(x, y, currentViewport().gameScreenRect);
     }
   };
-  GM2.installGlobals = installGlobals;
-  GM2.app = { start: GM2.start };
+  GM.installGlobals = installGlobals;
+  GM.app = { start: GM.start };
   const diagnostics = {
     get invalidDraws() {
       const runtime2 = activeOrNull();
@@ -4104,37 +4104,37 @@ function installFacadeNamespaces(deps) {
       return runtime2 && runtime2.state.diagnostics ? Number(runtime2.state.diagnostics.nonFiniteSimulationValues || 0) : 0;
     }
   };
-  GM2.runtime = runtime;
-  GM2.layout = runtime;
-  GM2.viewport = viewport;
-  GM2.diagnostics = diagnostics;
-  GM2.draw = draw;
-  GM2.gui = gui;
-  GM2.input = input;
-  GM2.entity = entity;
-  GM2.layer = layer;
-  GM2.asset = asset;
-  GM2.audio = audio;
-  GM2.ui = ui;
-  GM2.time = time;
-  GM2.debug = debug;
-  GM2.legacy = legacy;
-  GM2.phaser = phaser;
-  GM2.color = color;
-  GM2.key = key;
-  GM2.pointer = pointer;
-  GM2.nineslice_window = function ninesliceWindow() {
+  GM.runtime = runtime;
+  GM.layout = runtime;
+  GM.viewport = viewport;
+  GM.diagnostics = diagnostics;
+  GM.draw = draw;
+  GM.gui = gui;
+  GM.input = input;
+  GM.entity = entity;
+  GM.layer = layer;
+  GM.asset = asset;
+  GM.audio = audio;
+  GM.ui = ui;
+  GM.time = time;
+  GM.debug = debug;
+  GM.legacy = legacy;
+  GM.phaser = phaser;
+  GM.color = color;
+  GM.key = key;
+  GM.pointer = pointer;
+  GM.nineslice_window = function ninesliceWindow() {
     return active().nineslice_window.apply(null, arguments);
   };
-  GM2.modal_notice = function modalNotice() {
+  GM.modal_notice = function modalNotice() {
     return active().modal_notice.apply(null, arguments);
   };
-  GM2.modal_close_all = function modalCloseAll() {
+  GM.modal_close_all = function modalCloseAll() {
     return active().modal_close_all.apply(null, arguments);
   };
-  GM2.colors = COLORS2;
-  GM2.math = math;
-  return GM2;
+  GM.colors = COLORS2;
+  GM.math = math;
+  return GM;
 }
 
 // phaser4-facade-runtime:src/core/game-config.js
@@ -4290,17 +4290,17 @@ var ACCESSOR_NAMES = [
   "delta_time",
   "delta_sec"
 ];
-function installGlobalAccessors(target, GM2) {
+function installGlobalAccessors(target, GM) {
   const getters = {
-    room_width: () => GM2._active ? GM2._active.room_width : 0,
-    room_height: () => GM2._active ? GM2._active.room_height : 0,
-    display_width: () => GM2._active ? GM2._active.display_width : 0,
-    display_height: () => GM2._active ? GM2._active.display_height : 0,
-    mouse_x: () => GM2._active ? GM2._active.mouse_x : 0,
-    mouse_y: () => GM2._active ? GM2._active.mouse_y : 0,
-    current_time: () => GM2._active ? GM2._active.current_time : 0,
-    delta_time: () => GM2._active ? GM2._active.delta_time : 0,
-    delta_sec: () => GM2._active ? GM2._active.delta_sec : 0
+    room_width: () => GM._active ? GM._active.room_width : 0,
+    room_height: () => GM._active ? GM._active.room_height : 0,
+    display_width: () => GM._active ? GM._active.display_width : 0,
+    display_height: () => GM._active ? GM._active.display_height : 0,
+    mouse_x: () => GM._active ? GM._active.mouse_x : 0,
+    mouse_y: () => GM._active ? GM._active.mouse_y : 0,
+    current_time: () => GM._active ? GM._active.current_time : 0,
+    delta_time: () => GM._active ? GM._active.delta_time : 0,
+    delta_sec: () => GM._active ? GM._active.delta_sec : 0
   };
   for (const [name, getter] of Object.entries(getters)) {
     Object.defineProperty(target, name, {
@@ -4317,7 +4317,7 @@ function descriptorsMatch(left, right) {
 function createLegacyGlobalInstaller(deps) {
   const {
     root,
-    GM: GM2,
+    GM,
     COLORS: COLORS2,
     ALIGN: ALIGN2,
     INPUT: INPUT2,
@@ -4325,7 +4325,7 @@ function createLegacyGlobalInstaller(deps) {
     active
   } = deps;
   return function installGlobals() {
-    if (GM2._globalsInstalled) return GM2._globalsDisposer || (() => {
+    if (GM._globalsInstalled) return GM._globalsDisposer || (() => {
     });
     const values = Object.assign({}, COLORS2, ALIGN2, INPUT2, {
       clamp: math.clamp,
@@ -4511,7 +4511,7 @@ function createLegacyGlobalInstaller(deps) {
           value
         });
       }
-      installGlobalAccessors(root, GM2);
+      installGlobalAccessors(root, GM);
       for (const name of names) {
         const descriptor = Object.getOwnPropertyDescriptor(root, name);
         if (descriptor) installedDescriptors.set(name, descriptor);
@@ -4524,7 +4524,7 @@ function createLegacyGlobalInstaller(deps) {
       throw error;
     }
     let restored = false;
-    GM2._globalsDisposer = () => {
+    GM._globalsDisposer = () => {
       if (restored) return;
       restored = true;
       for (const [name, descriptor] of previousDescriptors) {
@@ -4534,11 +4534,11 @@ function createLegacyGlobalInstaller(deps) {
         if (descriptor) Object.defineProperty(root, name, descriptor);
         else delete root[name];
       }
-      GM2._globalsInstalled = false;
-      GM2._globalsDisposer = null;
+      GM._globalsInstalled = false;
+      GM._globalsDisposer = null;
     };
-    GM2._globalsInstalled = true;
-    return GM2._globalsDisposer;
+    GM._globalsInstalled = true;
+    return GM._globalsDisposer;
   };
 }
 
@@ -4739,7 +4739,7 @@ function installGMRuntime(root, Phaser) {
     throw new Error("GM runtime received a Phaser instance that conflicts with the host global Phaser.");
   }
   root.Phaser = PhaserLibrary;
-  const GM2 = {
+  const GM = {
     version: RUNTIME_VERSION,
     phaserVersion: PhaserLibrary.VERSION || "unknown",
     __gmFacadeMarker: true,
@@ -4753,13 +4753,13 @@ function installGMRuntime(root, Phaser) {
   const GMButtonObject = createRuntimeButtonClass(PhaserLibrary);
   const mathApi = createMathApi();
   function active() {
-    if (!GM2._active) {
+    if (!GM._active) {
       throw new Error("GM.start() must run before using facade functions.");
     }
-    return GM2._active;
+    return GM._active;
   }
   function activeOrNull() {
-    return GM2._active || null;
+    return GM._active || null;
   }
   function callActive(method, args) {
     return (
@@ -4776,7 +4776,7 @@ function installGMRuntime(root, Phaser) {
   }
   const installGlobals = createLegacyGlobalInstaller({
     root,
-    GM: GM2,
+    GM,
     COLORS,
     ALIGN,
     INPUT,
@@ -4935,7 +4935,7 @@ function installGMRuntime(root, Phaser) {
       scene,
       cfg,
       get game() {
-        return scene.sys && scene.sys.game ? scene.sys.game : GM2._game;
+        return scene.sys && scene.sys.game ? scene.sys.game : GM._game;
       },
       get room_width() {
         return state.layout.roomWidth || cfg.width;
@@ -5018,7 +5018,7 @@ function installGMRuntime(root, Phaser) {
         state.currentInstance = null;
         state.worldLayers.clear();
         state.activeWorldContainer = null;
-        if (GM2._active === api) GM2._active = null;
+        if (GM._active === api) GM._active = null;
         return api;
       },
       mount() {
@@ -5775,7 +5775,7 @@ function installGMRuntime(root, Phaser) {
         return scene.sound.play(key, config || {});
       }
     };
-    GM2._active = api;
+    GM._active = api;
     return api;
   }
   function makeScene(cfg) {
@@ -5810,15 +5810,15 @@ function installGMRuntime(root, Phaser) {
     };
   }
   const startGame = createGameStarter({ root, Phaser: PhaserLibrary, makeScene, installGlobals });
-  GM2.start = function start(config) {
-    if (GM2._game) {
+  GM.start = function start(config) {
+    if (GM._game) {
       throw new Error("GM.app.start cannot run while another GM game is active; destroy the current game first.");
     }
     if (config && config.randomSeed !== void 0 && config.randomSeed !== null) {
       mathApi.setSeed(config.randomSeed);
     }
     const game = startGame(config);
-    GM2._game = game;
+    GM._game = game;
     const originalDestroy = typeof game.destroy === "function" ? game.destroy.bind(game) : null;
     let gameDestroyed = false;
     game.destroy = function destroyGMGame(...args) {
@@ -5827,16 +5827,16 @@ function installGMRuntime(root, Phaser) {
       try {
         if (originalDestroy) originalDestroy(...args);
       } finally {
-        if (GM2._active && typeof GM2._active.cleanup === "function") GM2._active.cleanup("game_destroy");
-        GM2._active = null;
-        if (GM2._game === game) GM2._game = null;
-        if (typeof GM2._globalsDisposer === "function") GM2._globalsDisposer();
+        if (GM._active && typeof GM._active.cleanup === "function") GM._active.cleanup("game_destroy");
+        GM._active = null;
+        if (GM._game === game) GM._game = null;
+        if (typeof GM._globalsDisposer === "function") GM._globalsDisposer();
       }
     };
     return game;
   };
   installFacadeNamespaces({
-    GM: GM2,
+    GM,
     root,
     COLORS,
     INPUT,
@@ -5851,11 +5851,11 @@ function installGMRuntime(root, Phaser) {
     callActive,
     defineReadonly
   });
-  root.GM = GM2;
-  return GM2;
+  root.GM = GM;
+  return GM;
 }
 
-// src/index.module.js
+// src/index.install.js
 function resolvePhaserLibrary(mod) {
   if (mod && typeof mod.Game === "function" && typeof mod.Scene === "function") {
     return mod;
@@ -5864,20 +5864,17 @@ function resolvePhaserLibrary(mod) {
   if (fallback && typeof fallback.Game === "function" && typeof fallback.Scene === "function") {
     return fallback;
   }
-  throw new Error("gm-phaser4 module entrypoint requires a usable Phaser package export (Game + Scene).");
+  throw new Error("gm-phaser4 install entrypoint requires a usable Phaser package export (Game + Scene).");
 }
 var PhaserRuntime = resolvePhaserLibrary(PhaserImport);
-var runtimeRoot = globalThis;
-if (runtimeRoot.Phaser && typeof runtimeRoot.Phaser.Scene !== "function") {
-  throw new Error("gm-phaser4 module entrypoint found an unusable global Phaser instance.");
+function createGMRuntime(root = globalThis, Phaser = PhaserRuntime) {
+  return installGMRuntime(
+    root,
+    /** @type {any} */
+    Phaser
+  );
 }
-if (runtimeRoot.Phaser && runtimeRoot.Phaser !== PhaserRuntime) {
-  throw new Error("gm-phaser4 module entrypoint found a conflicting global Phaser instance.");
-}
-var GM = installGMRuntime(runtimeRoot, PhaserRuntime);
-var index_module_default = GM;
 export {
-  GM,
-  index_module_default as default,
+  createGMRuntime,
   installGMRuntime
 };

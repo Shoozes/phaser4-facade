@@ -96,7 +96,7 @@ if (!runtimeVersion || runtimeVersion !== pkg.version) {
 }
 assertPackageExportTargets(PACKAGE_ROOT, "source runtime package");
 
-const requiredExports = [".", "./global", "./global.min.js", "./grout13", "./grout13/global", "./grout13/global.min.js", "./legacy-globals", "./types", "./package.json"];
+const requiredExports = [".", "./install", "./global", "./global.min.js", "./grout13", "./grout13/global", "./grout13/global.min.js", "./legacy-globals", "./types", "./package.json"];
 for (const exportName of requiredExports) {
     if (!pkg.exports?.[exportName]) fail(`facade package missing export: ${exportName}`);
 }
@@ -113,13 +113,16 @@ for (const relativePath of [
     "examples/native-app-shell.css",
     "examples/fruit-shot.html",
     "examples/fruit-shot-grout13.html",
+    "examples/phaser4-facade-grout13-canvas-stack-clipped.html",
     "examples/fruit-shot-modular.html",
     "examples/fruit-shot-modular.js",
     "examples/fruit-shot-gameplay.js",
     "dist/gm-phaser4.module.js",
+    "dist/gm-phaser4.install.module.js",
     "dist/gm-phaser4.global.js",
     "dist/gm-phaser4.global.min.js",
     "dist/gm-phaser4.d.ts",
+    "dist/gm-phaser4.install.d.ts",
     "dist/gm-phaser4-grout13.module.js",
     "dist/gm-phaser4-grout13.global.js",
     "dist/gm-phaser4-grout13.global.min.js",
@@ -131,6 +134,9 @@ for (const relativePath of [
 const moduleExample = fs.readFileSync(path.join(PACKAGE_ROOT, "examples", "prototype-module.html"), "utf8");
 if (!moduleExample.includes('import "../dist/gm-phaser4.module.js"')) {
     fail("module example must use the packaged dist module entrypoint.");
+}
+if (!Array.isArray(pkg.sideEffects) || pkg.sideEffects.includes("./dist/gm-phaser4.install.module.js")) {
+    fail("facade package should declare side effects explicitly while keeping the pure install entry tree-shakeable.");
 }
 
 for (const [relativePath, stylesheet] of [
@@ -148,6 +154,7 @@ for (const [relativePath, stylesheet] of [
 
 for (const artifact of [
     "dist/gm-phaser4.module.js",
+    "dist/gm-phaser4.install.module.js",
     "dist/gm-phaser4.global.js",
     "dist/gm-phaser4.global.min.js"
 ]) {

@@ -63,6 +63,15 @@ content. Direct-pixel glyph assets avoid Grout13's optional bundled
 `prototype-cdn.html` remains the smallest plain-script global proof. Both use
 Phaser 4.2.1 and GitHub-backed jsDelivr URLs for public browser loading.
 
+## Full-canvas stack
+
+`phaser4-facade-grout13-canvas-stack-clipped.html` is a module-based Grout13
+proof for a single adaptive canvas with persistent underlay, world, frame, and
+overlay planes. It generates its checkerboard, marker, player, target, logo,
+and pixel font assets at boot, then clips a moving room camera inside the
+visible canvas frame. The `__canvasStackProof` object exposes the generated
+asset, layer, camera, and input contract for browser checks.
+
 For a reproducible external preview, replace `@main` with a reviewed commit
 SHA. Raw GitHub and Gist file URLs are source artifacts, not executable CDN
 assets.

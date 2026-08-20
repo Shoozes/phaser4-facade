@@ -1,0 +1,922 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05070d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Phaser4 Facade + Grout13 Full-Canvas Stack</title>
+<style>
+:root{
+  --gm-app-safe-area-top:env(safe-area-inset-top,0px);
+  --gm-app-safe-area-right:env(safe-area-inset-right,0px);
+  --gm-app-safe-area-bottom:env(safe-area-inset-bottom,0px);
+  --gm-app-safe-area-left:env(safe-area-inset-left,0px)
+}
+*{box-sizing:border-box}
+html,body,#game{
+  margin:0;padding:0;width:100%;height:100%;height:100dvh;
+  overflow:hidden;background:#05070d;overscroll-behavior:none
+}
+body{
+  position:fixed;inset:0;touch-action:none;
+  user-select:none;-webkit-user-select:none;
+  -webkit-touch-callout:none;-webkit-tap-highlight-color:transparent
+}
+#game,canvas{
+  display:block;position:fixed!important;inset:0;
+  width:100%!important;height:100%!important;
+  margin:0!important;padding:0!important;touch-action:none;
+  image-rendering:pixelated
+}
+#status,#error{
+  position:fixed;z-index:20;pointer-events:none;
+  font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace
+}
+#status{
+  top:max(10px,var(--gm-app-safe-area-top));
+  right:max(10px,var(--gm-app-safe-area-right));
+  color:#fff
+}
+#error{
+  left:max(10px,var(--gm-app-safe-area-left));
+  right:max(10px,var(--gm-app-safe-area-right));
+  bottom:max(10px,var(--gm-app-safe-area-bottom));
+  max-height:38vh;overflow:auto;padding:10px;
+  color:#fff;background:#8e1830;white-space:pre-wrap
+}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="status">Loading generated canvas stack...</div>
+<pre id="error" hidden></pre>
+
+<script type="importmap">
+{
+  "imports": {
+    "phaser": "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js",
+    "phaser4-facade": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4.module.js",
+    "phaser4-facade/grout13": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4-grout13.module.js",
+    "grout13": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13.mjs",
+    "grout13/font": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13-font.mjs",
+    "fruit-shot/art": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/examples/fruit-shot/art.js"
+  }
+}
+</script>
+
+<script type="module">
+import { GM } from "phaser4-facade";
+import { installGrout13Bridge } from "phaser4-facade/grout13";
+import * as GROUT13 from "grout13";
+import { compileFontAtlas } from "grout13/font";
+import { compileFruitShotFont } from "fruit-shot/art";
+
+installGrout13Bridge(GM, GROUT13);
+
+const statusBox = document.querySelector("#status");
+const errorBox = document.querySelector("#error");
+
+const proof = globalThis.__canvasStackProof = {
+  architecture:"single-canvas-stacked-planes",
+  complete:false,
+  failed:false,
+  errors:[],
+  generatedChecker:false,
+  generatedFont:false,
+  adaptiveCanvas:true,
+  persistentUnderlay:true,
+  persistentOverlay:true,
+  cameraRoom:true,
+  worldViewportClipped:true,
+  clipMode:"portable-frame-cover",
+  mouse:true,
+  touch:true
+};
+
+const ATLAS = "canvas-stack-generated";
+const FONT = "pixel-3x5";
+
+const ROOM = Object.freeze({
+  width:1280,
+  height:1280,
+  viewHeight:640,
+  minAspect:9/16,
+  maxAspect:1
+});
+
+const COLORS = Object.freeze({
+  checkerA:0x101522,
+  checkerB:0x182236,
+  tint:"#52aee8",
+  room:"#07101c",
+  grid:"#17304a",
+  border:"#d4e8ff",
+  player:"#ffe35b",
+  target:"#71f6ff"
+});
+
+const state = {
+  mode:"splash",
+  modeAge:0,
+  paused:false,
+  player:{x:ROOM.width/2,y:ROOM.height/2,px:ROOM.width/2,py:ROOM.height/2,r:24},
+  target:{x:ROOM.width/2,y:ROOM.height/2,active:false},
+  camera:null,
+  transition:{alpha:1,next:null,direction:-1},
+  messageAge:0
+};
+
+function rectAsset(name,w,h,steps){
+  return {name,spec:{w,h,steps}};
+}
+
+function installGeneratedAssets(){
+  const assets = [
+    rectAsset("checker",32,32,[
+      {type:"rect_filled",x:0,y:0,w:16,h:16,col:COLORS.checkerA},
+      {type:"rect_filled",x:16,y:16,w:16,h:16,col:COLORS.checkerA},
+      {type:"rect_filled",x:16,y:0,w:16,h:16,col:COLORS.checkerB},
+      {type:"rect_filled",x:0,y:16,w:16,h:16,col:COLORS.checkerB}
+    ]),
+    rectAsset("player",48,48,[
+      {type:"rect_filled",x:4,y:8,w:40,h:36,col:0x3b2f1f},
+      {type:"rect_filled",x:8,y:4,w:32,h:36,col:0xffd84f},
+      {type:"rect_filled",x:12,y:8,w:24,h:24,col:0xffef91},
+      {type:"rect_filled",x:14,y:14,w:6,h:6,col:0x182236},
+      {type:"rect_filled",x:28,y:14,w:6,h:6,col:0x182236},
+      {type:"rect_filled",x:16,y:28,w:16,h:4,col:0xa26f16}
+    ]),
+    rectAsset("target",24,24,[
+      {type:"rect_filled",x:10,y:0,w:4,h:24,col:0x71f6ff},
+      {type:"rect_filled",x:0,y:10,w:24,h:4,col:0x71f6ff},
+      {type:"rect_filled",x:6,y:6,w:12,h:12,col:0xffffff}
+    ]),
+    rectAsset("marker",40,40,[
+      {type:"rect_filled",x:0,y:0,w:40,h:8,col:0xffffff},
+      {type:"rect_filled",x:0,y:0,w:8,h:40,col:0xffffff},
+      {type:"rect_filled",x:32,y:0,w:8,h:40,col:0xffffff},
+      {type:"rect_filled",x:0,y:32,w:40,h:8,col:0xffffff}
+    ]),
+    rectAsset("logo",64,64,[
+      {type:"rect_filled",x:8,y:8,w:48,h:48,col:0x15233a},
+      {type:"rect_filled",x:12,y:12,w:40,h:40,col:0x56d4ff},
+      {type:"rect_filled",x:20,y:4,w:24,h:56,col:0xffdf5c},
+      {type:"rect_filled",x:4,y:20,w:56,h:24,col:0xffdf5c},
+      {type:"rect_filled",x:24,y:24,w:16,h:16,col:0xffffff}
+    ])
+  ];
+
+  GM.grout13.addAtlas(ATLAS,assets,{
+    replace:true,
+    preset:"pixel",
+    compileOptions:{atlasOptions:{maxWidth:256,maxHeight:256}}
+  });
+
+  const font = compileFruitShotFont({compileFontAtlas});
+  GM.grout13.addFont(FONT,font,{replace:true});
+
+  proof.generatedChecker = GM.asset.frameExists(ATLAS,"checker");
+  proof.generatedFont = Boolean(GM.grout13.getFont(FONT));
+}
+
+function createCanvasStack(definitions){
+  const planes = definitions
+    .map((plane,index)=>({...plane,index}))
+    .sort((a,b)=>(a.order??a.index)-(b.order??b.index));
+
+  return Object.freeze({
+    step(dt){
+      const pointer = GM.input.primaryPointer();
+      for(let index=planes.length-1;index>=0;index--){
+        const plane=planes[index];
+        if(plane.enabled && !plane.enabled()) continue;
+        if(plane.input && plane.input(pointer,dt)===true) break;
+      }
+      for(const plane of planes){
+        if(plane.enabled && !plane.enabled()) continue;
+        if(plane.step) plane.step(dt);
+      }
+    },
+    draw(){
+      for(const plane of planes){
+        if(plane.enabled && !plane.enabled()) continue;
+        if(plane.draw) plane.draw();
+      }
+    }
+  });
+}
+
+function createRoomCamera(config){
+  const camera = {
+    cx:config.roomWidth/2,
+    cy:config.roomHeight/2,
+    viewWidth:config.viewHeight,
+    viewHeight:config.viewHeight,
+    zoom:1,
+    display:{x:0,y:0,width:1,height:1},
+    visible:{left:0,top:0,right:config.viewHeight,bottom:config.viewHeight},
+
+    layout(screenWidth,screenHeight){
+      const safeW=Math.max(1,screenWidth);
+      const safeH=Math.max(1,screenHeight);
+      const screenAspect=safeW/safeH;
+      const viewAspect=GM.math.clamp(screenAspect,config.minAspect,config.maxAspect);
+
+      this.viewHeight=Math.min(config.viewHeight,config.roomHeight);
+      this.viewWidth=Math.min(this.viewHeight*viewAspect,config.roomWidth);
+
+      let width=safeW;
+      let height=width/viewAspect;
+      if(height>safeH){
+        height=safeH;
+        width=height*viewAspect;
+      }
+
+      this.display.x=(safeW-width)/2;
+      this.display.y=(safeH-height)/2;
+      this.display.width=width;
+      this.display.height=height;
+      this.zoom=Math.min(width/this.viewWidth,height/this.viewHeight);
+      this.clamp();
+      return this;
+    },
+
+    follow(x,y,dt){
+      const damping=GM.math.dampFactor(0.82,dt,60);
+      this.cx=x+(this.cx-x)*damping;
+      this.cy=y+(this.cy-y)*damping;
+      this.clamp();
+    },
+
+    clamp(){
+      const halfW=this.viewWidth/2;
+      const halfH=this.viewHeight/2;
+      this.cx=GM.math.clamp(this.cx,halfW,config.roomWidth-halfW);
+      this.cy=GM.math.clamp(this.cy,halfH,config.roomHeight-halfH);
+      this.visible.left=this.cx-halfW;
+      this.visible.top=this.cy-halfH;
+      this.visible.right=this.cx+halfW;
+      this.visible.bottom=this.cy+halfH;
+    },
+
+    worldToScreen(x,y,out={}){
+      out.x=this.display.x+(x-this.visible.left)*this.zoom;
+      out.y=this.display.y+(y-this.visible.top)*this.zoom;
+      return out;
+    },
+
+    screenToWorld(x,y,out={}){
+      out.x=this.visible.left+(x-this.display.x)/this.zoom;
+      out.y=this.visible.top+(y-this.display.y)/this.zoom;
+      return out;
+    },
+
+    containsScreen(x,y){
+      return x>=this.display.x&&
+        y>=this.display.y&&
+        x<=this.display.x+this.display.width&&
+        y<=this.display.y+this.display.height;
+    },
+
+    containsWorld(x,y,padding=0){
+      return x>=this.visible.left-padding&&
+        y>=this.visible.top-padding&&
+        x<=this.visible.right+padding&&
+        y<=this.visible.bottom+padding;
+    }
+  };
+  return camera;
+}
+
+function beginTransition(next){
+  if(state.transition.next) return;
+  state.transition.next=next;
+  state.transition.direction=1;
+}
+
+function setMode(next){
+  state.mode=next;
+  state.modeAge=0;
+  state.paused=false;
+  state.transition.next=null;
+  state.transition.direction=-1;
+  if(next==="game"){
+    state.player.x=state.player.px=ROOM.width/2;
+    state.player.y=state.player.py=ROOM.height/2;
+    state.target.active=false;
+    state.camera.cx=ROOM.width/2;
+    state.camera.cy=ROOM.height/2;
+    state.camera.clamp();
+  }
+}
+
+function stepTransition(dt){
+  const transition=state.transition;
+  transition.alpha=GM.math.clamp(
+    transition.alpha+transition.direction*dt*3.2,
+    0,
+    1
+  );
+  if(transition.direction>0&&transition.alpha>=1&&transition.next){
+    setMode(transition.next);
+  }
+}
+
+function updatePlayer(dt){
+  const player=state.player;
+  player.px=player.x;
+  player.py=player.y;
+
+  let dx=0;
+  let dy=0;
+  if(GM.input.keyDown(GM.key.LEFT)||GM.input.keyDown("A")) dx-=1;
+  if(GM.input.keyDown(GM.key.RIGHT)||GM.input.keyDown("D")) dx+=1;
+  if(GM.input.keyDown(GM.key.UP)||GM.input.keyDown("W")) dy-=1;
+  if(GM.input.keyDown(GM.key.DOWN)||GM.input.keyDown("S")) dy+=1;
+
+  if(dx||dy){
+    state.target.active=false;
+  }else if(state.target.active){
+    dx=state.target.x-player.x;
+    dy=state.target.y-player.y;
+    if(Math.hypot(dx,dy)<8){
+      state.target.active=false;
+      dx=dy=0;
+    }
+  }
+
+  if(dx||dy){
+    const direction=GM.math.normalize2(dx,dy);
+    const speed=320;
+    player.x+=direction.x*speed*dt;
+    player.y+=direction.y*speed*dt;
+  }
+
+  player.x=GM.math.clamp(player.x,player.r,ROOM.width-player.r);
+  player.y=GM.math.clamp(player.y,player.r,ROOM.height-player.r);
+  state.camera.follow(player.x,player.y,dt);
+}
+
+function screenRect(){
+  return {
+    x:0,
+    y:0,
+    width:GM.runtime.roomWidth,
+    height:GM.runtime.roomHeight
+  };
+}
+
+function drawUnderlay(){
+  const D=GM.draw;
+  const visible=GM.viewport.visibleRoomRect;
+  const tileScale=4;
+  const tileSize=32*tileScale;
+  const drift=(GM.runtime.currentTime*0.012)%tileSize;
+  const startX=Math.floor((visible.x-drift)/tileSize)*tileSize+drift;
+  const startY=Math.floor((visible.y-drift)/tileSize)*tileSize+drift;
+
+  D.layer("Underlay");
+  D.rect(
+    visible.x,
+    visible.y,
+    visible.x+visible.width,
+    visible.y+visible.height,
+    {color:"#05070d"}
+  );
+
+  for(let y=startY;y<visible.y+visible.height+tileSize;y+=tileSize){
+    for(let x=startX;x<visible.x+visible.width+tileSize;x+=tileSize){
+      D.spriteExt(ATLAS,"checker",x,y,{
+        originX:0,
+        originY:0,
+        scale:tileScale,
+        alpha:0.92
+      });
+    }
+  }
+
+  D.rect(
+    visible.x,
+    visible.y,
+    visible.x+visible.width,
+    visible.y+visible.height,
+    {color:COLORS.tint,alpha:0.18}
+  );
+}
+
+const pointA={x:0,y:0};
+const pointB={x:0,y:0};
+
+function drawWorldGrid(camera){
+  const D=GM.draw;
+  const grid=128;
+  const left=Math.ceil(camera.visible.left/grid)*grid;
+  const top=Math.ceil(camera.visible.top/grid)*grid;
+
+  for(let x=left;x<=camera.visible.right;x+=grid){
+    camera.worldToScreen(x,camera.visible.top,pointA);
+    camera.worldToScreen(x,camera.visible.bottom,pointB);
+    D.line(pointA.x,pointA.y,pointB.x,pointB.y,{
+      color:COLORS.grid,
+      alpha:0.44,
+      lineWidth:2
+    });
+  }
+
+  for(let y=top;y<=camera.visible.bottom;y+=grid){
+    camera.worldToScreen(camera.visible.left,y,pointA);
+    camera.worldToScreen(camera.visible.right,y,pointB);
+    D.line(pointA.x,pointA.y,pointB.x,pointB.y,{
+      color:COLORS.grid,
+      alpha:0.44,
+      lineWidth:2
+    });
+  }
+}
+
+function drawRoomEdge(camera){
+  const D=GM.draw;
+  const left=camera.worldToScreen(0,0,{});
+  const right=camera.worldToScreen(ROOM.width,ROOM.height,{});
+  const x1=Math.max(camera.display.x,left.x);
+  const y1=Math.max(camera.display.y,left.y);
+  const x2=Math.min(camera.display.x+camera.display.width,right.x);
+  const y2=Math.min(camera.display.y+camera.display.height,right.y);
+
+  if(left.x>=camera.display.x&&left.x<=camera.display.x+camera.display.width){
+    D.line(left.x,camera.display.y,left.x,camera.display.y+camera.display.height,{
+      color:COLORS.border,lineWidth:4
+    });
+  }
+  if(right.x>=camera.display.x&&right.x<=camera.display.x+camera.display.width){
+    D.line(right.x,camera.display.y,right.x,camera.display.y+camera.display.height,{
+      color:COLORS.border,lineWidth:4
+    });
+  }
+  if(left.y>=camera.display.y&&left.y<=camera.display.y+camera.display.height){
+    D.line(camera.display.x,left.y,camera.display.x+camera.display.width,left.y,{
+      color:COLORS.border,lineWidth:4
+    });
+  }
+  if(right.y>=camera.display.y&&right.y<=camera.display.y+camera.display.height){
+    D.line(camera.display.x,right.y,camera.display.x+camera.display.width,right.y,{
+      color:COLORS.border,lineWidth:4
+    });
+  }
+
+  return {x1,y1,x2,y2};
+}
+
+function displayIntersects(camera,x,y,halfWidth,halfHeight){
+  const display=camera.display;
+  return x+halfWidth>=display.x&&
+    y+halfHeight>=display.y&&
+    x-halfWidth<=display.x+display.width&&
+    y-halfHeight<=display.y+display.height;
+}
+
+function drawMarker(camera,x,y,color){
+  if(!camera.containsWorld(x,y,32)) return;
+  const p=camera.worldToScreen(x,y,{});
+  const half=20*camera.zoom;
+  if(!displayIntersects(camera,p.x,p.y,half,half)) return;
+  GM.draw.spriteExt(ATLAS,"marker",p.x,p.y,{
+    originX:0.5,
+    originY:0.5,
+    scale:camera.zoom,
+    color
+  });
+}
+
+function drawGameWorld(){
+  const D=GM.draw;
+  const camera=state.camera;
+  const screen=screenRect();
+  camera.layout(screen.width,screen.height);
+
+  D.layer("World");
+  D.rect(
+    camera.display.x,
+    camera.display.y,
+    camera.display.x+camera.display.width,
+    camera.display.y+camera.display.height,
+    {color:COLORS.room}
+  );
+
+  drawWorldGrid(camera);
+  drawRoomEdge(camera);
+
+  drawMarker(camera,48,48,"#ff5454");
+  drawMarker(camera,ROOM.width-48,48,"#62ef85");
+  drawMarker(camera,48,ROOM.height-48,"#5f8cff");
+  drawMarker(camera,ROOM.width-48,ROOM.height-48,"#ff6dff");
+  drawMarker(camera,ROOM.width/2,ROOM.height/2,"#5ef0ff");
+
+  if(state.target.active&&camera.containsWorld(state.target.x,state.target.y,48)){
+    const target=camera.worldToScreen(state.target.x,state.target.y,{});
+    D.spriteExt(ATLAS,"target",target.x,target.y,{
+      scale:camera.zoom,
+      alpha:0.9
+    });
+  }
+
+  const alpha=GM.math.clamp(GM.runtime.simulationAlpha,0,1);
+  const px=GM.math.lerp(state.player.px,state.player.x,alpha);
+  const py=GM.math.lerp(state.player.py,state.player.y,alpha);
+  const player=camera.worldToScreen(px,py,{});
+  D.spriteExt(ATLAS,"player",player.x,player.y,{
+    scale:camera.zoom,
+    originX:0.5,
+    originY:0.5
+  });
+}
+
+function drawClippedCheckerCell(D,bounds,x,y,width,height,color){
+  const left=Math.max(bounds.x,x);
+  const top=Math.max(bounds.y,y);
+  const right=Math.min(bounds.x+bounds.width,x+width);
+  const bottom=Math.min(bounds.y+bounds.height,y+height);
+  if(right<=left||bottom<=top) return;
+  D.rect(left,top,right,bottom,{color});
+}
+
+function drawCheckerRegion(bounds){
+  if(!bounds||bounds.width<=0||bounds.height<=0) return;
+
+  const D=GM.draw;
+  const tileSize=128;
+  const cellSize=64;
+  const drift=(GM.runtime.currentTime*0.012)%tileSize;
+  const startX=Math.floor((bounds.x-drift)/tileSize)*tileSize+drift;
+  const startY=Math.floor((bounds.y-drift)/tileSize)*tileSize+drift;
+  const endX=bounds.x+bounds.width;
+  const endY=bounds.y+bounds.height;
+
+  D.rect(bounds.x,bounds.y,endX,endY,{color:"#05070d"});
+
+  for(let y=startY;y<endY;y+=tileSize){
+    for(let x=startX;x<endX;x+=tileSize){
+      drawClippedCheckerCell(D,bounds,x,y,cellSize,cellSize,"#101522");
+      drawClippedCheckerCell(D,bounds,x+cellSize,y,cellSize,cellSize,"#182236");
+      drawClippedCheckerCell(D,bounds,x,y+cellSize,cellSize,cellSize,"#182236");
+      drawClippedCheckerCell(D,bounds,x+cellSize,y+cellSize,cellSize,cellSize,"#101522");
+    }
+  }
+
+  D.rect(bounds.x,bounds.y,endX,endY,{color:COLORS.tint,alpha:0.18});
+}
+
+function drawWorldFrame(){
+  if(state.mode!=="game"||!state.camera) return;
+
+  const D=GM.draw;
+  const visible=GM.viewport.visibleRoomRect;
+  const display=state.camera.display;
+  const visibleRight=visible.x+visible.width;
+  const visibleBottom=visible.y+visible.height;
+  const displayRight=display.x+display.width;
+  const displayBottom=display.y+display.height;
+
+  D.layer("Frame");
+
+  drawCheckerRegion({
+    x:visible.x,
+    y:visible.y,
+    width:visible.width,
+    height:Math.max(0,display.y-visible.y)
+  });
+
+  drawCheckerRegion({
+    x:visible.x,
+    y:displayBottom,
+    width:visible.width,
+    height:Math.max(0,visibleBottom-displayBottom)
+  });
+
+  drawCheckerRegion({
+    x:visible.x,
+    y:display.y,
+    width:Math.max(0,display.x-visible.x),
+    height:display.height
+  });
+
+  drawCheckerRegion({
+    x:displayRight,
+    y:display.y,
+    width:Math.max(0,visibleRight-displayRight),
+    height:display.height
+  });
+
+  D.line(display.x,display.y,displayRight,display.y,{
+    color:"#d4e8ff",
+    alpha:0.92,
+    lineWidth:3
+  });
+  D.line(display.x,displayBottom,displayRight,displayBottom,{
+    color:"#d4e8ff",
+    alpha:0.92,
+    lineWidth:3
+  });
+  D.line(display.x,display.y,display.x,displayBottom,{
+    color:"#d4e8ff",
+    alpha:0.92,
+    lineWidth:3
+  });
+  D.line(displayRight,display.y,displayRight,displayBottom,{
+    color:"#d4e8ff",
+    alpha:0.92,
+    lineWidth:3
+  });
+}
+
+function drawSplash(){
+  const D=GM.draw;
+  const screen=screenRect();
+  const cx=screen.width/2;
+  const cy=screen.height/2;
+
+  D.layer("World");
+  D.spriteExt(ATLAS,"logo",cx,cy-46,{scale:2});
+  D.atlasText(FONT,"CANVAS STACK",cx,cy+52,{
+    scale:1.6,
+    color:"#ffffff",
+    align:"center"
+  });
+  D.atlasText(FONT,"GENERATED WITH GROUT13",cx,cy+96,{
+    scale:0.78,
+    color:"#c4dcff",
+    align:"center"
+  });
+}
+
+function drawTitle(){
+  const D=GM.draw;
+  const screen=screenRect();
+  const cx=screen.width/2;
+  const cy=screen.height/2;
+
+  D.layer("World");
+  D.spriteExt(ATLAS,"logo",cx,cy-130,{scale:1.65});
+  D.atlasText(FONT,"SINGLE CANVAS",cx,cy-34,{
+    scale:1.7,
+    color:"#ffffff",
+    align:"center"
+  });
+  D.atlasText(FONT,"UNDERLAY WORLD OVERLAY",cx,cy+18,{
+    scale:0.92,
+    color:"#87d8ff",
+    align:"center"
+  });
+  D.atlasText(FONT,"TAP TO START",cx,cy+100,{
+    scale:1.2,
+    color:"#ffe66d",
+    align:"center"
+  });
+}
+
+function drawWorld(){
+  if(state.mode==="game") drawGameWorld();
+  else if(state.mode==="title") drawTitle();
+  else drawSplash();
+}
+
+function drawOverlay(){
+  const D=GM.draw;
+  const visible=GM.viewport.visibleRoomRect;
+  const screen=screenRect();
+  const pad=24;
+
+  D.layer("Overlay");
+
+  if(state.mode==="game"){
+    D.rect(pad,pad,pad+282,pad+54,{color:"#05070d",alpha:0.7});
+    D.atlasText(FONT,"ROOM 1280 X 1280",pad+14,pad+12,{
+      scale:0.9,
+      color:"#ffffff"
+    });
+    D.atlasText(FONT,"ARROWS WASD OR TAP",pad+14,pad+34,{
+      scale:0.72,
+      color:"#a9bfd9"
+    });
+
+    const pauseX=screen.width-pad-118;
+    D.rect(pauseX,pad,screen.width-pad,pad+54,{
+      color:"#05070d",
+      alpha:0.7
+    });
+    D.atlasText(FONT,"PAUSE",screen.width-pad-59,pad+16,{
+      scale:0.9,
+      color:"#ffe66d",
+      align:"center"
+    });
+  }
+
+  if(state.paused){
+    D.rect(
+      visible.x,
+      visible.y,
+      visible.x+visible.width,
+      visible.y+visible.height,
+      {color:"#000000",alpha:0.72}
+    );
+    D.atlasText(FONT,"PAUSED",screen.width/2,screen.height/2-34,{
+      scale:2,
+      color:"#ffffff",
+      align:"center"
+    });
+    D.atlasText(FONT,"TAP TO RESUME",screen.width/2,screen.height/2+36,{
+      scale:1,
+      color:"#ffe66d",
+      align:"center"
+    });
+  }
+
+  const fade=state.transition.alpha;
+  if(fade>0){
+    D.layer("Transition");
+    D.rect(
+      visible.x,
+      visible.y,
+      visible.x+visible.width,
+      visible.y+visible.height,
+      {color:"#000000",alpha:fade}
+    );
+  }
+}
+
+function overlayInput(pointer){
+  if(!pointer) return false;
+
+  if(state.paused){
+    if(pointer.released){
+      state.paused=false;
+      state.messageAge=0;
+    }
+    return true;
+  }
+
+  if(state.transition.next||state.transition.alpha>0.08) return true;
+
+  if(state.mode==="splash") return true;
+
+  if(state.mode==="title"){
+    if(pointer.released) beginTransition("game");
+    return true;
+  }
+
+  if(state.mode==="game"&&pointer.pressed){
+    const screen=screenRect();
+    const pad=24;
+    const pauseX=screen.width-pad-118;
+    if(
+      pointer.roomX>=pauseX&&
+      pointer.roomX<=screen.width-pad&&
+      pointer.roomY>=pad&&
+      pointer.roomY<=pad+54
+    ){
+      state.paused=true;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function worldInput(pointer){
+  if(state.mode!=="game"||state.paused||!pointer||!pointer.pressed) return false;
+  const camera=state.camera;
+  if(!camera.containsScreen(pointer.roomX,pointer.roomY)) return false;
+  camera.screenToWorld(pointer.roomX,pointer.roomY,state.target);
+  state.target.x=GM.math.clamp(state.target.x,0,ROOM.width);
+  state.target.y=GM.math.clamp(state.target.y,0,ROOM.height);
+  state.target.active=true;
+  return true;
+}
+
+const stack=createCanvasStack([
+  {
+    name:"underlay",
+    order:0,
+    draw:drawUnderlay
+  },
+  {
+    name:"world",
+    order:10,
+    input:worldInput,
+    step(dt){
+      if(state.mode==="game"&&!state.paused) updatePlayer(dt);
+    },
+    draw:drawWorld
+  },
+  {
+    name:"frame",
+    order:15,
+    enabled(){
+      return state.mode==="game";
+    },
+    draw:drawWorldFrame
+  },
+  {
+    name:"overlay",
+    order:20,
+    input:overlayInput,
+    step(dt){
+      state.modeAge+=dt;
+      state.messageAge+=dt;
+
+      if(state.mode==="splash"&&state.modeAge>1.55&&!state.transition.next){
+        beginTransition("title");
+      }
+
+      if(
+        state.mode==="game"&&
+        (GM.input.keyPressed("P")||GM.input.keyPressed(GM.key.ESCAPE))
+      ){
+        state.paused=!state.paused;
+      }
+
+      stepTransition(dt);
+    },
+    draw:drawOverlay
+  }
+]);
+
+function create(){
+  GM.layer.stack(
+    ["Underlay","World","Frame","Overlay","Transition"],
+    {start:-100,step:100}
+  );
+  GM.layer.assertAbove("Frame","World");
+  GM.layer.assertAbove("Overlay","Frame");
+  GM.layer.assertAbove("Transition","Overlay");
+
+  installGeneratedAssets();
+
+  state.camera=createRoomCamera({
+    roomWidth:ROOM.width,
+    roomHeight:ROOM.height,
+    viewHeight:ROOM.viewHeight,
+    minAspect:ROOM.minAspect,
+    maxAspect:ROOM.maxAspect
+  });
+
+  statusBox.hidden=true;
+  proof.complete=true;
+}
+
+GM.app.start({
+  parent:"game",
+  viewport:{
+    mode:"adaptive",
+    width:720,
+    height:1280,
+    fit:"contain",
+    scaleStep:false,
+    fitArea:"safe",
+    safeArea:"frame",
+    align:{
+      portrait:{x:"center",y:"center"},
+      landscape:{x:"center",y:"center"}
+    },
+    minHeight:960,
+    targetHeight:1280,
+    maxHeight:1800,
+    desktopBreakpoint:1000,
+    desktopMinWidth:1280,
+    desktopHeight:720,
+    desktopMaxWidth:1920
+  },
+  simulationHz:60,
+  maxFrameDeltaMs:100,
+  maxCatchUpSteps:5,
+  randomSeed:1337,
+  renderQuality:"pixel-art",
+  pixelArt:true,
+  antialias:false,
+  roundPixels:true,
+  renderResolution:"auto",
+  maxRenderResolution:3,
+  stage:false,
+  curtain:false,
+  globals:false,
+  background:"#05070d",
+  drawValidation:"report",
+  layerAssertions:true,
+  create,
+  step(_gm,dt){stack.step(dt);},
+  draw(){stack.draw();},
+  onError(error){
+    const text=error instanceof Error?(error.stack||error.message):String(error);
+    proof.failed=true;
+    proof.complete=false;
+    proof.errors.push(text);
+    errorBox.hidden=false;
+    errorBox.textContent=text;
+  }
+});
+</script>
+</body>
+</html>

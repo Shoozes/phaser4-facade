@@ -30,7 +30,11 @@ const html = fs.readFileSync(TARGET, "utf8");
 const start = html.indexOf(START);
 const end = html.indexOf(END);
 if (start < 0 || end < 0 || end < start) {
-    throw new Error("fruit-shot-grout13.html is missing the fruit-shot-spec markers.");
+    if (html.includes('import { DEFAULT_FRUIT_SHOT as GAME } from "fruit-shot/config";') && html.includes("GAME.floorY")) {
+        console.log("[ok] Fruit Shot Grout13 module example consumes the shared GAME spec.");
+        process.exit(0);
+    }
+    throw new Error("fruit-shot-grout13.html is missing the fruit-shot-spec markers or shared GAME config import.");
 }
 const next = html.slice(0, start) + formatGameBlock() + html.slice(end + END.length);
 if (next !== html) fs.writeFileSync(TARGET, next);

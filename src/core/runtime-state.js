@@ -30,6 +30,7 @@ export function createRuntimeState(scene, cfg) {
         cleanedUp: false,
         modals: [],
         instances: [],
+        instanceOwner: Symbol("gm-phaser4-runtime"),
         nextInstanceId: 1,
         currentInstance: null,
         stepFrame: 0,
