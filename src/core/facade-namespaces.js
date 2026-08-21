@@ -14,6 +14,7 @@ import {
 import { inferPointerKind, resolvePrimaryPointer } from "./input.js";
 import { assertFinite } from "./debug.js";
 import { createVirtualStick } from "./virtual-stick.js";
+import { createVirtualJoystick as createVirtualJoystickController } from "./virtual-joystick.js";
 import {
     drawAtlasText,
     drawAtlasTextFit,
@@ -213,9 +214,13 @@ export function installFacadeNamespaces(deps) {
 
     const gui = {
         rect: function () { return callActive("draw_gui_rectangle", arguments); },
+        roundRect: function () { return callActive("draw_gui_roundrect", arguments); },
+        circle: function () { return callActive("draw_gui_circle", arguments); },
+        line: function () { return callActive("draw_gui_line", arguments); },
         text: function () { return callActive("draw_gui_text", arguments); },
         textExt: function () { return callActive("draw_gui_text_ext", arguments); },
-        textFit: function () { return callActive("draw_gui_text_fit", arguments); }
+        textFit: function () { return callActive("draw_gui_text_fit", arguments); },
+        layer: function () { return callActive("select_gui_layer", arguments); }
     };
 
     const input = Object.assign({}, INPUT, {
@@ -242,6 +247,32 @@ export function installFacadeNamespaces(deps) {
                     return active().release_pointer_id(id, owner);
                 }
             });
+        },
+        /**
+         * @param {any} options
+         */
+        createVirtualJoystick(options) {
+            const runtime = active();
+            const joystick = createVirtualJoystickController(options, {
+                activePointers: () => runtime.active_pointers(),
+                capturePointer(id, owner) {
+                    return runtime.capture_pointer(id, owner);
+                },
+                releasePointer(id, owner) {
+                    return runtime.release_pointer_id(id, owner);
+                },
+                inputBlocked: () => runtime.input_blocked(),
+                currentTime: () => runtime.current_time,
+                viewport: () => runtime.state.viewport,
+                gui,
+                register(value) {
+                    runtime.state.virtualJoysticks.add(value);
+                },
+                unregister(value) {
+                    runtime.state.virtualJoysticks.delete(value);
+                }
+            });
+            return joystick;
         },
         primaryPointer() {
             const runtime = activeOrNull();

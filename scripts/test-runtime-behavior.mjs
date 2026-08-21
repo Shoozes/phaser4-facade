@@ -302,7 +302,8 @@ function isBenignConsoleText(text) {
 async function runCell(browser, baseUrl, cell) {
     const context = await browser.newContext({
         viewport: cell.viewport || { width: 390, height: 844 },
-        deviceScaleFactor: cell.deviceScaleFactor || 2
+        deviceScaleFactor: cell.deviceScaleFactor || 2,
+        hasTouch: true
     });
     const page = await context.newPage();
     const consoleErrors = [];

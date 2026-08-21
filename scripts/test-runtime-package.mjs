@@ -113,6 +113,7 @@ for (const relativePath of [
     "examples/native-app-shell.css",
     "examples/fruit-shot.html",
     "examples/fruit-shot-grout13.html",
+    "examples/virtual-joystick.html",
     "examples/phaser4-facade-grout13-canvas-stack-clipped.html",
     "examples/fruit-shot-modular.html",
     "examples/fruit-shot-modular.js",

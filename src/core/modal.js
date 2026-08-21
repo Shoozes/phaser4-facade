@@ -26,6 +26,7 @@ import { clamp } from "./math.js";
  * @typedef {{
  *   scene: any,
  *   screen: { add: (items: unknown[]) => unknown },
+ *   screenLayers?: Map<string, { container: any }>,
  *   modals: RuntimeModal[],
  *   render?: { resolution?: number }
  * }} RuntimeModalState
@@ -319,7 +320,8 @@ export function createModal(api, state, options, uiToolkit) {
         modal.container.add(okButton);
     }
 
-    state.screen.add([modal.overlay, modal.container]);
+    const modalParent = state.screenLayers?.get("modal")?.container || state.screen;
+    modalParent.add([modal.overlay, modal.container]);
     state.modals.push(modal);
     modal.layout();
 

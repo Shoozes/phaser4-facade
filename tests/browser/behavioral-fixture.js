@@ -43,6 +43,16 @@ export async function runQualification(options) {
             x: 0,
             y: 0
         },
+        joystick: {
+            available: false,
+            fixedActive: false,
+            dynamicActive: false,
+            fixedPointerId: null,
+            dynamicPointerId: null,
+            fixedVector: { x: 0, y: 0 },
+            dynamicVector: { x: 0, y: 0 },
+            activePointers: []
+        },
         layout: {
             responsive,
             probes: []
@@ -55,6 +65,7 @@ export async function runQualification(options) {
         resized: false
     };
     window.__gmRuntimeQualification = report;
+    let joystickControllers = { movement: null, aim: null };
 
     function fail(message) {
         report.failed = true;
@@ -66,6 +77,24 @@ export async function runQualification(options) {
     function recordCheck(name, ok, detail) {
         report.checks[name] = { ok: Boolean(ok), detail: detail === undefined ? null : detail };
         if (!ok) fail(`check failed: ${name}${detail ? ` (${detail})` : ""}`);
+    }
+
+    function dispatchSyntheticTouch(canvas, type, touchData) {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        const touches = touchData.map((touch) => ({
+            identifier: touch.identifier,
+            target: canvas,
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            pageX: touch.clientX + window.scrollX,
+            pageY: touch.clientY + window.scrollY
+        }));
+        Object.defineProperties(event, {
+            changedTouches: { configurable: true, value: touches },
+            targetTouches: { configurable: true, value: touches },
+            touches: { configurable: true, value: touches }
+        });
+        canvas.dispatchEvent(event);
     }
 
     function dispatchResolutionProbe(request) {
@@ -283,6 +312,14 @@ export async function runQualification(options) {
             randomSeed: 42,
             type: render === "canvas" ? "CANVAS" : render === "auto" ? "AUTO" : "WEBGL",
             create(api) {
+                const expectedScreenLayers = ["hud", "controls", "overlay", "modal", "fade", "debug"];
+                const actualScreenLayers = Array.from(api.state.screenLayers?.keys?.() || []);
+                recordCheck("screenLayerNames", JSON.stringify(actualScreenLayers) === JSON.stringify(expectedScreenLayers), actualScreenLayers);
+                const screenIndexes = expectedScreenLayers.map((name) => actualScreenLayers.indexOf(name));
+                const screenDepths = expectedScreenLayers.map((name) => api.state.screenLayers.get(name).depth);
+                recordCheck("screenLayerOrder", screenIndexes.every((value, index) => value === index) && screenDepths.every((value, index) => index === 0 || value > screenDepths[index - 1]), { screenIndexes, screenDepths });
+                recordCheck("guiPrimitiveParity", ["layer", "roundRect", "circle", "line"].every((name) => typeof GM.gui[name] === "function"), null);
+
                 if (typeof GM.layer?.define === "function") {
                     GM.layer.define("Instances", 100);
                     GM.layer.define("actors", 200);
@@ -348,6 +385,36 @@ export async function runQualification(options) {
                     stick.cancel("stick-1");
                     recordCheck("virtualStickCancelSafe", stick.active === false && stick.magnitude === 0, JSON.stringify(stick.vector));
                 }
+                if (typeof GM.input.createVirtualJoystick === "function") {
+                    joystickControllers.movement = GM.input.createVirtualJoystick({
+                        id: "movement",
+                        mode: "fixed",
+                        layer: "controls",
+                        radius: 72,
+                        deadzone: 0.1,
+                        layout(viewport) {
+                            const safe = viewport.safeScreenRect;
+                            return {
+                                origin: { x: safe.x + 96, y: safe.y + safe.height - 96 },
+                                zone: { x: safe.x, y: safe.y, width: safe.width * 0.5, height: safe.height }
+                            };
+                        }
+                    });
+                    joystickControllers.aim = GM.input.createVirtualJoystick({
+                        id: "aim",
+                        mode: "dynamic",
+                        layer: "controls",
+                        radius: 72,
+                        deadzone: 0.1,
+                        layout(viewport) {
+                            const safe = viewport.safeScreenRect;
+                            return {
+                                zone: { x: safe.x + safe.width * 0.5, y: safe.y, width: safe.width * 0.5, height: safe.height }
+                            };
+                        }
+                    });
+                    report.joystick.available = true;
+                }
             },
             step(api, deltaSec) {
                 if (runId === "primary") report.frames += 1;
@@ -366,6 +433,25 @@ export async function runQualification(options) {
                 if (report.keyboard.requested) {
                     report.keyboard.seenDown = report.keyboard.seenDown || api.keyboard_check(GM.key.RIGHT);
                     report.keyboard.seenPressed = report.keyboard.seenPressed || api.keyboard_check_pressed(GM.key.RIGHT);
+                }
+                if (joystickControllers.movement && joystickControllers.aim) {
+                    report.joystick.fixedActive = joystickControllers.movement.active;
+                    report.joystick.dynamicActive = joystickControllers.aim.active;
+                    report.joystick.fixedPointerId = joystickControllers.movement.pointerId;
+                    report.joystick.dynamicPointerId = joystickControllers.aim.pointerId;
+                    report.joystick.fixedVector = joystickControllers.movement.vector;
+                    report.joystick.dynamicVector = joystickControllers.aim.vector;
+                }
+                if (typeof GM.input?.activePointers === "function") {
+                    report.joystick.activePointers = GM.input.activePointers().map((pointer) => ({
+                        id: pointer.id,
+                        down: pointer.down,
+                        pressed: pointer.pressed,
+                        active: pointer.active,
+                        x: pointer.screenX,
+                        y: pointer.screenY,
+                        owner: pointer.owner
+                    }));
                 }
                 captureResolutionProbe();
 
@@ -448,6 +534,9 @@ export async function runQualification(options) {
                 report.checks.drawText = { ok: drawTextSeen, detail: runId };
             },
             gui() {
+                if (joystickControllers.movement) joystickControllers.movement.draw();
+                if (joystickControllers.aim) joystickControllers.aim.draw();
+                GM.gui.layer("hud");
                 const extendedFrame = report.frames % 2 === 1;
                 const guiText = extendedFrame
                     ? GM.gui.textExt(24, 170, "GUI extended text", {
@@ -526,8 +615,13 @@ export async function runQualification(options) {
     const canvas = document.querySelector("canvas");
     if (!canvas) fail("canvas missing before pointer sample.");
     const rect = canvas.getBoundingClientRect();
-    const cx = rect.left + rect.width * 0.5;
-    const cy = rect.top + rect.height * 0.5;
+    const safe = GM.viewport.safeScreenRect;
+    const leftStartX = rect.left + safe.x + 96;
+    const leftStartY = rect.top + safe.y + safe.height - 96;
+    const rightStartX = rect.left + safe.x + safe.width * 0.8;
+    const rightStartY = leftStartY;
+    const cx = leftStartX;
+    const cy = leftStartY;
     canvas.dispatchEvent(new PointerEvent("pointerdown", {
         bubbles: true,
         cancelable: true,
@@ -545,12 +639,46 @@ export async function runQualification(options) {
         clientY: cy,
         buttons: 1
     }));
+    canvas.dispatchEvent(new PointerEvent("pointermove", {
+        bubbles: true,
+        cancelable: true,
+        clientX: leftStartX + 60,
+        clientY: cy,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+        buttons: 1
+    }));
+    canvas.dispatchEvent(new MouseEvent("mousemove", {
+        bubbles: true,
+        cancelable: true,
+        clientX: leftStartX + 60,
+        clientY: cy,
+        buttons: 1
+    }));
+    dispatchSyntheticTouch(canvas, "touchstart", [{ identifier: 2, clientX: rightStartX, clientY: rightStartY }]);
+    await waitFor(() => report.joystick.dynamicActive, 2000, "dynamic virtual joystick activation");
+    dispatchSyntheticTouch(canvas, "touchmove", [{ identifier: 2, clientX: rightStartX - 60, clientY: cy }]);
     await waitFor(() => report.pointer.seenDown || report.pointer.seenPressed || report.frames > targetFrames + 4, 2000, "pointer sample");
     recordCheck(
         "pointerObserved",
         report.pointer.seenDown || report.pointer.seenPressed,
         JSON.stringify(report.pointer)
     );
+    await waitFor(
+        () => report.joystick.fixedActive && report.joystick.dynamicActive && report.joystick.dynamicVector.x < -0.1,
+        2000,
+        "simultaneous virtual joysticks"
+    );
+    recordCheck("virtualJoystickAvailable", report.joystick.available, null);
+    recordCheck("virtualJoystickTwoPointerOwnership", report.joystick.fixedPointerId !== null && report.joystick.dynamicPointerId !== null && report.joystick.fixedPointerId !== report.joystick.dynamicPointerId, JSON.stringify(report.joystick));
+    recordCheck("virtualJoystickMovementVector", report.joystick.fixedVector.x > 0.5 && Math.abs(report.joystick.fixedVector.y) < 0.1, JSON.stringify(report.joystick.fixedVector));
+    recordCheck("virtualJoystickAimVector", report.joystick.dynamicVector.x < -0.1, JSON.stringify(report.joystick.dynamicVector));
+    canvas.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: "mouse", buttons: 0 }));
+    canvas.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, clientX: cx, clientY: cy, buttons: 0 }));
+    dispatchSyntheticTouch(canvas, "touchend", [{ identifier: 2, clientX: rightStartX - 60, clientY: rightStartY }]);
+    await delay(50);
+    recordCheck("virtualJoystickRelease", !report.joystick.fixedActive && !report.joystick.dynamicActive, JSON.stringify(report.joystick));
 
     report.keyboard.requested = true;
     window.dispatchEvent(new KeyboardEvent("keydown", {

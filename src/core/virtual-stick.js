@@ -10,7 +10,8 @@
  *   mode?: "fixed" | "floating",
  *   origin?: { x?: unknown, y?: unknown },
  *   maxRadius?: unknown,
- *   deadzone?: unknown
+ *   deadzone?: unknown,
+ *   axis?: "both" | "horizontal" | "vertical"
  * }} VirtualStickOptions
  */
 
@@ -62,6 +63,7 @@ export function createVirtualStick(options = {}, pointerApi) {
     };
     const maxRadius = stickPositiveOr(options.maxRadius, 96, "maxRadius");
     const deadzone = Math.min(0.99, Math.max(0, stickFiniteOr(options.deadzone, 0.12, "deadzone")));
+    const axis = options.axis === "horizontal" || options.axis === "vertical" ? options.axis : "both";
     /** @type {{ active: boolean, pointerId: string | null, origin: StickPoint, position: StickPoint, vector: StickPoint, distance: number, magnitude: number, angle: number }} */
     const state = {
         active: false,
@@ -87,10 +89,13 @@ export function createVirtualStick(options = {}, pointerApi) {
      * @param {number} y
      */
     function updateVector(x, y) {
-        const dx = x - state.origin.x;
-        const dy = y - state.origin.y;
-        const distance = Math.hypot(dx, dy);
-        const normalizedDistance = Math.min(1, distance / maxRadius);
+        const rawDx = x - state.origin.x;
+        const rawDy = y - state.origin.y;
+        const dx = axis === "vertical" ? 0 : rawDx;
+        const dy = axis === "horizontal" ? 0 : rawDy;
+        const distance = Math.hypot(rawDx, rawDy);
+        const axisDistance = Math.hypot(dx, dy);
+        const normalizedDistance = Math.min(1, axisDistance / maxRadius);
         const magnitude = normalizedDistance <= deadzone
             ? 0
             : (normalizedDistance - deadzone) / (1 - deadzone);
@@ -123,12 +128,29 @@ export function createVirtualStick(options = {}, pointerApi) {
         get active() { return state.active; },
         get pointerId() { return state.pointerId; },
         get mode() { return mode; },
+        get axis() { return axis; },
         get origin() { return { ...state.origin }; },
         get position() { return { ...state.position }; },
         get vector() { return { ...state.vector }; },
         get distance() { return state.distance; },
         get magnitude() { return state.magnitude; },
         get angle() { return state.angle; },
+
+        /**
+         * Update the fixed origin after a viewport/safe-area change.
+         * @param {unknown} x
+         * @param {unknown} y
+         */
+        setOrigin(x, y) {
+            fixedOrigin.x = stickFiniteOr(x, fixedOrigin.x, "origin.x");
+            fixedOrigin.y = stickFiniteOr(y, fixedOrigin.y, "origin.y");
+            if (mode === "fixed" || !state.active) {
+                state.origin = { ...fixedOrigin };
+                if (state.active) updateVector(state.position.x, state.position.y);
+                else clearVector();
+            }
+            return stick;
+        },
 
         /**
          * @param {unknown} pointerId

@@ -54,7 +54,7 @@
   },
   "scripts": {
     "build": "node scripts/build-runtime.mjs",
-    "verify:contract": "node scripts/verify-version-consistency.mjs && node scripts/test-runtime-package.mjs && node scripts/test-runtime-install-entry.mjs && node scripts/test-integer-scale-layout.mjs && node scripts/test-viewport-contract.mjs && node scripts/test-facade-diagnostics.mjs && node scripts/test-primary-pointer.mjs && node scripts/test-atlas-text.mjs && node scripts/test-fruit-shot-spec.mjs && node scripts/generate-fruit-shot-spec.mjs && node scripts/test-text-sprite-options.mjs && node scripts/test-draw-primitives.mjs && node scripts/test-fruit-shot-example.mjs && node scripts/test-grout13-bridge.mjs",
+    "verify:contract": "node scripts/verify-version-consistency.mjs && node scripts/test-runtime-package.mjs && node scripts/test-runtime-install-entry.mjs && node scripts/test-screen-layers.mjs && node scripts/test-virtual-joystick.mjs && node scripts/test-virtual-joystick-example.mjs && node scripts/test-integer-scale-layout.mjs && node scripts/test-viewport-contract.mjs && node scripts/test-facade-diagnostics.mjs && node scripts/test-primary-pointer.mjs && node scripts/test-atlas-text.mjs && node scripts/test-fruit-shot-spec.mjs && node scripts/generate-fruit-shot-spec.mjs && node scripts/test-text-sprite-options.mjs && node scripts/test-draw-primitives.mjs && node scripts/test-fruit-shot-example.mjs && node scripts/test-grout13-bridge.mjs",
     "verify:repro": "node scripts/test-runtime-reproducibility.mjs",
     "verify:behavior": "node scripts/test-runtime-behavior.mjs && node scripts/test-fruit-shot-browser.mjs && node scripts/test-fruit-shot-file-origin.mjs",
     "verify:soak": "node scripts/test-runtime-performance.mjs && node scripts/test-runtime-soak.mjs",

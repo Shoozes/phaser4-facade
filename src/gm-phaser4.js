@@ -62,7 +62,6 @@ import {
 import { resolveRoomLayout } from "./core/layout.js";
 import { readSafeInsets } from "./core/viewport.js";
 import { createModal } from "./core/modal.js";
-import { makeTextPool } from "./core/pools.js";
 import {
     beginRuntimePerfFrame,
     beginRuntimePerfSection,
@@ -71,6 +70,7 @@ import {
 } from "./core/perf-metrics.js";
 import { syncRenderResolution } from "./core/render-resolution.js";
 import { createWorldLayerManager } from "./core/render-layers.js";
+import { createScreenLayerManager, DEFAULT_SCREEN_LAYERS } from "./core/screen-layers.js";
 import { createUiToolkit } from "./core/ui-toolkit.js";
 import { installFacadeNamespaces } from "./core/facade-namespaces.js";
 import { createGameStarter } from "./core/game-start.js";
@@ -145,6 +145,10 @@ import { logDebugMessage } from "./core/debug.js";
  * @property {(...args: any[]) => any} draw_text_ext
  * @property {(...args: any[]) => any} draw_text_fit
  * @property {(...args: any[]) => any} draw_gui_rectangle
+ * @property {(name: string, depth?: number) => any} select_gui_layer
+ * @property {(x1: number, y1: number, x2: number, y2: number, radius?: number, outline?: any) => any} draw_gui_roundrect
+ * @property {(x: number, y: number, radius: number, outline?: any) => any} draw_gui_circle
+ * @property {(x1: number, y1: number, x2: number, y2: number, options?: any) => any} draw_gui_line
  * @property {(...args: any[]) => any} draw_gui_text
  * @property {(...args: any[]) => any} draw_gui_text_ext
  * @property {(...args: any[]) => any} draw_gui_text_fit
@@ -300,6 +304,23 @@ export function installGMRuntime(root, Phaser) {
 
         const worldLayers = createWorldLayerManager(scene, state);
         const selectWorldLayer = worldLayers.select;
+        const screenLayers = createScreenLayerManager(scene, state);
+        /** @param {string} name @param {number | undefined} [depth] */
+        function selectScreenLayer(name, depth) {
+            const layer = screenLayers.ensure(name, depth);
+            return screenLayers.select(layer.name);
+        }
+
+        function activeScreenLayer() {
+            return state.screenLayers.get(state.activeScreenLayer) || screenLayers.ensure("hud");
+        }
+
+        function updateVirtualJoysticks() {
+            for (const joystick of Array.from(state.virtualJoysticks)) {
+                if (!joystick || typeof joystick.update !== "function") continue;
+                joystick.update();
+            }
+        }
 
         function suppressHeldKeys() {
             for (const key of Object.keys(state.keysDown)) {
@@ -516,6 +537,15 @@ export function installGMRuntime(root, Phaser) {
                 state.uiButtons.clear();
                 destroyUiPanels(reason || "cleanup");
 
+                for (const joystick of Array.from(state.virtualJoysticks)) {
+                    try {
+                        if (joystick && typeof joystick.destroy === "function") joystick.destroy();
+                    } catch (error) {
+                        recordRuntimeCleanupError(state, error, "virtual_joystick_destroy", reason || "cleanup");
+                    }
+                }
+                state.virtualJoysticks.clear();
+
                 try {
                     if (state.world && typeof state.world.destroy === "function") state.world.destroy(true);
                 } catch (error) {
@@ -530,9 +560,12 @@ export function installGMRuntime(root, Phaser) {
                 state.screen = null;
                 state.worldGfx = null;
                 state.screenGfx = null;
+                state.screenText = null;
+                state.screenSprites = null;
                 state.inputBlocker = null;
                 state.currentInstance = null;
                 state.worldLayers.clear();
+                state.screenLayers.clear();
                 state.activeWorldContainer = null;
 
                 if (GM._active === api) GM._active = null;
@@ -546,8 +579,10 @@ export function installGMRuntime(root, Phaser) {
 
                 state.screen = scene.add.container(0, 0);
                 state.screen.setDepth(100000);
-                state.screenGfx = scene.add.graphics();
-                state.screen.add(state.screenGfx);
+                for (const [name, depth] of Object.entries(DEFAULT_SCREEN_LAYERS)) {
+                    screenLayers.ensure(name, depth);
+                }
+                selectScreenLayer("hud");
 
                 state.inputBlocker = scene.add.rectangle(0, 0, 1, 1, 0x000000, 0)
                     .setOrigin(0, 0)
@@ -583,9 +618,7 @@ export function installGMRuntime(root, Phaser) {
                 };
                 onRuntimeEvent(state, state.inputBlocker, "pointerdown", onBlockerPointerDown);
                 onRuntimeEvent(state, state.inputBlocker, "pointerup", onBlockerPointerUp);
-                state.screen.add(state.inputBlocker);
-
-                state.screenText = makeTextPool(scene, state.screen, state);
+                state.screenLayers.get("hud").container.add(state.inputBlocker);
 
                 if (scene.input.mouse && scene.input.mouse.disableContextMenu) {
                     scene.input.mouse.disableContextMenu();
@@ -594,6 +627,9 @@ export function installGMRuntime(root, Phaser) {
                     scene.input.setTopOnly(true);
                 } else if (scene.input) {
                     scene.input.topOnly = true;
+                }
+                if (scene.input && typeof scene.input.addPointer === "function") {
+                    scene.input.addPointer(2);
                 }
 
                 onRuntimeEvent(state, scene.scale, "resize", () => api.layout("phaser-scale-resize"));
@@ -894,11 +930,11 @@ export function installGMRuntime(root, Phaser) {
 
             beginDraw() {
                 worldLayers.beginFrame();
-                state.screenGfx.clear();
+                screenLayers.beginFrame();
                 hideUiPanels();
                 for (const button of state.uiButtons.values()) button.beginFrame();
-                state.screenText.begin();
                 selectWorldLayer("world");
+                selectScreenLayer("hud");
                 api.resetDrawState();
 
                 if (cfg.stage) {
@@ -964,6 +1000,10 @@ export function installGMRuntime(root, Phaser) {
 
                     beginRuntimePerfSection(state, "step");
                     try {
+                        // Poll screen-space controls once per render frame. This
+                        // keeps fixed-step catch-up from advancing fade state more
+                        // than once for the same wall-clock timestamp.
+                        updateVirtualJoysticks();
                         const simulationHz = Number(cfg.simulationHz) || 0;
                         if (simulationHz > 0) {
                             const stepMs = 1000 / simulationHz;
@@ -1026,6 +1066,7 @@ export function installGMRuntime(root, Phaser) {
                     // Preserve the legacy diagnostics surface while named layers own
                     // their own text pools internally.
                     worldLayers.publishTextDiagnostics();
+                    screenLayers.publishTextDiagnostics();
                 } finally {
                     api.endFrame();
                     finalizeRuntimePerfFrame(state);
@@ -1131,16 +1172,36 @@ export function installGMRuntime(root, Phaser) {
                 return api;
             },
 
+            select_gui_layer(name, depth) {
+                selectScreenLayer(name, depth);
+                return api;
+            },
+
+            draw_gui_roundrect(x1, y1, x2, y2, radius, outline) {
+                drawRuntimeRoundRect(state, state.screenGfx, x1, y1, x2, y2, radius, outline);
+                return api;
+            },
+
+            draw_gui_circle(x, y, radius, outline) {
+                drawRuntimeCircle(state, state.screenGfx, x, y, radius, outline);
+                return api;
+            },
+
+            draw_gui_line(x1, y1, x2, y2, options) {
+                drawRuntimeLine(state, state.screenGfx, x1, y1, x2, y2, options);
+                return api;
+            },
+
             draw_gui_text(x, y, text) {
-                return drawRuntimeText(state, state.screenText, state.screen, x, y, text);
+                return drawRuntimeText(state, state.screenText, activeScreenLayer().container, x, y, text);
             },
 
             draw_gui_text_ext(x, y, text, options) {
-                return drawRuntimeTextExt(state, state.screenText, state.screen, x, y, text, options);
+                return drawRuntimeTextExt(state, state.screenText, activeScreenLayer().container, x, y, text, options);
             },
 
             draw_gui_text_fit(x, y, text, options) {
-                return drawRuntimeTextFit(state, state.screenText, state.screen, x, y, text, options);
+                return drawRuntimeTextFit(state, state.screenText, activeScreenLayer().container, x, y, text, options);
             },
 
             draw_sprite(key, frame, x, y) {
@@ -1192,7 +1253,7 @@ export function installGMRuntime(root, Phaser) {
                     item = uiToolkit.createNineSliceObject(scene, x, y, w, h, panelOptions);
                     item.__gmNineSliceRuntimeSignature = signature;
                     state.uiPanels[index] = item;
-                    state.screen.add(item);
+                    state.screenLayers.get("overlay").container.add(item);
                 } else {
                     item.setPosition?.(x, y);
                     if (typeof item.setSize === "function") item.setSize(w, h);
@@ -1236,7 +1297,13 @@ export function installGMRuntime(root, Phaser) {
             },
 
             curtain(text, fadeMs) {
-                return curtain(text, fadeMs, /** @type {any} */ (state), api, scene, /** @type {any} */ (cfg), normalizeDelayMs, COLORS, ALIGN, INPUT);
+                const previousLayer = state.activeScreenLayer;
+                selectScreenLayer("fade");
+                try {
+                    return curtain(text, fadeMs, /** @type {any} */ (state), api, scene, /** @type {any} */ (cfg), normalizeDelayMs, COLORS, ALIGN, INPUT);
+                } finally {
+                    selectScreenLayer(previousLayer || "hud");
+                }
             },
 
             curtain_active() {

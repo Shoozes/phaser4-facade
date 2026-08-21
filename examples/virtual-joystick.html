@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>GM Phaser 4 Virtual Joystick</title>
+    <link rel="stylesheet" href="./native-app-shell.css">
+</head>
+<body data-gm-app-shell="locked">
+    <div class="gm-app-shell">
+        <div id="game" class="gm-app-surface gm-app-surface--full-bleed"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js"></script>
+    <script src="../dist/gm-phaser4.global.js"></script>
+    <script>
+        (function () {
+            if (!window.Phaser || !window.GM || typeof window.GM.input.createVirtualJoystick !== "function") {
+                throw new Error("The virtual joystick example requires Phaser 4 and the GM facade.");
+            }
+
+            let dynamicMode = false;
+            let actionFlashUntil = 0;
+            let movementFixed;
+            let movementDynamic;
+            let player;
+
+            function controlLayout(viewport) {
+                const safe = viewport.safeScreenRect;
+                return {
+                    origin: { x: safe.x + 96, y: safe.y + safe.height - 96 },
+                    zone: {
+                        x: safe.x,
+                        y: safe.y + safe.height * 0.34,
+                        width: safe.width * 0.56,
+                        height: safe.height * 0.66
+                    }
+                };
+            }
+
+            const game = GM.app.start({
+                width: 720,
+                height: 1280,
+                responsive: true,
+                minHeight: 960,
+                targetHeight: 1280,
+                maxHeight: 1680,
+                desktopBreakpoint: 1000,
+                desktopMinWidth: 1280,
+                desktopHeight: 720,
+                desktopMaxWidth: 1920,
+                renderResolution: "auto",
+                maxRenderResolution: 3,
+                curtain: false,
+                globals: false,
+                stage: false,
+                type: "AUTO",
+                create() {
+                    player = {
+                        x: GM.runtime.roomWidth / 2,
+                        y: GM.runtime.roomHeight / 2,
+                        radius: 28
+                    };
+                    movementFixed = GM.input.createVirtualJoystick({
+                        id: "movement-fixed",
+                        mode: "fixed",
+                        layer: "controls",
+                        radius: 86,
+                        deadzone: 0.14,
+                        pointerKinds: ["touch", "pen", "mouse"],
+                        debug: true,
+                        layout: controlLayout
+                    });
+                    movementDynamic = GM.input.createVirtualJoystick({
+                        id: "movement-dynamic",
+                        mode: "dynamic",
+                        layer: "controls",
+                        radius: 86,
+                        deadzone: 0.14,
+                        pointerKinds: ["touch", "pen", "mouse"],
+                        visibility: "active",
+                        debug: true,
+                        layout: controlLayout,
+                        style: { baseFill: "#16253d", knobStroke: "#ffd56b" }
+                    });
+                    movementDynamic.setEnabled(false);
+                },
+                step() {
+                    const movement = dynamicMode ? movementDynamic : movementFixed;
+                    movement.update();
+
+                    let x = movement.vector.x;
+                    let y = movement.vector.y;
+                    if (Math.abs(x) < 0.001 && Math.abs(y) < 0.001) {
+                        x = (GM.input.keyDown(GM.key.RIGHT) || GM.input.keyDown("D") ? 1 : 0) -
+                            (GM.input.keyDown(GM.key.LEFT) || GM.input.keyDown("A") ? 1 : 0);
+                        y = (GM.input.keyDown(GM.key.DOWN) || GM.input.keyDown("S") ? 1 : 0) -
+                            (GM.input.keyDown(GM.key.UP) || GM.input.keyDown("W") ? 1 : 0);
+                        const length = Math.hypot(x, y);
+                        if (length > 1) { x /= length; y /= length; }
+                    }
+
+                    const speed = 260 * GM.runtime.deltaSec;
+                    player.x = Math.max(player.radius, Math.min(GM.runtime.roomWidth - player.radius, player.x + x * speed));
+                    player.y = Math.max(player.radius, Math.min(GM.runtime.roomHeight - player.radius, player.y + y * speed));
+                },
+                draw() {
+                    GM.draw.setColor("#07111f");
+                    GM.draw.rect(0, 0, GM.runtime.roomWidth, GM.runtime.roomHeight, false);
+                    GM.draw.setColor("#143252");
+                    GM.draw.setLineWidth(2);
+                    for (let x = 0; x <= GM.runtime.roomWidth; x += 80) GM.draw.line(x, 0, x, GM.runtime.roomHeight);
+                    for (let y = 0; y <= GM.runtime.roomHeight; y += 80) GM.draw.line(0, y, GM.runtime.roomWidth, y);
+                    GM.draw.setColor("#8ee9ff");
+                    GM.draw.circle(player.x, player.y, player.radius, false);
+                    GM.draw.setColor("#ffffff");
+                    GM.draw.circle(player.x, player.y, player.radius, true);
+                },
+                ui() {
+                    const roomWidth = GM.runtime.roomWidth;
+                    const roomHeight = GM.runtime.roomHeight;
+                    GM.draw.layer("world", 0);
+                    GM.ui.button(roomWidth - 300, 34, 260, 68, dynamicMode ? "FIXED STICK" : "DYNAMIC STICK", () => {
+                        dynamicMode = !dynamicMode;
+                        movementFixed.setEnabled(!dynamicMode);
+                        movementDynamic.setEnabled(dynamicMode);
+                    }, { id: "joystick-mode", radius: 16, size: 18 });
+                    GM.ui.button(roomWidth - 300, roomHeight - 190, 260, 72, "ACTION", () => {
+                        actionFlashUntil = GM.runtime.currentTime + 180;
+                    }, { id: "joystick-action", radius: 16, size: 22 });
+                    GM.ui.button(roomWidth - 300, roomHeight - 100, 260, 58, "PAUSE / MODAL", () => {
+                        GM.ui.notice("Input paused", "The modal owns the screen and cancels both joystick captures.", {
+                            closeOnBackdrop: true,
+                            showClose: false
+                        });
+                    }, { id: "joystick-modal", radius: 16, size: 18 });
+                },
+                gui() {
+                    const viewport = GM.viewport.safeScreenRect;
+                    GM.gui.layer("hud");
+                    GM.gui.roundRect(18, 18, Math.min(390, viewport.width - 18), 154, 18, {
+                        color: "#0b1b31",
+                        alpha: 0.86
+                    });
+                    GM.gui.textExt(34, 38, "VIRTUAL JOYSTICK LAB", {
+                        size: 20,
+                        bold: true,
+                        color: "#dff7ff"
+                    });
+                    const movement = dynamicMode ? movementDynamic : movementFixed;
+                    GM.gui.textExt(34, 72, `mode: ${dynamicMode ? "dynamic" : "fixed"}`, { size: 16, color: "#8ee9ff" });
+                    GM.gui.textExt(34, 96, `vector: ${movement.vector.x.toFixed(2)}, ${movement.vector.y.toFixed(2)}`, { size: 16 });
+                    GM.gui.textExt(34, 120, `magnitude: ${movement.magnitude.toFixed(2)}  direction: ${movement.directionDeg.toFixed(0)}°`, { size: 16 });
+                    GM.gui.textExt(34, 144, `pointer: ${movement.pointerId || "none"}  action: ${GM.runtime.currentTime < actionFlashUntil ? "pressed" : "ready"}`, { size: 15, color: "#ffd56b" });
+
+                    const safe = viewport;
+                    GM.gui.layer("controls");
+                    GM.gui.rect(safe.x, safe.y + safe.height * 0.34, safe.width * 0.56, safe.height * 0.66, {
+                        color: "#8ee9ff",
+                        alpha: 0.12,
+                        outline: true,
+                        lineWidth: 1
+                    });
+                    if (dynamicMode) movementDynamic.draw();
+                    else movementFixed.draw();
+                }
+            });
+
+            window.__virtualJoystickProof = {
+                complete: true,
+                mode: "fixed",
+                joystickApi: true,
+                canvasOnly: true,
+                game
+            };
+        }());
+    </script>
+</body>
+</html>

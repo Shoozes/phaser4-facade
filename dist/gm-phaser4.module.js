@@ -753,11 +753,11 @@ function createRuntimeButtonClass(Phaser) {
       this.hitZone.on("pointerdown", (pointer, localX, localY, event) => {
         consumeInputEvent(pointer, event);
         if (this.api.input_blocked() || this.api.curtain_active()) return;
-        const pointerId = pointerGateKey(pointer);
-        if (this.down && this.activePointerId !== pointerId) return;
+        const pointerId2 = pointerGateKey(pointer);
+        if (this.down && this.activePointerId !== pointerId2) return;
         this.hovered = true;
         this.down = true;
-        this.activePointerId = pointerId;
+        this.activePointerId = pointerId2;
       });
       this.hitZone.on("pointerup", (pointer, localX, localY, event) => {
         consumeInputEvent(pointer, event);
@@ -2249,7 +2249,8 @@ function createModal(api, state, options, uiToolkit) {
     modal.okButton = okButton;
     modal.container.add(okButton);
   }
-  state.screen.add([modal.overlay, modal.container]);
+  const modalParent = state.screenLayers?.get("modal")?.container || state.screen;
+  modalParent.add([modal.overlay, modal.container]);
   state.modals.push(modal);
   modal.layout();
   const openMs = normalizeDelayMs(options.openMs, DEFAULT_MODAL_OPEN_MS, 0);
@@ -2273,113 +2274,6 @@ function createModal(api, state, options, uiToolkit) {
     }
   });
   return modal;
-}
-
-// phaser4-facade-runtime:src/core/pools.js
-function resetRuntimeTextItem(item) {
-  if (typeof item.setPosition === "function") item.setPosition(0, 0);
-  if (typeof item.setOrigin === "function") item.setOrigin(0, 0);
-  if (typeof item.setAlpha === "function") item.setAlpha(1);
-  if (typeof item.setAngle === "function") item.setAngle(0);
-  else if (typeof item.setRotation === "function") item.setRotation(0);
-  if (typeof item.setScale === "function") item.setScale(1, 1);
-  if (typeof item.setBlendMode === "function") item.setBlendMode(0);
-  if (typeof item.clearMask === "function") item.clearMask(true);
-  if (typeof item.setCrop === "function") {
-    try {
-      item.setCrop();
-    } catch {
-    }
-  }
-}
-function makeTextPool(scene, parent, state = null) {
-  return {
-    /** @type {any[]} */
-    items: [],
-    cursor: 0,
-    begin() {
-      this.cursor = 0;
-      for (const item of this.items) item.setVisible(false);
-    },
-    take() {
-      let item = this.items[this.cursor];
-      if (!item) {
-        item = scene.add.text(0, 0, "", {
-          fontFamily: "sans-serif",
-          fontSize: "24px",
-          color: "#ffffff"
-        });
-        parent.add(item);
-        this.items.push(item);
-        countRuntimePerf(state, "textObjectsAllocated");
-      } else {
-        countRuntimePerf(state, "textObjectsReused");
-      }
-      resetRuntimeTextItem(item);
-      this.cursor += 1;
-      item.setVisible(true);
-      return item;
-    }
-  };
-}
-function makeSpritePool(scene, parent, state = null) {
-  return {
-    /** @type {any[]} */
-    items: [],
-    cursor: 0,
-    begin() {
-      this.cursor = 0;
-      for (const item of this.items) item.setVisible(false);
-    },
-    /**
-     * @param {string} key
-     * @param {string | number | undefined | null} frame
-     */
-    take(key, frame) {
-      const normalizedFrame = frame === void 0 ? null : frame;
-      let item = this.items[this.cursor];
-      if (!item) {
-        item = scene.add.sprite(0, 0, key, normalizedFrame);
-        parent.add(item);
-        this.items.push(item);
-        item.__gmRuntimeTextureKey = key;
-        item.__gmRuntimeFrame = normalizedFrame;
-      } else if (item.__gmRuntimeTextureKey !== key || item.__gmRuntimeFrame !== normalizedFrame) {
-        item.setTexture(key, normalizedFrame);
-        item.__gmRuntimeTextureKey = key;
-        item.__gmRuntimeFrame = normalizedFrame;
-      }
-      if (typeof item.setOrigin === "function") item.setOrigin(0.5, 0.5);
-      if (typeof item.setFlip === "function") item.setFlip(false, false);
-      else {
-        if (typeof item.setFlipX === "function") item.setFlipX(false);
-        if (typeof item.setFlipY === "function") item.setFlipY(false);
-      }
-      if (typeof item.clearTint === "function") item.clearTint();
-      if (typeof item.setAlpha === "function") item.setAlpha(1);
-      if (typeof item.setAngle === "function") item.setAngle(0);
-      else if (typeof item.setRotation === "function") item.setRotation(0);
-      if (typeof item.setScale === "function") item.setScale(1, 1);
-      if (typeof item.setBlendMode === "function") item.setBlendMode(0);
-      if (typeof item.clearMask === "function") item.clearMask(true);
-      if (typeof item.setCrop === "function") {
-        try {
-          item.setCrop();
-        } catch {
-        }
-      }
-      if (item.filters && typeof item.filters.clear === "function") {
-        try {
-          item.filters.clear();
-        } catch {
-        }
-      }
-      this.cursor += 1;
-      item.setVisible(true);
-      countRuntimePerf(state, "sprites");
-      return item;
-    }
-  };
 }
 
 // phaser4-facade-runtime:src/core/render-resolution.js
@@ -2503,6 +2397,113 @@ function syncRenderResolution(scene, state, cfg, root, source = "layout") {
   }
 }
 
+// phaser4-facade-runtime:src/core/pools.js
+function resetRuntimeTextItem(item) {
+  if (typeof item.setPosition === "function") item.setPosition(0, 0);
+  if (typeof item.setOrigin === "function") item.setOrigin(0, 0);
+  if (typeof item.setAlpha === "function") item.setAlpha(1);
+  if (typeof item.setAngle === "function") item.setAngle(0);
+  else if (typeof item.setRotation === "function") item.setRotation(0);
+  if (typeof item.setScale === "function") item.setScale(1, 1);
+  if (typeof item.setBlendMode === "function") item.setBlendMode(0);
+  if (typeof item.clearMask === "function") item.clearMask(true);
+  if (typeof item.setCrop === "function") {
+    try {
+      item.setCrop();
+    } catch {
+    }
+  }
+}
+function makeTextPool(scene, parent, state = null) {
+  return {
+    /** @type {any[]} */
+    items: [],
+    cursor: 0,
+    begin() {
+      this.cursor = 0;
+      for (const item of this.items) item.setVisible(false);
+    },
+    take() {
+      let item = this.items[this.cursor];
+      if (!item) {
+        item = scene.add.text(0, 0, "", {
+          fontFamily: "sans-serif",
+          fontSize: "24px",
+          color: "#ffffff"
+        });
+        parent.add(item);
+        this.items.push(item);
+        countRuntimePerf(state, "textObjectsAllocated");
+      } else {
+        countRuntimePerf(state, "textObjectsReused");
+      }
+      resetRuntimeTextItem(item);
+      this.cursor += 1;
+      item.setVisible(true);
+      return item;
+    }
+  };
+}
+function makeSpritePool(scene, parent, state = null) {
+  return {
+    /** @type {any[]} */
+    items: [],
+    cursor: 0,
+    begin() {
+      this.cursor = 0;
+      for (const item of this.items) item.setVisible(false);
+    },
+    /**
+     * @param {string} key
+     * @param {string | number | undefined | null} frame
+     */
+    take(key, frame) {
+      const normalizedFrame = frame === void 0 ? null : frame;
+      let item = this.items[this.cursor];
+      if (!item) {
+        item = scene.add.sprite(0, 0, key, normalizedFrame);
+        parent.add(item);
+        this.items.push(item);
+        item.__gmRuntimeTextureKey = key;
+        item.__gmRuntimeFrame = normalizedFrame;
+      } else if (item.__gmRuntimeTextureKey !== key || item.__gmRuntimeFrame !== normalizedFrame) {
+        item.setTexture(key, normalizedFrame);
+        item.__gmRuntimeTextureKey = key;
+        item.__gmRuntimeFrame = normalizedFrame;
+      }
+      if (typeof item.setOrigin === "function") item.setOrigin(0.5, 0.5);
+      if (typeof item.setFlip === "function") item.setFlip(false, false);
+      else {
+        if (typeof item.setFlipX === "function") item.setFlipX(false);
+        if (typeof item.setFlipY === "function") item.setFlipY(false);
+      }
+      if (typeof item.clearTint === "function") item.clearTint();
+      if (typeof item.setAlpha === "function") item.setAlpha(1);
+      if (typeof item.setAngle === "function") item.setAngle(0);
+      else if (typeof item.setRotation === "function") item.setRotation(0);
+      if (typeof item.setScale === "function") item.setScale(1, 1);
+      if (typeof item.setBlendMode === "function") item.setBlendMode(0);
+      if (typeof item.clearMask === "function") item.clearMask(true);
+      if (typeof item.setCrop === "function") {
+        try {
+          item.setCrop();
+        } catch {
+        }
+      }
+      if (item.filters && typeof item.filters.clear === "function") {
+        try {
+          item.filters.clear();
+        } catch {
+        }
+      }
+      this.cursor += 1;
+      item.setVisible(true);
+      countRuntimePerf(state, "sprites");
+      return item;
+    }
+  };
+}
+
 // phaser4-facade-runtime:src/core/render-layers.js
 function createWorldLayerManager(scene, state) {
   function ensure(name, depth) {
@@ -2551,6 +2552,81 @@ function createWorldLayerManager(scene, state) {
     };
   }
   return { beginFrame, ensure, publishTextDiagnostics, select };
+}
+
+// phaser4-facade-runtime:src/core/screen-layers.js
+var DEFAULT_SCREEN_LAYERS = Object.freeze({
+  hud: 0,
+  controls: 100,
+  overlay: 200,
+  modal: 300,
+  fade: 400,
+  debug: 500
+});
+function createScreenLayerManager(scene, state) {
+  function normalizeName(name) {
+    const value = String(name || "hud").trim().toLowerCase();
+    if (!value) throw new TypeError("GM.gui.layer requires a non-empty layer name.");
+    return value;
+  }
+  function ensure(name, depth) {
+    if (!state.screen) throw new Error("GM.gui.layer is unavailable before the runtime is mounted.");
+    const layerName = normalizeName(name);
+    let layer = state.screenLayers.get(layerName);
+    if (!layer) {
+      const defaultDepth = (
+        /** @type {Record<string, number | undefined>} */
+        DEFAULT_SCREEN_LAYERS[layerName]
+      );
+      const layerDepth = Number.isFinite(depth) ? Number(depth) : Number.isFinite(defaultDepth) ? defaultDepth : state.screenLayers.size * 10;
+      const container = scene.add.container(0, 0);
+      container.setDepth(layerDepth);
+      const gfx = scene.add.graphics();
+      container.add(gfx);
+      layer = {
+        name: layerName,
+        depth: layerDepth,
+        container,
+        gfx,
+        text: makeTextPool(scene, container, state),
+        sprites: makeSpritePool(scene, container, state)
+      };
+      state.screen.add(container);
+      state.screenLayers.set(layerName, layer);
+    } else if (Number.isFinite(depth) && layer.depth !== Number(depth)) {
+      layer.depth = Number(depth);
+      layer.container.setDepth(layer.depth);
+    }
+    return layer;
+  }
+  function select(name) {
+    const layer = ensure(name);
+    state.activeScreenLayer = layer.name;
+    state.screenGfx = layer.gfx;
+    state.screenText = layer.text;
+    state.screenSprites = layer.sprites;
+    return layer;
+  }
+  function beginFrame() {
+    for (const layer of state.screenLayers.values()) {
+      layer.gfx.clear();
+      layer.text.begin();
+      layer.sprites.begin();
+    }
+    select("hud");
+  }
+  function publishTextDiagnostics() {
+    state.screenTextDiagnostics = Array.from(state.screenLayers.values()).flatMap((layer) => layer.text.items || []);
+  }
+  return {
+    beginFrame,
+    ensure,
+    publishTextDiagnostics,
+    select,
+    names() {
+      return Array.from(state.screenLayers.keys());
+    }
+  };
 }
 
 // phaser4-facade-runtime:src/core/ui-toolkit.js
@@ -2811,9 +2887,9 @@ function createUiToolkit() {
     };
     const onPointerDown = (pointer, localX, localY, event) => {
       consumeInputEvent(pointer, event);
-      const pointerId = pointerGateKey(pointer);
-      if (activePointerId !== null && activePointerId !== pointerId) return;
-      activePointerId = pointerId;
+      const pointerId2 = pointerGateKey(pointer);
+      if (activePointerId !== null && activePointerId !== pointerId2) return;
+      activePointerId = pointerId2;
       if (typeof options.onPointerDown === "function") options.onPointerDown(pointer);
       tweenButton(downScale, downTint, 70, "Quad.Out");
     };
@@ -3222,8 +3298,8 @@ function stickPositiveOr(value, fallback, label) {
   if (numeric <= 0) throw new RangeError(`GM.input virtual stick ${label} must be positive.`);
   return numeric;
 }
-function stickPointerKey(pointerId) {
-  const key = String(pointerId ?? "").trim();
+function stickPointerKey(pointerId2) {
+  const key = String(pointerId2 ?? "").trim();
   if (!key) throw new TypeError("GM.input virtual stick pointer id must be non-empty.");
   return key;
 }
@@ -3238,6 +3314,7 @@ function createVirtualStick(options = {}, pointerApi) {
   };
   const maxRadius = stickPositiveOr(options.maxRadius, 96, "maxRadius");
   const deadzone = Math.min(0.99, Math.max(0, stickFiniteOr(options.deadzone, 0.12, "deadzone")));
+  const axis = options.axis === "horizontal" || options.axis === "vertical" ? options.axis : "both";
   const state = {
     active: false,
     pointerId: null,
@@ -3256,10 +3333,13 @@ function createVirtualStick(options = {}, pointerApi) {
     state.angle = 0;
   }
   function updateVector(x, y) {
-    const dx = x - state.origin.x;
-    const dy = y - state.origin.y;
-    const distance = Math.hypot(dx, dy);
-    const normalizedDistance = Math.min(1, distance / maxRadius);
+    const rawDx = x - state.origin.x;
+    const rawDy = y - state.origin.y;
+    const dx = axis === "vertical" ? 0 : rawDx;
+    const dy = axis === "horizontal" ? 0 : rawDy;
+    const distance = Math.hypot(rawDx, rawDy);
+    const axisDistance = Math.hypot(dx, dy);
+    const normalizedDistance = Math.min(1, axisDistance / maxRadius);
     const magnitude = normalizedDistance <= deadzone ? 0 : (normalizedDistance - deadzone) / (1 - deadzone);
     const directionX = distance > 0 ? dx / distance : 0;
     const directionY = distance > 0 ? dy / distance : 0;
@@ -3272,8 +3352,8 @@ function createVirtualStick(options = {}, pointerApi) {
     };
     state.angle = magnitude > 0 ? Math.atan2(state.vector.y, state.vector.x) : 0;
   }
-  function move(pointerId, x, y) {
-    const key = stickPointerKey(pointerId);
+  function move(pointerId2, x, y) {
+    const key = stickPointerKey(pointerId2);
     if (!state.active || state.pointerId !== key) return stick;
     updateVector(stickFiniteOr(x, 0, "x"), stickFiniteOr(y, 0, "y"));
     return stick;
@@ -3287,6 +3367,9 @@ function createVirtualStick(options = {}, pointerApi) {
     },
     get mode() {
       return mode;
+    },
+    get axis() {
+      return axis;
     },
     get origin() {
       return { ...state.origin };
@@ -3307,12 +3390,27 @@ function createVirtualStick(options = {}, pointerApi) {
       return state.angle;
     },
     /**
+     * Update the fixed origin after a viewport/safe-area change.
+     * @param {unknown} x
+     * @param {unknown} y
+     */
+    setOrigin(x, y) {
+      fixedOrigin.x = stickFiniteOr(x, fixedOrigin.x, "origin.x");
+      fixedOrigin.y = stickFiniteOr(y, fixedOrigin.y, "origin.y");
+      if (mode === "fixed" || !state.active) {
+        state.origin = { ...fixedOrigin };
+        if (state.active) updateVector(state.position.x, state.position.y);
+        else clearVector();
+      }
+      return stick;
+    },
+    /**
      * @param {unknown} pointerId
      * @param {unknown} x
      * @param {unknown} y
      */
-    press(pointerId, x, y) {
-      const key = stickPointerKey(pointerId);
+    press(pointerId2, x, y) {
+      const key = stickPointerKey(pointerId2);
       if (state.active) return move(key, x, y);
       const position = {
         x: stickFiniteOr(x, 0, "x"),
@@ -3330,9 +3428,9 @@ function createVirtualStick(options = {}, pointerApi) {
     /**
      * @param {unknown} [pointerId]
      */
-    release(pointerId) {
+    release(pointerId2) {
       if (!state.active) return stick;
-      if (pointerId !== void 0 && pointerId !== null && stickPointerKey(pointerId) !== state.pointerId) return stick;
+      if (pointerId2 !== void 0 && pointerId2 !== null && stickPointerKey(pointerId2) !== state.pointerId) return stick;
       const owner = state.pointerId;
       if (owner) pointerApi.releasePointer(owner, "joystick");
       state.active = false;
@@ -3343,14 +3441,384 @@ function createVirtualStick(options = {}, pointerApi) {
     /**
      * @param {unknown} [pointerId]
      */
-    cancel(pointerId) {
-      return stick.release(pointerId);
+    cancel(pointerId2) {
+      return stick.release(pointerId2);
     },
     reset() {
       return stick.release();
     }
   };
   return stick;
+}
+
+// phaser4-facade-runtime:src/core/virtual-joystick.js
+var DEFAULT_STYLE = Object.freeze({
+  baseRadius: 48,
+  baseFill: "#101827",
+  baseFillAlpha: 0.34,
+  baseStroke: "#dff7ff",
+  baseStrokeAlpha: 0.52,
+  baseStrokeWidth: 3,
+  deadzoneStroke: "#8ee9ff",
+  deadzoneStrokeAlpha: 0.22,
+  deadzoneStrokeWidth: 2,
+  knobRadius: 25,
+  knobFill: "#ffffff",
+  knobFillAlpha: 0.82,
+  knobStroke: "#8ee9ff",
+  knobStrokeAlpha: 0.9,
+  knobStrokeWidth: 3,
+  connector: "#ffffff",
+  connectorAlpha: 0.2,
+  connectorWidth: 3
+});
+function finiteOr2(value, fallback) {
+  if (value === void 0 || value === null || value === "") return fallback;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) throw new TypeError("GM.input virtual joystick values must be finite.");
+  return numeric;
+}
+function nonNegativeOr(value, fallback) {
+  return Math.max(0, finiteOr2(value, fallback));
+}
+function positiveOr(value, fallback) {
+  const numeric = finiteOr2(value, fallback);
+  if (numeric <= 0) throw new RangeError("GM.input virtual joystick radius must be positive.");
+  return numeric;
+}
+function alphaOr(value, fallback) {
+  return Math.min(1, Math.max(0, finiteOr2(value, fallback)));
+}
+function pointOr(point, fallback) {
+  if (!point || typeof point !== "object") return { ...fallback };
+  const raw = (
+    /** @type {{ x?: unknown, y?: unknown }} */
+    point
+  );
+  return {
+    x: finiteOr2(raw.x, fallback.x),
+    y: finiteOr2(raw.y, fallback.y)
+  };
+}
+function rectOr(rect, fallback) {
+  if (!rect || typeof rect !== "object") return { ...fallback };
+  const raw = (
+    /** @type {{ x?: unknown, y?: unknown, width?: unknown, height?: unknown }} */
+    rect
+  );
+  return {
+    x: finiteOr2(raw.x, fallback.x),
+    y: finiteOr2(raw.y, fallback.y),
+    width: Math.max(0, finiteOr2(raw.width, fallback.width)),
+    height: Math.max(0, finiteOr2(raw.height, fallback.height))
+  };
+}
+function viewportRect(viewport) {
+  const source = viewport && typeof viewport === "object" ? viewport : {};
+  return rectOr(source.safeScreenRect || source.screenRect, { x: 0, y: 0, width: 0, height: 0 });
+}
+function contains(point, rect) {
+  return point.x >= rect.x && point.y >= rect.y && point.x <= rect.x + rect.width && point.y <= rect.y + rect.height;
+}
+function pointerId(pointer) {
+  return String(pointer?.id ?? pointer?.pointerId ?? "").trim();
+}
+function pointerPoint(pointer) {
+  return {
+    x: finiteOr2(pointer?.screenX, finiteOr2(pointer?.x, 0)),
+    y: finiteOr2(pointer?.screenY, finiteOr2(pointer?.y, 0))
+  };
+}
+function pointerKind(pointer) {
+  return String(pointer?.kind || inferPointerKind(pointer)).toLowerCase();
+}
+function createVirtualJoystick(options = {}, deps) {
+  if (!deps || typeof deps.activePointers !== "function" || typeof deps.capturePointer !== "function" || typeof deps.releasePointer !== "function" || typeof deps.inputBlocked !== "function" || typeof deps.currentTime !== "function" || typeof deps.viewport !== "function" || !deps.gui) {
+    throw new TypeError("GM.input virtual joystick requires runtime pointer, viewport, and GUI callbacks.");
+  }
+  const mode = options.mode === "dynamic" || options.mode === "floating" ? "dynamic" : "fixed";
+  const radius = positiveOr(options.radius === void 0 ? options.maxRadius : options.radius, 72);
+  const deadzone = Math.min(0.99, Math.max(0, finiteOr2(options.deadzone, 0.14)));
+  const axis = options.axis === "horizontal" || options.axis === "vertical" ? options.axis : "both";
+  const pointerKinds = new Set((Array.isArray(options.pointerKinds) ? options.pointerKinds : ["touch", "pen", "mouse"]).map((kind) => String(kind).toLowerCase()).filter(Boolean));
+  if (pointerKinds.size === 0) throw new TypeError("GM.input virtual joystick pointerKinds cannot be empty.");
+  const layer = String(options.layer || "controls").trim().toLowerCase() || "controls";
+  const visibility = options.visibility === "active" ? "active" : "always";
+  const idleAlpha = alphaOr(options.idleAlpha, 0.26);
+  const activeAlpha = alphaOr(options.activeAlpha, 0.82);
+  const fadeInMs = nonNegativeOr(options.fadeInMs, 90);
+  const fadeOutMs = nonNegativeOr(options.fadeOutMs, 150);
+  const style = Object.assign({}, DEFAULT_STYLE, options.style || {});
+  const defaultRect = viewportRect(deps.viewport());
+  const defaultOrigin = {
+    x: defaultRect.x + Math.min(defaultRect.width / 2, radius + 24),
+    y: defaultRect.y + Math.max(0, defaultRect.height - radius - 24)
+  };
+  let layoutOrigin = { ...defaultOrigin };
+  let activationZone = { ...defaultRect };
+  let layoutSignature = "";
+  let destroyed = false;
+  let enabled = options.enabled !== false;
+  let pressed = false;
+  let released = false;
+  let targetOpacity = visibility === "active" ? 0 : idleAlpha;
+  let opacity = targetOpacity;
+  let fadeStartTime = 0;
+  let fadeStartOpacity = opacity;
+  const stick = createVirtualStick({
+    mode: mode === "dynamic" ? "floating" : "fixed",
+    origin: layoutOrigin,
+    maxRadius: radius,
+    deadzone,
+    axis
+  }, {
+    capturePointer: deps.capturePointer,
+    releasePointer: deps.releasePointer
+  });
+  function refreshLayout() {
+    const snapshot = deps.viewport() || {};
+    const safe = viewportRect(snapshot);
+    const supplied = typeof options.layout === "function" ? options.layout(snapshot) || {} : {};
+    const nextOrigin = pointOr(supplied.origin, {
+      x: safe.x + Math.min(safe.width / 2, radius + 24),
+      y: safe.y + Math.max(0, safe.height - radius - 24)
+    });
+    const nextZone = rectOr(supplied.zone, mode === "dynamic" ? safe : {
+      x: safe.x,
+      y: safe.y,
+      width: safe.width * 0.55,
+      height: safe.height
+    });
+    const nextSignature = JSON.stringify([nextOrigin, nextZone]);
+    if (nextSignature === layoutSignature) return;
+    layoutSignature = nextSignature;
+    layoutOrigin = nextOrigin;
+    activationZone = nextZone;
+    stick.setOrigin(nextOrigin.x, nextOrigin.y);
+  }
+  function advanceFade(now) {
+    const current = Number.isFinite(now) ? now : 0;
+    if (opacity === targetOpacity) return;
+    const elapsed = Math.max(0, current - fadeStartTime);
+    const duration = targetOpacity > opacity ? fadeInMs : fadeOutMs;
+    if (duration <= 0) {
+      opacity = targetOpacity;
+      return;
+    }
+    const amount = Math.min(1, elapsed / duration);
+    opacity = fadeStartOpacity + (targetOpacity - fadeStartOpacity) * amount;
+    if (amount >= 1) opacity = targetOpacity;
+  }
+  function updateTargetOpacity(now) {
+    const nextTarget = visibility === "active" ? stick.active && enabled ? activeAlpha : 0 : stick.active && enabled ? activeAlpha : idleAlpha;
+    if (nextTarget === targetOpacity) return;
+    advanceFade(now);
+    targetOpacity = nextTarget;
+    fadeStartOpacity = opacity;
+    fadeStartTime = Number.isFinite(now) ? now : 0;
+    if ((targetOpacity > opacity ? fadeInMs : fadeOutMs) <= 0) opacity = targetOpacity;
+  }
+  function releaseOwned() {
+    if (!stick.active) return false;
+    stick.release();
+    released = true;
+    return true;
+  }
+  function update() {
+    if (destroyed) return joystick;
+    pressed = false;
+    released = false;
+    refreshLayout();
+    const activePointers = deps.activePointers();
+    const pointers = Array.isArray(activePointers) ? activePointers.filter(Boolean) : [];
+    const ownId = stick.pointerId;
+    if (!enabled || deps.inputBlocked()) {
+      releaseOwned();
+      const now2 = Number(deps.currentTime());
+      updateTargetOpacity(now2);
+      advanceFade(now2);
+      return joystick;
+    }
+    if (ownId) {
+      const owned = pointers.find((pointer) => pointerId(pointer) === ownId);
+      if (!owned || owned.active === false || owned.released || !owned.down || owned.owner && owned.owner !== "joystick") {
+        releaseOwned();
+      } else {
+        const point = pointerPoint(owned);
+        stick.move(ownId, point.x, point.y);
+      }
+    }
+    if (!stick.active) {
+      const candidate = pointers.find((pointer) => {
+        if (pointer.active === false || !pointer.down || pointer.pressed !== true) return false;
+        const id = pointerId(pointer);
+        if (!id || !pointerKinds.has(pointerKind(pointer))) return false;
+        if (pointer.owner) return false;
+        return contains(pointerPoint(pointer), activationZone);
+      });
+      if (candidate) {
+        const id = pointerId(candidate);
+        const point = pointerPoint(candidate);
+        stick.press(id, point.x, point.y);
+        pressed = true;
+      }
+    }
+    const now = Number(deps.currentTime());
+    updateTargetOpacity(now);
+    advanceFade(now);
+    return joystick;
+  }
+  function draw() {
+    if (destroyed) return joystick;
+    refreshLayout();
+    advanceFade(Number(deps.currentTime()));
+    if (opacity <= 1e-4) return joystick;
+    const gui = deps.gui;
+    gui.layer(layer);
+    const origin = stick.origin;
+    const pointer = stick.position;
+    const distance = Math.hypot(pointer.x - origin.x, pointer.y - origin.y);
+    const clamped = Math.min(radius, distance);
+    const knob = distance > 0 ? {
+      x: origin.x + (pointer.x - origin.x) / distance * clamped,
+      y: origin.y + (pointer.y - origin.y) / distance * clamped
+    } : { ...origin };
+    const alpha = (value) => opacity * alphaOr(value, 1);
+    gui.circle(origin.x, origin.y, style.baseRadius, {
+      color: style.baseFill,
+      alpha: alpha(style.baseFillAlpha)
+    });
+    gui.circle(origin.x, origin.y, style.baseRadius, {
+      color: style.baseStroke,
+      alpha: alpha(style.baseStrokeAlpha),
+      outline: true,
+      lineWidth: style.baseStrokeWidth
+    });
+    gui.circle(origin.x, origin.y, radius * deadzone, {
+      color: style.deadzoneStroke,
+      alpha: alpha(style.deadzoneStrokeAlpha),
+      outline: true,
+      lineWidth: style.deadzoneStrokeWidth
+    });
+    if (stick.active && distance > 0) {
+      gui.line(origin.x, origin.y, knob.x, knob.y, {
+        color: style.connector,
+        alpha: alpha(style.connectorAlpha),
+        lineWidth: style.connectorWidth
+      });
+    }
+    gui.circle(knob.x, knob.y, style.knobRadius, {
+      color: style.knobFill,
+      alpha: alpha(style.knobFillAlpha)
+    });
+    gui.circle(knob.x, knob.y, style.knobRadius, {
+      color: style.knobStroke,
+      alpha: alpha(style.knobStrokeAlpha),
+      outline: true,
+      lineWidth: style.knobStrokeWidth
+    });
+    if (options.debug === true) {
+      gui.circle(origin.x, origin.y, radius, {
+        color: style.deadzoneStroke,
+        alpha: alpha(0.16),
+        outline: true,
+        lineWidth: 1
+      });
+    }
+    return joystick;
+  }
+  const joystick = {
+    get active() {
+      return stick.active;
+    },
+    get pressed() {
+      return pressed;
+    },
+    get released() {
+      return released;
+    },
+    get pointerId() {
+      return stick.pointerId;
+    },
+    get origin() {
+      return stick.origin;
+    },
+    get pointerPosition() {
+      return stick.position;
+    },
+    get knobPosition() {
+      const origin = stick.origin;
+      const point = stick.position;
+      const dx = point.x - origin.x;
+      const dy = point.y - origin.y;
+      const distance = Math.hypot(dx, dy);
+      const clamped = Math.min(radius, distance);
+      return distance > 0 ? { x: origin.x + dx / distance * clamped, y: origin.y + dy / distance * clamped } : { ...origin };
+    },
+    get vector() {
+      return stick.vector;
+    },
+    get magnitude() {
+      return stick.magnitude;
+    },
+    get distance() {
+      const point = stick.position;
+      const origin = stick.origin;
+      return Math.hypot(point.x - origin.x, point.y - origin.y);
+    },
+    get clampedDistance() {
+      return Math.min(radius, joystick.distance);
+    },
+    get angleRad() {
+      const vector = stick.vector;
+      return vector.x || vector.y ? Math.atan2(-vector.y, vector.x) : 0;
+    },
+    get directionDeg() {
+      const angle = joystick.angleRad * 180 / Math.PI;
+      return angle === 0 ? 0 : angle < 0 ? angle + 360 : angle;
+    },
+    get opacity() {
+      return opacity;
+    },
+    get enabled() {
+      return enabled;
+    },
+    get mode() {
+      return mode;
+    },
+    get axis() {
+      return axis;
+    },
+    get layer() {
+      return layer;
+    },
+    update,
+    draw,
+    reset() {
+      if (destroyed) return joystick;
+      releaseOwned();
+      pressed = false;
+      updateTargetOpacity(Number(deps.currentTime()));
+      return joystick;
+    },
+    setEnabled(value) {
+      enabled = Boolean(value);
+      if (!enabled) releaseOwned();
+      updateTargetOpacity(Number(deps.currentTime()));
+      return joystick;
+    },
+    destroy() {
+      if (destroyed) return;
+      releaseOwned();
+      destroyed = true;
+      if (typeof deps.unregister === "function") deps.unregister(joystick);
+    }
+  };
+  if (typeof deps.register === "function") deps.register(joystick);
+  return (
+    /** @type {VirtualJoystick} */
+    joystick
+  );
 }
 
 // phaser4-facade-runtime:src/core/atlas-text.js
@@ -3635,6 +4103,15 @@ function installFacadeNamespaces(deps) {
     rect: function() {
       return callActive("draw_gui_rectangle", arguments);
     },
+    roundRect: function() {
+      return callActive("draw_gui_roundrect", arguments);
+    },
+    circle: function() {
+      return callActive("draw_gui_circle", arguments);
+    },
+    line: function() {
+      return callActive("draw_gui_line", arguments);
+    },
     text: function() {
       return callActive("draw_gui_text", arguments);
     },
@@ -3643,6 +4120,9 @@ function installFacadeNamespaces(deps) {
     },
     textFit: function() {
       return callActive("draw_gui_text_fit", arguments);
+    },
+    layer: function() {
+      return callActive("select_gui_layer", arguments);
     }
   };
   const input = Object.assign({}, INPUT2, {
@@ -3691,6 +4171,32 @@ function installFacadeNamespaces(deps) {
           return active().release_pointer_id(id, owner);
         }
       });
+    },
+    /**
+     * @param {any} options
+     */
+    createVirtualJoystick(options) {
+      const runtime2 = active();
+      const joystick = createVirtualJoystick(options, {
+        activePointers: () => runtime2.active_pointers(),
+        capturePointer(id, owner) {
+          return runtime2.capture_pointer(id, owner);
+        },
+        releasePointer(id, owner) {
+          return runtime2.release_pointer_id(id, owner);
+        },
+        inputBlocked: () => runtime2.input_blocked(),
+        currentTime: () => runtime2.current_time,
+        viewport: () => runtime2.state.viewport,
+        gui,
+        register(value) {
+          runtime2.state.virtualJoysticks.add(value);
+        },
+        unregister(value) {
+          runtime2.state.virtualJoysticks.delete(value);
+        }
+      });
+      return joystick;
     },
     primaryPointer() {
       const runtime2 = activeOrNull();
@@ -4556,10 +5062,14 @@ function createRuntimeState(scene, cfg) {
     worldText: null,
     screenText: null,
     worldSprites: null,
+    screenSprites: null,
     worldLayers: /* @__PURE__ */ new Map(),
+    screenLayers: /* @__PURE__ */ new Map(),
     layerRegistry: /* @__PURE__ */ new Map(),
     activeWorldLayer: "world",
     activeWorldContainer: null,
+    activeScreenLayer: "hud",
+    virtualJoysticks: /* @__PURE__ */ new Set(),
     cleanup: [],
     cleanupErrors: [],
     cleanedUp: false,
@@ -4791,6 +5301,20 @@ function installGMRuntime(root, Phaser) {
     const state = createRuntimeState(scene, cfg);
     const worldLayers = createWorldLayerManager(scene, state);
     const selectWorldLayer = worldLayers.select;
+    const screenLayers = createScreenLayerManager(scene, state);
+    function selectScreenLayer(name, depth) {
+      const layer = screenLayers.ensure(name, depth);
+      return screenLayers.select(layer.name);
+    }
+    function activeScreenLayer() {
+      return state.screenLayers.get(state.activeScreenLayer) || screenLayers.ensure("hud");
+    }
+    function updateVirtualJoysticks() {
+      for (const joystick of Array.from(state.virtualJoysticks)) {
+        if (!joystick || typeof joystick.update !== "function") continue;
+        joystick.update();
+      }
+    }
     function suppressHeldKeys() {
       for (const key of Object.keys(state.keysDown)) {
         if (state.keysDown[key]) state.suppressedKeys[key] = true;
@@ -5000,6 +5524,14 @@ function installGMRuntime(root, Phaser) {
         }
         state.uiButtons.clear();
         destroyUiPanels(reason || "cleanup");
+        for (const joystick of Array.from(state.virtualJoysticks)) {
+          try {
+            if (joystick && typeof joystick.destroy === "function") joystick.destroy();
+          } catch (error) {
+            recordRuntimeCleanupError(state, error, "virtual_joystick_destroy", reason || "cleanup");
+          }
+        }
+        state.virtualJoysticks.clear();
         try {
           if (state.world && typeof state.world.destroy === "function") state.world.destroy(true);
         } catch (error) {
@@ -5014,9 +5546,12 @@ function installGMRuntime(root, Phaser) {
         state.screen = null;
         state.worldGfx = null;
         state.screenGfx = null;
+        state.screenText = null;
+        state.screenSprites = null;
         state.inputBlocker = null;
         state.currentInstance = null;
         state.worldLayers.clear();
+        state.screenLayers.clear();
         state.activeWorldContainer = null;
         if (GM2._active === api) GM2._active = null;
         return api;
@@ -5027,8 +5562,10 @@ function installGMRuntime(root, Phaser) {
         selectWorldLayer("world", 0);
         state.screen = scene.add.container(0, 0);
         state.screen.setDepth(1e5);
-        state.screenGfx = scene.add.graphics();
-        state.screen.add(state.screenGfx);
+        for (const [name, depth] of Object.entries(DEFAULT_SCREEN_LAYERS)) {
+          screenLayers.ensure(name, depth);
+        }
+        selectScreenLayer("hud");
         state.inputBlocker = scene.add.rectangle(0, 0, 1, 1, 0, 0).setOrigin(0, 0).setInteractive();
         state.inputBlocker.input.enabled = false;
         const onBlockerPointerDown = (pointer, localX, localY, event) => {
@@ -5049,8 +5586,7 @@ function installGMRuntime(root, Phaser) {
         };
         onRuntimeEvent(state, state.inputBlocker, "pointerdown", onBlockerPointerDown);
         onRuntimeEvent(state, state.inputBlocker, "pointerup", onBlockerPointerUp);
-        state.screen.add(state.inputBlocker);
-        state.screenText = makeTextPool(scene, state.screen, state);
+        state.screenLayers.get("hud").container.add(state.inputBlocker);
         if (scene.input.mouse && scene.input.mouse.disableContextMenu) {
           scene.input.mouse.disableContextMenu();
         }
@@ -5058,6 +5594,9 @@ function installGMRuntime(root, Phaser) {
           scene.input.setTopOnly(true);
         } else if (scene.input) {
           scene.input.topOnly = true;
+        }
+        if (scene.input && typeof scene.input.addPointer === "function") {
+          scene.input.addPointer(2);
         }
         onRuntimeEvent(state, scene.scale, "resize", () => api.layout("phaser-scale-resize"));
         onRuntimeEvent(
@@ -5365,11 +5904,11 @@ function installGMRuntime(root, Phaser) {
       },
       beginDraw() {
         worldLayers.beginFrame();
-        state.screenGfx.clear();
+        screenLayers.beginFrame();
         hideUiPanels();
         for (const button of state.uiButtons.values()) button.beginFrame();
-        state.screenText.begin();
         selectWorldLayer("world");
+        selectScreenLayer("hud");
         api.resetDrawState();
         if (cfg.stage) {
           api.drawStage();
@@ -5432,6 +5971,7 @@ function installGMRuntime(root, Phaser) {
           }
           beginRuntimePerfSection(state, "step");
           try {
+            updateVirtualJoysticks();
             const simulationHz = Number(cfg.simulationHz) || 0;
             if (simulationHz > 0) {
               const stepMs = 1e3 / simulationHz;
@@ -5488,6 +6028,7 @@ function installGMRuntime(root, Phaser) {
             state.currentInstance = null;
           }
           worldLayers.publishTextDiagnostics();
+          screenLayers.publishTextDiagnostics();
         } finally {
           api.endFrame();
           finalizeRuntimePerfFrame(state);
@@ -5572,14 +6113,30 @@ function installGMRuntime(root, Phaser) {
         drawRuntimeRectangle(state, state.screenGfx, x1, y1, x2, y2, outline);
         return api;
       },
+      select_gui_layer(name, depth) {
+        selectScreenLayer(name, depth);
+        return api;
+      },
+      draw_gui_roundrect(x1, y1, x2, y2, radius, outline) {
+        drawRuntimeRoundRect(state, state.screenGfx, x1, y1, x2, y2, radius, outline);
+        return api;
+      },
+      draw_gui_circle(x, y, radius, outline) {
+        drawRuntimeCircle(state, state.screenGfx, x, y, radius, outline);
+        return api;
+      },
+      draw_gui_line(x1, y1, x2, y2, options) {
+        drawRuntimeLine(state, state.screenGfx, x1, y1, x2, y2, options);
+        return api;
+      },
       draw_gui_text(x, y, text) {
-        return drawRuntimeText(state, state.screenText, state.screen, x, y, text);
+        return drawRuntimeText(state, state.screenText, activeScreenLayer().container, x, y, text);
       },
       draw_gui_text_ext(x, y, text, options) {
-        return drawRuntimeTextExt(state, state.screenText, state.screen, x, y, text, options);
+        return drawRuntimeTextExt(state, state.screenText, activeScreenLayer().container, x, y, text, options);
       },
       draw_gui_text_fit(x, y, text, options) {
-        return drawRuntimeTextFit(state, state.screenText, state.screen, x, y, text, options);
+        return drawRuntimeTextFit(state, state.screenText, activeScreenLayer().container, x, y, text, options);
       },
       draw_sprite(key, frame, x, y) {
         return api.draw_sprite_ext(key, frame, x, y, 1, 1, 0, 16777215, 1);
@@ -5628,7 +6185,7 @@ function installGMRuntime(root, Phaser) {
           item = uiToolkit.createNineSliceObject(scene, x, y, w, h, panelOptions);
           item.__gmNineSliceRuntimeSignature = signature;
           state.uiPanels[index] = item;
-          state.screen.add(item);
+          state.screenLayers.get("overlay").container.add(item);
         } else {
           item.setPosition?.(x, y);
           if (typeof item.setSize === "function") item.setSize(w, h);
@@ -5679,20 +6236,26 @@ function installGMRuntime(root, Phaser) {
         return uiToolkit.downloadTextures(prefix);
       },
       curtain(text, fadeMs) {
-        return curtain(
-          text,
-          fadeMs,
-          /** @type {any} */
-          state,
-          api,
-          scene,
-          /** @type {any} */
-          cfg,
-          normalizeDelayMs,
-          COLORS,
-          ALIGN,
-          INPUT
-        );
+        const previousLayer = state.activeScreenLayer;
+        selectScreenLayer("fade");
+        try {
+          return curtain(
+            text,
+            fadeMs,
+            /** @type {any} */
+            state,
+            api,
+            scene,
+            /** @type {any} */
+            cfg,
+            normalizeDelayMs,
+            COLORS,
+            ALIGN,
+            INPUT
+          );
+        } finally {
+          selectScreenLayer(previousLayer || "hud");
+        }
       },
       curtain_active() {
         return curtain_active(

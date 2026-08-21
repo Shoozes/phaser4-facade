@@ -76,6 +76,25 @@ For a reproducible external preview, replace `@main` with a reviewed commit
 SHA. Raw GitHub and Gist file URLs are source artifacts, not executable CDN
 assets.
 
+## Virtual joystick lab
+
+`virtual-joystick.html` is the canonical all-canvas control proof. It uses the
+facade pointer substrate for fixed and dynamic movement sticks, keeps a second
+pointer available for an action button, places controls from the viewport safe
+rectangle, and draws the joystick procedurally on the `controls` GUI plane.
+The page also includes keyboard/WASD fallback, a modal cancellation path, a
+debug activation zone, and responsive portrait/landscape layout behavior. It
+contains no DOM control elements.
+
+Open it through a local static server so the packaged Phaser/facade paths and
+the CDN fallback can be resolved:
+
+```powershell
+python -m http.server 4000 --directory source/runtime/gm-phaser4
+```
+
+Then visit `http://localhost:4000/examples/virtual-joystick.html`.
+
 Run the focused checks from this package:
 
 ```powershell

@@ -571,7 +571,11 @@ interface GMDrawFacade {
 }
 
 interface GMGuiFacade {
-    rect(x1: number, y1: number, x2: number, y2: number, outline?: boolean): GMRuntime;
+    layer(name: string, depth?: number): GMRuntime;
+    rect(x1: number, y1: number, x2: number, y2: number, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    roundRect(x1: number, y1: number, x2: number, y2: number, radius?: number | GMRoundRectDrawOptions, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    circle(x: number, y: number, radius: number, outline?: boolean | GMPrimitiveDrawOptions): GMRuntime;
+    line(x1: number, y1: number, x2: number, y2: number, options?: GMPrimitiveDrawOptions): GMRuntime;
     text(x: number, y: number, text: unknown): unknown;
     textExt(x: number, y: number, text: unknown, options?: GMTextDrawOptions): unknown;
     textFit(x: number, y: number, text: unknown, options: GMTextFitOptions): unknown;
@@ -617,6 +621,7 @@ interface GMVirtualStickOptions {
     origin?: { x?: number; y?: number };
     maxRadius?: number;
     deadzone?: number;
+    axis?: "both" | "horizontal" | "vertical";
 }
 
 interface GMVirtualStickVector {
@@ -634,11 +639,85 @@ interface GMVirtualStick {
     readonly distance: number;
     readonly magnitude: number;
     readonly angle: number;
+    readonly axis: "both" | "horizontal" | "vertical";
+    setOrigin(x: number, y: number): GMVirtualStick;
     press(pointerId: string | number, x: number, y: number): GMVirtualStick;
     move(pointerId: string | number, x: number, y: number): GMVirtualStick;
     release(pointerId?: string | number): GMVirtualStick;
     cancel(pointerId?: string | number): GMVirtualStick;
     reset(): GMVirtualStick;
+}
+
+interface GMVirtualJoystickLayout {
+    origin?: { x: number; y: number };
+    zone?: { x: number; y: number; width: number; height: number };
+}
+
+interface GMVirtualJoystickStyle {
+    baseRadius?: number;
+    baseFill?: string | number;
+    baseFillAlpha?: number;
+    baseStroke?: string | number;
+    baseStrokeAlpha?: number;
+    baseStrokeWidth?: number;
+    deadzoneStroke?: string | number;
+    deadzoneStrokeAlpha?: number;
+    deadzoneStrokeWidth?: number;
+    knobRadius?: number;
+    knobFill?: string | number;
+    knobFillAlpha?: number;
+    knobStroke?: string | number;
+    knobStrokeAlpha?: number;
+    knobStrokeWidth?: number;
+    connector?: string | number;
+    connectorAlpha?: number;
+    connectorWidth?: number;
+}
+
+interface GMVirtualJoystickOptions {
+    id?: string;
+    mode?: "fixed" | "dynamic" | "floating";
+    layer?: string;
+    radius?: number;
+    maxRadius?: number;
+    deadzone?: number;
+    axis?: "both" | "horizontal" | "vertical";
+    pointerKinds?: Array<"mouse" | "touch" | "pen" | string>;
+    layout?: (viewport: GMViewportSnapshot) => GMVirtualJoystickLayout;
+    visibility?: "always" | "active";
+    idleAlpha?: number;
+    activeAlpha?: number;
+    fadeInMs?: number;
+    fadeOutMs?: number;
+    enabled?: boolean;
+    debug?: boolean;
+    style?: GMVirtualJoystickStyle;
+}
+
+interface GMVirtualJoystick {
+    readonly active: boolean;
+    readonly pressed: boolean;
+    readonly released: boolean;
+    readonly pointerId: string | null;
+    readonly origin: GMVirtualStickVector;
+    readonly pointerPosition: GMVirtualStickVector;
+    readonly knobPosition: GMVirtualStickVector;
+    readonly vector: GMVirtualStickVector;
+    readonly magnitude: number;
+    readonly distance: number;
+    readonly clampedDistance: number;
+    readonly angleRad: number;
+    readonly directionDeg: number;
+    readonly opacity: number;
+    readonly enabled: boolean;
+    readonly mode: "fixed" | "dynamic";
+    readonly axis: "both" | "horizontal" | "vertical";
+    readonly layer: string;
+    update(): GMVirtualJoystick;
+    draw(): GMVirtualJoystick;
+    reset(): GMVirtualJoystick;
+    setEnabled(enabled: boolean): GMVirtualJoystick;
+    destroy(): void;
 }
 
 interface GMInputFacade {
@@ -667,6 +746,7 @@ interface GMInputFacade {
     capturePointer(id: string | number, owner?: string): GMRuntime;
     releasePointer(id: string | number, owner?: string): GMRuntime;
     createVirtualStick(options?: GMVirtualStickOptions): GMVirtualStick;
+    createVirtualJoystick(options?: GMVirtualJoystickOptions): GMVirtualJoystick;
     primaryPointer(): GMPrimaryPointer | null;
     primaryPressed(): boolean;
     primaryReleased(): boolean;
