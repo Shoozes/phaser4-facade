@@ -39,7 +39,7 @@ for (const [name, depth] of Object.entries({ hud: 0, controls: 100, overlay: 200
     manager.ensure(name, depth);
 }
 
-assert.deepEqual(manager.names(), ["hud", "controls", "overlay", "modal", "fade", "debug"]);
+assert.deepEqual(Array.from(state.screenLayers.keys()), ["hud", "controls", "overlay", "modal", "fade", "debug"]);
 assert.deepEqual(Array.from(state.screenLayers.values()).map((layer) => layer.depth), [0, 100, 200, 300, 400, 500]);
 manager.select("controls");
 assert.equal(state.activeScreenLayer, "controls");

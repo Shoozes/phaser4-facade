@@ -316,7 +316,7 @@ export function installGMRuntime(root, Phaser) {
         }
 
         function updateVirtualJoysticks() {
-            for (const joystick of Array.from(state.virtualJoysticks)) {
+            for (const joystick of state.virtualJoysticks) {
                 if (!joystick || typeof joystick.update !== "function") continue;
                 joystick.update();
             }
@@ -537,7 +537,7 @@ export function installGMRuntime(root, Phaser) {
                 state.uiButtons.clear();
                 destroyUiPanels(reason || "cleanup");
 
-                for (const joystick of Array.from(state.virtualJoysticks)) {
+                for (const joystick of state.virtualJoysticks) {
                     try {
                         if (joystick && typeof joystick.destroy === "function") joystick.destroy();
                     } catch (error) {

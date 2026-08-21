@@ -70,7 +70,7 @@ import { createVirtualStick } from "./virtual-stick.js";
  * }} VirtualJoystick
  */
 
-const DEFAULT_STYLE = Object.freeze({
+const DEFAULT_STYLE = {
     baseRadius: 48,
     baseFill: "#101827",
     baseFillAlpha: 0.34,
@@ -89,25 +89,13 @@ const DEFAULT_STYLE = Object.freeze({
     connector: "#ffffff",
     connectorAlpha: 0.2,
     connectorWidth: 3
-});
+};
 
 /** @param {unknown} value @param {number} fallback */
 function finiteOr(value, fallback) {
     if (value === undefined || value === null || value === "") return fallback;
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) throw new TypeError("GM.input virtual joystick values must be finite.");
-    return numeric;
-}
-
-/** @param {unknown} value @param {number} fallback */
-function nonNegativeOr(value, fallback) {
-    return Math.max(0, finiteOr(value, fallback));
-}
-
-/** @param {unknown} value @param {number} fallback */
-function positiveOr(value, fallback) {
-    const numeric = finiteOr(value, fallback);
-    if (numeric <= 0) throw new RangeError("GM.input virtual joystick radius must be positive.");
     return numeric;
 }
 
@@ -181,7 +169,8 @@ export function createVirtualJoystick(options = {}, deps) {
     }
 
     const mode = options.mode === "dynamic" || options.mode === "floating" ? "dynamic" : "fixed";
-    const radius = positiveOr(options.radius === undefined ? options.maxRadius : options.radius, 72);
+    const radius = finiteOr(options.radius === undefined ? options.maxRadius : options.radius, 72);
+    if (radius <= 0) throw new RangeError("GM.input virtual joystick radius must be positive.");
     const deadzone = Math.min(0.99, Math.max(0, finiteOr(options.deadzone, 0.14)));
     const axis = options.axis === "horizontal" || options.axis === "vertical" ? options.axis : "both";
     const pointerKinds = new Set((Array.isArray(options.pointerKinds) ? options.pointerKinds : ["touch", "pen", "mouse"])
@@ -189,25 +178,25 @@ export function createVirtualJoystick(options = {}, deps) {
         .filter(Boolean));
     if (pointerKinds.size === 0) throw new TypeError("GM.input virtual joystick pointerKinds cannot be empty.");
     const layer = String(options.layer || "controls").trim().toLowerCase() || "controls";
-    const visibility = options.visibility === "active" ? "active" : "always";
+    const activeOnly = options.visibility === "active";
     const idleAlpha = alphaOr(options.idleAlpha, 0.26);
     const activeAlpha = alphaOr(options.activeAlpha, 0.82);
-    const fadeInMs = nonNegativeOr(options.fadeInMs, 90);
-    const fadeOutMs = nonNegativeOr(options.fadeOutMs, 150);
+    const fadeInMs = Math.max(0, finiteOr(options.fadeInMs, 90));
+    const fadeOutMs = Math.max(0, finiteOr(options.fadeOutMs, 150));
     const style = Object.assign({}, DEFAULT_STYLE, options.style || {});
     const defaultRect = viewportRect(deps.viewport());
-    const defaultOrigin = {
+    let layoutOrigin = {
         x: defaultRect.x + Math.min(defaultRect.width / 2, radius + 24),
         y: defaultRect.y + Math.max(0, defaultRect.height - radius - 24)
     };
-    let layoutOrigin = { ...defaultOrigin };
-    let activationZone = { ...defaultRect };
-    let layoutSignature = "";
+    let activationZone = defaultRect;
+    /** @type {any} */
+    let layoutViewport;
     let destroyed = false;
     let enabled = options.enabled !== false;
     let pressed = false;
     let released = false;
-    let targetOpacity = visibility === "active" ? 0 : idleAlpha;
+    let targetOpacity = activeOnly ? 0 : idleAlpha;
     let opacity = targetOpacity;
     let fadeStartTime = 0;
     let fadeStartOpacity = opacity;
@@ -224,7 +213,9 @@ export function createVirtualJoystick(options = {}, deps) {
     });
 
     function refreshLayout() {
-        const snapshot = deps.viewport() || {};
+        const snapshot = deps.viewport();
+        if (snapshot === layoutViewport) return;
+        layoutViewport = snapshot;
         const safe = viewportRect(snapshot);
         const supplied = typeof options.layout === "function" ? options.layout(snapshot) || {} : {};
         const nextOrigin = pointOr(supplied.origin, {
@@ -239,9 +230,6 @@ export function createVirtualJoystick(options = {}, deps) {
                 width: safe.width * 0.55,
                 height: safe.height
             });
-        const nextSignature = JSON.stringify([nextOrigin, nextZone]);
-        if (nextSignature === layoutSignature) return;
-        layoutSignature = nextSignature;
         layoutOrigin = nextOrigin;
         activationZone = nextZone;
         stick.setOrigin(nextOrigin.x, nextOrigin.y);
@@ -264,9 +252,9 @@ export function createVirtualJoystick(options = {}, deps) {
 
     /** @param {number} now */
     function updateTargetOpacity(now) {
-        const nextTarget = visibility === "active"
-            ? (stick.active && enabled ? activeAlpha : 0)
-            : (stick.active && enabled ? activeAlpha : idleAlpha);
+        const nextTarget = stick.active && enabled
+            ? activeAlpha
+            : activeOnly ? 0 : idleAlpha;
         if (nextTarget === targetOpacity) return;
         advanceFade(now);
         targetOpacity = nextTarget;
@@ -276,10 +264,9 @@ export function createVirtualJoystick(options = {}, deps) {
     }
 
     function releaseOwned() {
-        if (!stick.active) return false;
+        if (!stick.active) return;
         stick.release();
         released = true;
-        return true;
     }
 
     function update() {
@@ -287,8 +274,7 @@ export function createVirtualJoystick(options = {}, deps) {
         pressed = false;
         released = false;
         refreshLayout();
-        const activePointers = deps.activePointers();
-        const pointers = Array.isArray(activePointers) ? activePointers.filter(Boolean) : [];
+        const pointers = deps.activePointers().filter(Boolean);
         const ownId = stick.pointerId;
 
         if (!enabled || deps.inputBlocked()) {

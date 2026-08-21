@@ -6,14 +6,14 @@ import { makeSpritePool, makeTextPool } from "./pools.js";
  * Built-in screen-space planes. The parent screen container is already above
  * the world container, so the relative order here is the complete GUI order.
  */
-export const DEFAULT_SCREEN_LAYERS = Object.freeze({
+export const DEFAULT_SCREEN_LAYERS = {
     hud: 0,
     controls: 100,
     overlay: 200,
     modal: 300,
     fade: 400,
     debug: 500
-});
+};
 
 /**
  * Owns named screen-space containers and their pooled draw objects.
@@ -21,17 +21,11 @@ export const DEFAULT_SCREEN_LAYERS = Object.freeze({
  * @param {any} state
  */
 export function createScreenLayerManager(scene, state) {
-    /** @param {unknown} name */
-    function normalizeName(name) {
-        const value = String(name || "hud").trim().toLowerCase();
-        if (!value) throw new TypeError("GM.gui.layer requires a non-empty layer name.");
-        return value;
-    }
-
     /** @param {string} name @param {number | undefined} [depth] */
     function ensure(name, depth) {
         if (!state.screen) throw new Error("GM.gui.layer is unavailable before the runtime is mounted.");
-        const layerName = normalizeName(name);
+        const layerName = String(name || "hud").trim().toLowerCase();
+        if (!layerName) throw new TypeError("GM.gui.layer requires a non-empty layer name.");
         let layer = state.screenLayers.get(layerName);
         if (!layer) {
             const defaultDepth = /** @type {Record<string, number | undefined>} */ (DEFAULT_SCREEN_LAYERS)[layerName];
@@ -89,7 +83,6 @@ export function createScreenLayerManager(scene, state) {
         beginFrame,
         ensure,
         publishTextDiagnostics,
-        select,
-        names() { return Array.from(state.screenLayers.keys()); }
+        select
     };
 }

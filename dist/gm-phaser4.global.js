@@ -2553,23 +2553,19 @@ ${details}`);
   }
 
   // phaser4-facade-runtime:src/core/screen-layers.js
-  var DEFAULT_SCREEN_LAYERS = Object.freeze({
+  var DEFAULT_SCREEN_LAYERS = {
     hud: 0,
     controls: 100,
     overlay: 200,
     modal: 300,
     fade: 400,
     debug: 500
-  });
+  };
   function createScreenLayerManager(scene, state) {
-    function normalizeName(name) {
-      const value = String(name || "hud").trim().toLowerCase();
-      if (!value) throw new TypeError("GM.gui.layer requires a non-empty layer name.");
-      return value;
-    }
     function ensure(name, depth) {
       if (!state.screen) throw new Error("GM.gui.layer is unavailable before the runtime is mounted.");
-      const layerName = normalizeName(name);
+      const layerName = String(name || "hud").trim().toLowerCase();
+      if (!layerName) throw new TypeError("GM.gui.layer requires a non-empty layer name.");
       let layer = state.screenLayers.get(layerName);
       if (!layer) {
         const defaultDepth = (
@@ -2620,10 +2616,7 @@ ${details}`);
       beginFrame,
       ensure,
       publishTextDiagnostics,
-      select,
-      names() {
-        return Array.from(state.screenLayers.keys());
-      }
+      select
     };
   }
 
@@ -3450,7 +3443,7 @@ ${details}`);
   }
 
   // phaser4-facade-runtime:src/core/virtual-joystick.js
-  var DEFAULT_STYLE = Object.freeze({
+  var DEFAULT_STYLE = {
     baseRadius: 48,
     baseFill: "#101827",
     baseFillAlpha: 0.34,
@@ -3469,19 +3462,11 @@ ${details}`);
     connector: "#ffffff",
     connectorAlpha: 0.2,
     connectorWidth: 3
-  });
+  };
   function finiteOr2(value, fallback) {
     if (value === void 0 || value === null || value === "") return fallback;
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) throw new TypeError("GM.input virtual joystick values must be finite.");
-    return numeric;
-  }
-  function nonNegativeOr(value, fallback) {
-    return Math.max(0, finiteOr2(value, fallback));
-  }
-  function positiveOr(value, fallback) {
-    const numeric = finiteOr2(value, fallback);
-    if (numeric <= 0) throw new RangeError("GM.input virtual joystick radius must be positive.");
     return numeric;
   }
   function alphaOr(value, fallback) {
@@ -3535,31 +3520,31 @@ ${details}`);
       throw new TypeError("GM.input virtual joystick requires runtime pointer, viewport, and GUI callbacks.");
     }
     const mode = options.mode === "dynamic" || options.mode === "floating" ? "dynamic" : "fixed";
-    const radius = positiveOr(options.radius === void 0 ? options.maxRadius : options.radius, 72);
+    const radius = finiteOr2(options.radius === void 0 ? options.maxRadius : options.radius, 72);
+    if (radius <= 0) throw new RangeError("GM.input virtual joystick radius must be positive.");
     const deadzone = Math.min(0.99, Math.max(0, finiteOr2(options.deadzone, 0.14)));
     const axis = options.axis === "horizontal" || options.axis === "vertical" ? options.axis : "both";
     const pointerKinds = new Set((Array.isArray(options.pointerKinds) ? options.pointerKinds : ["touch", "pen", "mouse"]).map((kind) => String(kind).toLowerCase()).filter(Boolean));
     if (pointerKinds.size === 0) throw new TypeError("GM.input virtual joystick pointerKinds cannot be empty.");
     const layer = String(options.layer || "controls").trim().toLowerCase() || "controls";
-    const visibility = options.visibility === "active" ? "active" : "always";
+    const activeOnly = options.visibility === "active";
     const idleAlpha = alphaOr(options.idleAlpha, 0.26);
     const activeAlpha = alphaOr(options.activeAlpha, 0.82);
-    const fadeInMs = nonNegativeOr(options.fadeInMs, 90);
-    const fadeOutMs = nonNegativeOr(options.fadeOutMs, 150);
+    const fadeInMs = Math.max(0, finiteOr2(options.fadeInMs, 90));
+    const fadeOutMs = Math.max(0, finiteOr2(options.fadeOutMs, 150));
     const style = Object.assign({}, DEFAULT_STYLE, options.style || {});
     const defaultRect = viewportRect(deps.viewport());
-    const defaultOrigin = {
+    let layoutOrigin = {
       x: defaultRect.x + Math.min(defaultRect.width / 2, radius + 24),
       y: defaultRect.y + Math.max(0, defaultRect.height - radius - 24)
     };
-    let layoutOrigin = { ...defaultOrigin };
-    let activationZone = { ...defaultRect };
-    let layoutSignature = "";
+    let activationZone = defaultRect;
+    let layoutViewport;
     let destroyed = false;
     let enabled = options.enabled !== false;
     let pressed = false;
     let released = false;
-    let targetOpacity = visibility === "active" ? 0 : idleAlpha;
+    let targetOpacity = activeOnly ? 0 : idleAlpha;
     let opacity = targetOpacity;
     let fadeStartTime = 0;
     let fadeStartOpacity = opacity;
@@ -3574,7 +3559,9 @@ ${details}`);
       releasePointer: deps.releasePointer
     });
     function refreshLayout() {
-      const snapshot = deps.viewport() || {};
+      const snapshot = deps.viewport();
+      if (snapshot === layoutViewport) return;
+      layoutViewport = snapshot;
       const safe = viewportRect(snapshot);
       const supplied = typeof options.layout === "function" ? options.layout(snapshot) || {} : {};
       const nextOrigin = pointOr(supplied.origin, {
@@ -3587,9 +3574,6 @@ ${details}`);
         width: safe.width * 0.55,
         height: safe.height
       });
-      const nextSignature = JSON.stringify([nextOrigin, nextZone]);
-      if (nextSignature === layoutSignature) return;
-      layoutSignature = nextSignature;
       layoutOrigin = nextOrigin;
       activationZone = nextZone;
       stick.setOrigin(nextOrigin.x, nextOrigin.y);
@@ -3608,7 +3592,7 @@ ${details}`);
       if (amount >= 1) opacity = targetOpacity;
     }
     function updateTargetOpacity(now) {
-      const nextTarget = visibility === "active" ? stick.active && enabled ? activeAlpha : 0 : stick.active && enabled ? activeAlpha : idleAlpha;
+      const nextTarget = stick.active && enabled ? activeAlpha : activeOnly ? 0 : idleAlpha;
       if (nextTarget === targetOpacity) return;
       advanceFade(now);
       targetOpacity = nextTarget;
@@ -3617,18 +3601,16 @@ ${details}`);
       if ((targetOpacity > opacity ? fadeInMs : fadeOutMs) <= 0) opacity = targetOpacity;
     }
     function releaseOwned() {
-      if (!stick.active) return false;
+      if (!stick.active) return;
       stick.release();
       released = true;
-      return true;
     }
     function update() {
       if (destroyed) return joystick;
       pressed = false;
       released = false;
       refreshLayout();
-      const activePointers = deps.activePointers();
-      const pointers = Array.isArray(activePointers) ? activePointers.filter(Boolean) : [];
+      const pointers = deps.activePointers().filter(Boolean);
       const ownId = stick.pointerId;
       if (!enabled || deps.inputBlocked()) {
         releaseOwned();
@@ -5308,7 +5290,7 @@ ${details}`);
         return state.screenLayers.get(state.activeScreenLayer) || screenLayers.ensure("hud");
       }
       function updateVirtualJoysticks() {
-        for (const joystick of Array.from(state.virtualJoysticks)) {
+        for (const joystick of state.virtualJoysticks) {
           if (!joystick || typeof joystick.update !== "function") continue;
           joystick.update();
         }
@@ -5522,7 +5504,7 @@ ${details}`);
           }
           state.uiButtons.clear();
           destroyUiPanels(reason || "cleanup");
-          for (const joystick of Array.from(state.virtualJoysticks)) {
+          for (const joystick of state.virtualJoysticks) {
             try {
               if (joystick && typeof joystick.destroy === "function") joystick.destroy();
             } catch (error) {
