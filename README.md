@@ -140,8 +140,8 @@ separate release decisions.
 
 - `examples/prototype-module.html`: module boot proof.
 - `examples/prototype-cdn.html`: plain-script/global boot proof.
-- `examples/fruit-shot-grout13.html`: recommended directly-openable,
-  all-in-one GitHub-CDN playable merge shooter with Grout13.
+- `examples/fruit-shot-grout13.html`: recommended HTTP-served import-map
+  playable merge shooter with payload-backed Grout13.
 - `examples/fruit-shot.html`: directly-openable all-in-one core-facade
   playable merge shooter without Grout13.
 - `examples/phaser4-facade-grout13-canvas-stack-clipped.html`: module-based

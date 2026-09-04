@@ -38,12 +38,13 @@ the game canvas page.
 
 ## Fruit Shot architecture matrix
 
-- `fruit-shot-grout13.html`: preferred quick demo. A complete playable merge
-  shooter in one plain HTML file. It loads Phaser 4.2.1, the facade, Grout13,
-  and the bridge from GitHub-backed CDN paths. It can be opened directly from
-  `file:` because it has no local module or iframe child request.
+- `fruit-shot-grout13.html`: preferred HTTP-served quick demo. A complete
+  playable merge shooter in one import-map HTML file. It loads Phaser 4.2.1,
+  the facade, Grout13, the bridge, and generated payloads from GitHub-backed
+  paths. It intentionally requires HTTP because browser module imports are not
+  file-origin safe.
 - `fruit-shot.html`: complete playable core-facade version without Grout13.
-  It is also one plain HTML file and directly file-safe.
+  It is one plain HTML file and directly file-safe.
 - `fruit-shot-modular.html`, `fruit-shot-modular.js`, and
   `fruit-shot-gameplay.js`: the same gameplay split into HTML import mapping,
   a small dependency launcher, and an owned gameplay module. Serve this form

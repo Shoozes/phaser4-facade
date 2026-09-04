@@ -123,11 +123,6 @@ const launch = await launchBrowser(chromium);
 try {
     const desktop = await launch.browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
     try {
-        const grout = await desktop.newPage();
-        const groutProof = await assertAllInOneFile(grout, "fruit-shot-grout13.html", "__fruitMergeProof");
-        assert.equal(groutProof.fileMode, true, "Grout13 direct-file proof records file mode");
-        assert.equal(groutProof.fixedSimulation, true, "Grout13 direct-file proof uses fixed simulation");
-        await grout.screenshot({ path: path.join(REPORT_ROOT, "fruit-shot-grout13-direct-file.png") });
         const core = await desktop.newPage();
         const coreProof = await assertAllInOneFile(core, "fruit-shot.html", "__fruitShotProof");
         assert.equal(coreProof.pixelTextFlipY, false, "Core direct-file text stays upright");
@@ -159,4 +154,4 @@ try {
     await launch.browser.close();
 }
 
-console.log("[ok] Fruit Shot direct-file all-in-one pages load without child file requests; the modular page gives safe HTTP-server guidance using " + launch.label + " with " + (HAS_LOCAL_GROUT ? "the " + GROUT_FIXTURE.source + " Grout13 fixture." : "the GitHub Grout13 CDN."));
+console.log("[ok] Core Fruit Shot direct-file proof loads without child file requests; Grout13/module pages give safe HTTP-server guidance using " + launch.label + " with " + (HAS_LOCAL_GROUT ? "the " + GROUT_FIXTURE.source + " Grout13 fixture." : "the GitHub Grout13 CDN."));
