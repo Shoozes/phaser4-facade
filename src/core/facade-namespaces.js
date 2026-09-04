@@ -390,8 +390,22 @@ export function installFacadeNamespaces(deps) {
             if (!Number.isFinite(lowerDepth)) {
                 throw new Error(`GM.layer.assertAbove could not find layer ${lowerName}.`);
             }
-            if (upperDepth <= lowerDepth) {
-                throw new Error(`GM.layer.assertAbove expected ${upperName} (${upperDepth}) above ${lowerName} (${lowerDepth}).`);
+            const children = Array.isArray(runtime.state.world?.list)
+                ? runtime.state.world.list
+                : Array.isArray(runtime.state.world?.children) ? runtime.state.world.children : null;
+            const upperContainer = runtime.state.worldLayers.get(upperName)?.container;
+            const lowerContainer = runtime.state.worldLayers.get(lowerName)?.container;
+            const upperIndex = children && upperContainer ? children.indexOf(upperContainer) : -1;
+            const lowerIndex = children && lowerContainer ? children.indexOf(lowerContainer) : -1;
+            const effectiveOrderKnown = upperIndex >= 0 && lowerIndex >= 0;
+            const isAbove = effectiveOrderKnown
+                ? upperIndex > lowerIndex
+                : upperDepth > lowerDepth;
+            if (!isAbove) {
+                const suffix = effectiveOrderKnown
+                    ? `; effective order ${upperIndex} <= ${lowerIndex}`
+                    : "";
+                throw new Error(`GM.layer.assertAbove expected ${upperName} (${upperDepth}) above ${lowerName} (${lowerDepth})${suffix}.`);
             }
             return runtime;
         }

@@ -8,6 +8,26 @@ import { makeSpritePool, makeTextPool } from "./pools.js";
  * @param {any} state
  */
 export function createWorldLayerManager(scene, state) {
+    let nextCreationIndex = 0;
+
+    function sortWorldLayers() {
+        const children = Array.isArray(state.world?.list)
+            ? state.world.list
+            : Array.isArray(state.world?.children) ? state.world.children : null;
+        if (!children) return;
+
+        const managed = Array.from(state.worldLayers.values())
+            .sort((left, right) => left.depth - right.depth || left.creationIndex - right.creationIndex);
+        const managedContainers = new Set(managed.map((layer) => layer.container));
+        let nextManagedIndex = 0;
+        for (let index = 0; index < children.length; index += 1) {
+            if (managedContainers.has(children[index])) {
+                children[index] = managed[nextManagedIndex].container;
+                nextManagedIndex += 1;
+            }
+        }
+    }
+
     /** @param {string} name @param {number | undefined} depth */
     function ensure(name, depth) {
         const layerName = String(name || "world");
@@ -20,6 +40,7 @@ export function createWorldLayerManager(scene, state) {
             layer = {
                 name: layerName,
                 depth: Number.isFinite(depth) ? depth : 0,
+                creationIndex: nextCreationIndex,
                 container,
                 gfx,
                 text: makeTextPool(scene, container, state),
@@ -27,9 +48,12 @@ export function createWorldLayerManager(scene, state) {
             };
             state.world.add(container);
             state.worldLayers.set(layerName, layer);
+            nextCreationIndex += 1;
+            sortWorldLayers();
         } else if (Number.isFinite(depth) && layer.depth !== depth) {
             layer.depth = depth;
             layer.container.setDepth(depth);
+            sortWorldLayers();
         }
         return layer;
     }

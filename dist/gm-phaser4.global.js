@@ -2504,6 +2504,20 @@ ${details}`);
 
   // phaser4-facade-runtime:src/core/render-layers.js
   function createWorldLayerManager(scene, state) {
+    let nextCreationIndex = 0;
+    function sortWorldLayers() {
+      const children = Array.isArray(state.world?.list) ? state.world.list : Array.isArray(state.world?.children) ? state.world.children : null;
+      if (!children) return;
+      const managed = Array.from(state.worldLayers.values()).sort((left, right) => left.depth - right.depth || left.creationIndex - right.creationIndex);
+      const managedContainers = new Set(managed.map((layer) => layer.container));
+      let nextManagedIndex = 0;
+      for (let index = 0; index < children.length; index += 1) {
+        if (managedContainers.has(children[index])) {
+          children[index] = managed[nextManagedIndex].container;
+          nextManagedIndex += 1;
+        }
+      }
+    }
     function ensure(name, depth) {
       const layerName = String(name || "world");
       let layer = state.worldLayers.get(layerName);
@@ -2515,6 +2529,7 @@ ${details}`);
         layer = {
           name: layerName,
           depth: Number.isFinite(depth) ? depth : 0,
+          creationIndex: nextCreationIndex,
           container,
           gfx,
           text: makeTextPool(scene, container, state),
@@ -2522,9 +2537,12 @@ ${details}`);
         };
         state.world.add(container);
         state.worldLayers.set(layerName, layer);
+        nextCreationIndex += 1;
+        sortWorldLayers();
       } else if (Number.isFinite(depth) && layer.depth !== depth) {
         layer.depth = depth;
         layer.container.setDepth(depth);
+        sortWorldLayers();
       }
       return layer;
     }
@@ -4302,8 +4320,16 @@ ${details}`);
         if (!Number.isFinite(lowerDepth)) {
           throw new Error(`GM.layer.assertAbove could not find layer ${lowerName}.`);
         }
-        if (upperDepth <= lowerDepth) {
-          throw new Error(`GM.layer.assertAbove expected ${upperName} (${upperDepth}) above ${lowerName} (${lowerDepth}).`);
+        const children = Array.isArray(runtime2.state.world?.list) ? runtime2.state.world.list : Array.isArray(runtime2.state.world?.children) ? runtime2.state.world.children : null;
+        const upperContainer = runtime2.state.worldLayers.get(upperName)?.container;
+        const lowerContainer = runtime2.state.worldLayers.get(lowerName)?.container;
+        const upperIndex = children && upperContainer ? children.indexOf(upperContainer) : -1;
+        const lowerIndex = children && lowerContainer ? children.indexOf(lowerContainer) : -1;
+        const effectiveOrderKnown = upperIndex >= 0 && lowerIndex >= 0;
+        const isAbove = effectiveOrderKnown ? upperIndex > lowerIndex : upperDepth > lowerDepth;
+        if (!isAbove) {
+          const suffix = effectiveOrderKnown ? `; effective order ${upperIndex} <= ${lowerIndex}` : "";
+          throw new Error(`GM.layer.assertAbove expected ${upperName} (${upperDepth}) above ${lowerName} (${lowerDepth})${suffix}.`);
         }
         return runtime2;
       }
