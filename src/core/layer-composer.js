@@ -46,7 +46,7 @@ export function createLayerComposer(definitions) {
     /** @param {string} phase @param {LayerDefinition & { name: string }} plane @param {Function} callback @param {unknown[]} args */
     function invoke(phase, plane, callback, args) {
         try {
-            callback(...args);
+            return callback(...args);
         } catch (error) {
             throw callbackError(phase, plane, error);
         }
@@ -61,7 +61,8 @@ export function createLayerComposer(definitions) {
             if (destroyed) return false;
             for (let index = planes.length - 1; index >= 0; index -= 1) {
                 const plane = planes[index];
-                if (isEnabled(plane, "input") && typeof plane.input === "function" && plane.input(pointer, deltaSeconds) === true) return true;
+                if (isEnabled(plane, "input") && typeof plane.input === "function" &&
+                    invoke("input", plane, plane.input, [pointer, deltaSeconds]) === true) return true;
             }
             return false;
         },

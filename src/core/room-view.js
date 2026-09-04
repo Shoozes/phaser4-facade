@@ -31,6 +31,15 @@ function paddingValue(value) {
     return number;
 }
 
+/** @param {unknown} value @param {string} label */
+function nonNegative(value, label) {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) {
+        throw new RangeError(`GM.camera.createRoomView ${label} must be finite and non-negative.`);
+    }
+    return number;
+}
+
 /** @param {Record<string, any>} options */
 export function createRoomView(options) {
     if (!options || typeof options !== "object") throw new TypeError("GM.camera.createRoomView requires options.");
@@ -41,13 +50,30 @@ export function createRoomView(options) {
     const minAspect = positive(options.minAspect, 0.5, "minAspect");
     const maxAspect = positive(options.maxAspect, 1.5, "maxAspect");
     if (minAspect > maxAspect) throw new RangeError("GM.camera.createRoomView requires minAspect <= maxAspect.");
-    const followDamping = clamp(Number(options.followDamping ?? 0.82), 0, 1);
+    const rawFollowDamping = Number(options.followDamping ?? 0.82);
+    if (!Number.isFinite(rawFollowDamping) || rawFollowDamping < 0 || rawFollowDamping > 1) {
+        throw new RangeError("GM.camera.createRoomView followDamping must be finite and between 0 and 1.");
+    }
+    const followDamping = rawFollowDamping;
+
+    /** @param {number} aspect */
+    function resolveViewSize(aspect) {
+        let width = Math.min(roomWidth, configuredViewHeight * aspect);
+        let height = width / aspect;
+        if (height > roomHeight) {
+            height = roomHeight;
+            width = height * aspect;
+        }
+        return { width, height };
+    }
+
+    const initialSize = resolveViewSize(maxAspect);
 
     const view = {
         roomWidth,
         roomHeight,
-        viewWidth: Math.min(roomWidth, configuredViewHeight * maxAspect),
-        viewHeight: Math.min(roomHeight, configuredViewHeight),
+        viewWidth: initialSize.width,
+        viewHeight: initialSize.height,
         zoom: 1,
         cx: roomWidth / 2,
         cy: roomHeight / 2,
@@ -63,8 +89,9 @@ export function createRoomView(options) {
             const width = positive(rect.width, 0, "layout.width");
             const height = positive(rect.height, 0, "layout.height");
             const aspect = clamp(width / height, minAspect, maxAspect);
-            this.viewHeight = Math.min(configuredViewHeight, roomHeight);
-            this.viewWidth = Math.min(this.viewHeight * aspect, roomWidth);
+            const viewSize = resolveViewSize(aspect);
+            this.viewWidth = viewSize.width;
+            this.viewHeight = viewSize.height;
 
             let displayWidth = width;
             let displayHeight = displayWidth / aspect;
@@ -84,7 +111,7 @@ export function createRoomView(options) {
         follow(x, y, deltaSeconds) {
             const targetX = coordinate(x, "follow.x");
             const targetY = coordinate(y, "follow.y");
-            const damping = dampFactor(followDamping, Math.max(0, Number(deltaSeconds) || 0), 60);
+            const damping = dampFactor(followDamping, nonNegative(deltaSeconds, "follow.deltaSeconds"), 60);
             this.cx = targetX + (this.cx - targetX) * damping;
             this.cy = targetY + (this.cy - targetY) * damping;
             return this.clamp();

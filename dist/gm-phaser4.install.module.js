@@ -3857,7 +3857,7 @@ function createLayerComposer(definitions) {
   }
   function invoke(phase, plane, callback, args) {
     try {
-      callback(...args);
+      return callback(...args);
     } catch (error) {
       throw callbackError(phase, plane, error);
     }
@@ -3871,7 +3871,7 @@ function createLayerComposer(definitions) {
       if (destroyed) return false;
       for (let index = planes.length - 1; index >= 0; index -= 1) {
         const plane = planes[index];
-        if (isEnabled(plane, "input") && typeof plane.input === "function" && plane.input(pointer, deltaSeconds) === true) return true;
+        if (isEnabled(plane, "input") && typeof plane.input === "function" && invoke("input", plane, plane.input, [pointer, deltaSeconds]) === true) return true;
       }
       return false;
     },
@@ -3936,6 +3936,13 @@ function paddingValue(value) {
   }
   return number;
 }
+function nonNegative(value, label) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    throw new RangeError(`GM.camera.createRoomView ${label} must be finite and non-negative.`);
+  }
+  return number;
+}
 function createRoomView(options) {
   if (!options || typeof options !== "object") throw new TypeError("GM.camera.createRoomView requires options.");
   const roomWidth = positive(options.roomWidth, 0, "roomWidth");
@@ -3944,12 +3951,26 @@ function createRoomView(options) {
   const minAspect = positive(options.minAspect, 0.5, "minAspect");
   const maxAspect = positive(options.maxAspect, 1.5, "maxAspect");
   if (minAspect > maxAspect) throw new RangeError("GM.camera.createRoomView requires minAspect <= maxAspect.");
-  const followDamping = clamp(Number(options.followDamping ?? 0.82), 0, 1);
+  const rawFollowDamping = Number(options.followDamping ?? 0.82);
+  if (!Number.isFinite(rawFollowDamping) || rawFollowDamping < 0 || rawFollowDamping > 1) {
+    throw new RangeError("GM.camera.createRoomView followDamping must be finite and between 0 and 1.");
+  }
+  const followDamping = rawFollowDamping;
+  function resolveViewSize(aspect) {
+    let width = Math.min(roomWidth, configuredViewHeight * aspect);
+    let height = width / aspect;
+    if (height > roomHeight) {
+      height = roomHeight;
+      width = height * aspect;
+    }
+    return { width, height };
+  }
+  const initialSize = resolveViewSize(maxAspect);
   const view = {
     roomWidth,
     roomHeight,
-    viewWidth: Math.min(roomWidth, configuredViewHeight * maxAspect),
-    viewHeight: Math.min(roomHeight, configuredViewHeight),
+    viewWidth: initialSize.width,
+    viewHeight: initialSize.height,
     zoom: 1,
     cx: roomWidth / 2,
     cy: roomHeight / 2,
@@ -3964,8 +3985,9 @@ function createRoomView(options) {
       const width = positive(rect.width, 0, "layout.width");
       const height = positive(rect.height, 0, "layout.height");
       const aspect = clamp(width / height, minAspect, maxAspect);
-      this.viewHeight = Math.min(configuredViewHeight, roomHeight);
-      this.viewWidth = Math.min(this.viewHeight * aspect, roomWidth);
+      const viewSize = resolveViewSize(aspect);
+      this.viewWidth = viewSize.width;
+      this.viewHeight = viewSize.height;
       let displayWidth = width;
       let displayHeight = displayWidth / aspect;
       if (displayHeight > height) {
@@ -3983,7 +4005,7 @@ function createRoomView(options) {
     follow(x, y, deltaSeconds) {
       const targetX = coordinate(x, "follow.x");
       const targetY = coordinate(y, "follow.y");
-      const damping = dampFactor(followDamping, Math.max(0, Number(deltaSeconds) || 0), 60);
+      const damping = dampFactor(followDamping, nonNegative(deltaSeconds, "follow.deltaSeconds"), 60);
       this.cx = targetX + (this.cx - targetX) * damping;
       this.cy = targetY + (this.cy - targetY) * damping;
       return this.clamp();
@@ -4892,8 +4914,30 @@ function resolveRenderQuality(cfg) {
 }
 
 // phaser4-facade-runtime:src/core/fullscreen-host.js
-var DOCUMENT_STYLE_PROPERTIES = ["margin", "padding", "width", "height", "minWidth", "minHeight", "overflow", "overscrollBehavior"];
-var BODY_STYLE_PROPERTIES = [...DOCUMENT_STYLE_PROPERTIES, "position", "inset", "touchAction"];
+var BOX_STYLE_PROPERTIES = [
+  "marginTop",
+  "marginRight",
+  "marginBottom",
+  "marginLeft",
+  "paddingTop",
+  "paddingRight",
+  "paddingBottom",
+  "paddingLeft",
+  "width",
+  "height",
+  "minWidth",
+  "minHeight",
+  "maxWidth",
+  "maxHeight",
+  "overflow",
+  "overflowX",
+  "overflowY",
+  "overscrollBehavior",
+  "overscrollBehaviorX",
+  "overscrollBehaviorY"
+];
+var DOCUMENT_STYLE_PROPERTIES = BOX_STYLE_PROPERTIES.filter((property) => !["maxWidth", "maxHeight"].includes(property));
+var BODY_STYLE_PROPERTIES = [...DOCUMENT_STYLE_PROPERTIES, "position", "top", "right", "bottom", "left", "touchAction"];
 var PARENT_STYLE_PROPERTIES = [...BODY_STYLE_PROPERTIES, "maxWidth", "maxHeight"];
 var CANVAS_STYLE_PROPERTIES = ["display", "width", "height", "maxWidth", "maxHeight", "touchAction"];
 function resolveParent(root, configuredParent) {
@@ -4929,37 +4973,66 @@ function createFullscreenHost(root, configuredParent) {
     }
     for (const property of properties) {
       if (!records.has(property)) records.set(property, readStyle(element, property));
-      writeStyle(element, property, values[property] || "");
+      writeStyle(element, property, values[property] ?? "");
     }
   }
   const documentLike = root?.document;
   if (documentLike) {
     apply(documentLike.documentElement, DOCUMENT_STYLE_PROPERTIES, {
-      margin: "0",
-      padding: "0",
+      marginTop: "0",
+      marginRight: "0",
+      marginBottom: "0",
+      marginLeft: "0",
+      paddingTop: "0",
+      paddingRight: "0",
+      paddingBottom: "0",
+      paddingLeft: "0",
       width: "100%",
       height: "100%",
       minWidth: "100%",
       minHeight: "100%",
       overflow: "hidden",
-      overscrollBehavior: "none"
+      overflowX: "hidden",
+      overflowY: "hidden",
+      overscrollBehavior: "none",
+      overscrollBehaviorX: "none",
+      overscrollBehaviorY: "none"
     });
     apply(documentLike.body, BODY_STYLE_PROPERTIES, {
-      margin: "0",
-      padding: "0",
+      marginTop: "0",
+      marginRight: "0",
+      marginBottom: "0",
+      marginLeft: "0",
+      paddingTop: "0",
+      paddingRight: "0",
+      paddingBottom: "0",
+      paddingLeft: "0",
       width: "100%",
       height: "100%",
       minWidth: "100%",
       minHeight: "100%",
       overflow: "hidden",
+      overflowX: "hidden",
+      overflowY: "hidden",
       overscrollBehavior: "none",
+      overscrollBehaviorX: "none",
+      overscrollBehaviorY: "none",
       position: "fixed",
-      inset: "0",
+      top: "0",
+      right: "0",
+      bottom: "0",
+      left: "0",
       touchAction: "none"
     });
     apply(resolveParent(root, configuredParent), PARENT_STYLE_PROPERTIES, {
-      margin: "0",
-      padding: "0",
+      marginTop: "0",
+      marginRight: "0",
+      marginBottom: "0",
+      marginLeft: "0",
+      paddingTop: "0",
+      paddingRight: "0",
+      paddingBottom: "0",
+      paddingLeft: "0",
       width: "100vw",
       height: "100vh",
       minWidth: "0",
@@ -4967,9 +5040,16 @@ function createFullscreenHost(root, configuredParent) {
       maxWidth: "100vw",
       maxHeight: "100vh",
       overflow: "hidden",
+      overflowX: "hidden",
+      overflowY: "hidden",
       overscrollBehavior: "none",
+      overscrollBehaviorX: "none",
+      overscrollBehaviorY: "none",
       position: "fixed",
-      inset: "0",
+      top: "0",
+      right: "0",
+      bottom: "0",
+      left: "0",
       touchAction: "none"
     });
   }
@@ -4979,8 +5059,14 @@ function createFullscreenHost(root, configuredParent) {
       const canvas = game?.canvas;
       const parent = canvas?.parentElement;
       apply(parent, PARENT_STYLE_PROPERTIES, {
-        margin: "0",
-        padding: "0",
+        marginTop: "0",
+        marginRight: "0",
+        marginBottom: "0",
+        marginLeft: "0",
+        paddingTop: "0",
+        paddingRight: "0",
+        paddingBottom: "0",
+        paddingLeft: "0",
         width: "100vw",
         height: "100vh",
         minWidth: "0",
@@ -4988,9 +5074,16 @@ function createFullscreenHost(root, configuredParent) {
         maxWidth: "100vw",
         maxHeight: "100vh",
         overflow: "hidden",
+        overflowX: "hidden",
+        overflowY: "hidden",
         overscrollBehavior: "none",
+        overscrollBehaviorX: "none",
+        overscrollBehaviorY: "none",
         position: "fixed",
-        inset: "0",
+        top: "0",
+        right: "0",
+        bottom: "0",
+        left: "0",
         touchAction: "none"
       });
       apply(canvas, CANVAS_STYLE_PROPERTIES, {
@@ -6099,10 +6192,10 @@ function installGMRuntime(root, Phaser) {
         });
         onceRuntimeEvent(state, scene.events, "shutdown", () => api.cleanup("scene_shutdown"));
         onceRuntimeEvent(state, scene.events, "destroy", () => api.cleanup("scene_destroy"));
-        api.layout("mount");
+        api.layout("mount", false);
         return api;
       },
-      layout(source = "api") {
+      layout(source = "api", notify = true) {
         const render = syncRenderResolution(
           scene,
           state,
@@ -6148,9 +6241,10 @@ function installGMRuntime(root, Phaser) {
         for (const modal of state.modals) modal.layout();
         const viewportChanged = !previousViewport || JSON.stringify(previousViewport) !== JSON.stringify(state.viewport);
         state.viewportInitialized = true;
-        if (viewportChanged && typeof cfg.layout === "function") {
+        if (notify && (viewportChanged || source === "create") && typeof cfg.layout === "function") {
           try {
-            cfg.layout(api, copyViewportSnapshot(state.viewport), previousViewport);
+            const callbackPreviousViewport = source === "create" ? void 0 : previousViewport;
+            cfg.layout(api, copyViewportSnapshot(state.viewport), callbackPreviousViewport);
           } catch (error) {
             if (typeof cfg.onError === "function") cfg.onError(error, { phase: "layout", frame: state.frameId, time: state.currentTime });
             throw error;
@@ -6753,6 +6847,7 @@ function installGMRuntime(root, Phaser) {
         const gm = this.ensureRuntime();
         gm.mount();
         if (typeof cfg.create === "function") cfg.create(gm);
+        gm.layout("create");
       }
       /**
        * @param {number} time
@@ -6776,16 +6871,30 @@ function installGMRuntime(root, Phaser) {
     GM._game = game;
     const originalDestroy = typeof game.destroy === "function" ? game.destroy.bind(game) : null;
     let gameDestroyed = false;
+    let finalized = false;
+    const finalizeDestroy = () => {
+      if (finalized) return;
+      finalized = true;
+      if (GM._active && typeof GM._active.cleanup === "function") GM._active.cleanup("game_destroy");
+      GM._active = null;
+      if (GM._game === game) GM._game = null;
+      if (typeof GM._globalsDisposer === "function") GM._globalsDisposer();
+    };
+    const destroyEvents = game.events && typeof game.events.once === "function" ? game.events : game.scene?.events && typeof game.scene.events.once === "function" ? game.scene.events : null;
+    if (destroyEvents) {
+      destroyEvents.once("destroy", finalizeDestroy);
+    } else if (!originalDestroy) {
+      finalizeDestroy();
+    }
     game.destroy = function destroyGMGame(...args) {
       if (gameDestroyed) return;
       gameDestroyed = true;
       try {
         if (originalDestroy) originalDestroy(...args);
-      } finally {
-        if (GM._active && typeof GM._active.cleanup === "function") GM._active.cleanup("game_destroy");
-        GM._active = null;
-        if (GM._game === game) GM._game = null;
-        if (typeof GM._globalsDisposer === "function") GM._globalsDisposer();
+        else finalizeDestroy();
+      } catch (error) {
+        finalizeDestroy();
+        throw error;
       }
     };
     return game;

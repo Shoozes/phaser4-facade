@@ -15,8 +15,8 @@
 {
   "imports": {
     "phaser": "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js",
-    "phaser4-facade": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4.module.js",
-    "phaser4-facade/grout13": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4-grout13.module.js",
+    "phaser4-facade": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2c059f107bde242c074e8642eb750059bc59171c/dist/gm-phaser4.module.js",
+    "phaser4-facade/grout13": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2c059f107bde242c074e8642eb750059bc59171c/dist/gm-phaser4-grout13.module.js",
     "grout13": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13.mjs",
     "fruit-shot/font-payload": "./fruit-shot/font-payload.js",
     "fruit-shot/atlas-payload": "./fruit-shot/canvas-stack-payload.js"
@@ -622,13 +622,6 @@ const stack=GM.layer.compose([
         beginTransition("title");
       }
 
-      if(
-        state.mode==="game"&&
-        (GM.input.keyPressed("P")||GM.input.keyPressed(GM.key.ESCAPE))
-      ){
-        state.paused=!state.paused;
-      }
-
       stepTransition(dt);
     },
     draw:drawOverlay
@@ -697,7 +690,15 @@ GM.app.start({
   drawValidation:"report",
   layerAssertions:true,
   create,
-  input(){stack.input(GM.input.primaryPointer(),GM.runtime.deltaSec);},
+  input(){
+    stack.input(GM.input.primaryPointer(),GM.runtime.deltaSec);
+    if(
+      state.mode==="game"&&
+      (GM.input.keyPressed("P")||GM.input.keyPressed(GM.key.ESCAPE))
+    ){
+      state.paused=!state.paused;
+    }
+  },
   step(_gm,dt){stack.step(dt);},
   draw(){stack.draw();},
   layout(_gm,viewport){if(state.camera) state.camera.layout(viewport.logicalRect);},

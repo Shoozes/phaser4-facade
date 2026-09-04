@@ -744,11 +744,13 @@ export function installGMRuntime(root, Phaser) {
                 onceRuntimeEvent(state, scene.events, "shutdown", () => api.cleanup("scene_shutdown"));
                 onceRuntimeEvent(state, scene.events, "destroy", () => api.cleanup("scene_destroy"));
 
-                api.layout("mount");
+                // Establish internal geometry before consumer create(), then
+                // let the scene report one stable initial layout afterward.
+                api.layout("mount", false);
                 return api;
             },
 
-            layout(source = "api") {
+            layout(source = "api", notify = true) {
                 const render = syncRenderResolution(scene, state, cfg, /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (root)), source);
                 const resolution = render.resolution || 1;
                 const w = render.cssWidth || scene.scale.width;
@@ -787,9 +789,10 @@ export function installGMRuntime(root, Phaser) {
 
                 const viewportChanged = !previousViewport || JSON.stringify(previousViewport) !== JSON.stringify(state.viewport);
                 state.viewportInitialized = true;
-                if (viewportChanged && typeof cfg.layout === "function") {
+                if (notify && (viewportChanged || source === "create") && typeof cfg.layout === "function") {
                     try {
-                        cfg.layout(api, copyViewportSnapshot(state.viewport), previousViewport);
+                        const callbackPreviousViewport = source === "create" ? undefined : previousViewport;
+                        cfg.layout(api, copyViewportSnapshot(state.viewport), callbackPreviousViewport);
                     } catch (error) {
                         if (typeof cfg.onError === "function") cfg.onError(error, { phase: "layout", frame: state.frameId, time: state.currentTime });
                         throw error;
@@ -1455,6 +1458,7 @@ export function installGMRuntime(root, Phaser) {
                 const gm = this.ensureRuntime();
                 gm.mount();
                 if (typeof cfg.create === "function") cfg.create(gm);
+                gm.layout("create");
             }
 
             /**
@@ -1483,17 +1487,38 @@ export function installGMRuntime(root, Phaser) {
         GM._game = game;
         const originalDestroy = typeof game.destroy === "function" ? game.destroy.bind(game) : null;
         let gameDestroyed = false;
+        let finalized = false;
+        const finalizeDestroy = () => {
+            if (finalized) return;
+            finalized = true;
+            if (GM._active && typeof GM._active.cleanup === "function") GM._active.cleanup("game_destroy");
+            GM._active = null;
+            if (GM._game === game) GM._game = null;
+            if (typeof GM._globalsDisposer === "function") GM._globalsDisposer();
+        };
+        const destroyEvents = game.events && typeof game.events.once === "function"
+            ? game.events
+            : game.scene?.events && typeof game.scene.events.once === "function" ? game.scene.events : null;
+        if (destroyEvents) {
+            // Phaser destruction is asynchronous. Keep the game owner reserved
+            // until the actual destroy event so a new host cannot overwrite the
+            // old host's styles before restoration has completed.
+            destroyEvents.once("destroy", finalizeDestroy);
+        } else if (!originalDestroy) {
+            finalizeDestroy();
+        }
         /** @param {...any} args */
         game.destroy = function destroyGMGame(...args) {
             if (gameDestroyed) return;
             gameDestroyed = true;
             try {
                 if (originalDestroy) originalDestroy(...args);
-            } finally {
-                if (GM._active && typeof GM._active.cleanup === "function") GM._active.cleanup("game_destroy");
-                GM._active = null;
-                if (GM._game === game) GM._game = null;
-                if (typeof GM._globalsDisposer === "function") GM._globalsDisposer();
+                else finalizeDestroy();
+            } catch (error) {
+                // A failed destroy has no reliable future event; release our
+                // ownership after attempting the normal cleanup path.
+                finalizeDestroy();
+                throw error;
             }
         };
         return game;

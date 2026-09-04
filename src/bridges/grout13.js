@@ -158,6 +158,15 @@ function frameMapNames(frames) {
     return Object.keys(frames);
 }
 
+/** @param {Record<string, any>} glyphs @param {string[]} frameNames @param {string} fontName */
+function validateFontGlyphs(glyphs, frameNames, fontName) {
+    const available = new Set(frameNames);
+    const missing = Object.keys(glyphs).filter((name) => !available.has(name));
+    if (missing.length > 0) {
+        throw new Error(`Grout13 font ${fontName} references missing atlas frames: ${missing.join(", ")}`);
+    }
+}
+
 function payloadBytes(payload, compiled, grout13) {
     const direct = compiled?.bytes?.payload;
     if (Number.isFinite(Number(direct))) return Number(direct);
@@ -193,7 +202,13 @@ function createBridge(gm, grout13) {
         if (previous && options.replace !== true) throw new Error(`Grout13 atlas ${normalizedKey} already exists; pass replace: true to replace it.`);
         let assetRecord;
         let registered = false;
+        let previousRemoved = false;
         try {
+            if (previous && options.replace === true && typeof asset.remove === "function") {
+                const removed = asset.remove(normalizedKey);
+                if (removed === false) throw new Error(`Grout13 atlas ${normalizedKey} could not remove its previous registration.`);
+                previousRemoved = true;
+            }
             assetRecord = addAtlas(normalizedKey, source, frames, assetOptions(options));
             registered = true;
             const missing = frameNames.filter((name) => !frameExists(normalizedKey, name));
@@ -204,11 +219,16 @@ function createBridge(gm, grout13) {
             if (registered && typeof asset.remove === "function") {
                 try { asset.remove(normalizedKey); } catch { /* preserve the registration error */ }
             }
-            if (previous) {
+            if (previous && previousRemoved) {
                 try {
                     asset.addAtlas(normalizedKey, previous.source, previous.frames, previous.assetOptions);
                     registrations.set(normalizedKey, previous);
                 } catch { registrations.delete(normalizedKey); }
+            } else if (previous) {
+                // The asset layer rejected the replacement before removing the
+                // old texture. Leave its registry entry intact; retrying an
+                // addAtlas call here would collide with the still-live key.
+                registrations.set(normalizedKey, previous);
             }
             throw error;
         }
@@ -323,6 +343,10 @@ function createBridge(gm, grout13) {
             if (!font.compiled && !font.atlas) {
                 throw new TypeError("GM.grout13.addFont requires compiled atlas data.");
             }
+            const knownFrames = font.compiled
+                ? frameMapNames(frameMapFromCompiled(font.compiled))
+                : frameMapNames(resolveFrames(font.atlas));
+            validateFontGlyphs(font.glyphs, knownFrames, fontName);
             const atlasKey = options.atlasKey ? requireKey(options.atlasKey) : `grout13-font-${fontName}`;
             const added = font.compiled
                 ? registerCompiled(atlasKey, font.compiled, options)
@@ -352,7 +376,10 @@ function createBridge(gm, grout13) {
             if (fonts.has(fontName) && options.replace !== true) throw new Error(`Grout13 font ${fontName} already exists; pass replace: true to replace it.`);
             if (!Array.isArray(payload)) throw new TypeError(`Grout13 font ${fontName} payload must be an array.`);
             const atlasKey = options.atlasKey ? requireKey(options.atlasKey) : `grout13-font-${fontName}`;
-            const added = this.addPayload(atlasKey, payload, options);
+            const decoded = decode(payload, decodeOptions(options));
+            const decodedFrames = resolveFrames(decoded);
+            validateFontGlyphs(glyphs, frameMapNames(decodedFrames), fontName);
+            const added = registerDecoded(atlasKey, decoded, options, payload);
             const record = { name: fontName, atlasKey, glyphs, metrics, compiled: null, added, dispose() { if (fonts.get(fontName) !== record) return false; fonts.delete(fontName); return added.dispose(); } };
             if (previous) previous.dispose();
             fonts.set(fontName, record);

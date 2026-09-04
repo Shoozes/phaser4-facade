@@ -1,7 +1,16 @@
 // @ts-check
 
-const DOCUMENT_STYLE_PROPERTIES = ["margin", "padding", "width", "height", "minWidth", "minHeight", "overflow", "overscrollBehavior"];
-const BODY_STYLE_PROPERTIES = [...DOCUMENT_STYLE_PROPERTIES, "position", "inset", "touchAction"];
+// Use longhands because assigning a shorthand destroys partial declarations
+// that cannot be reconstructed from the shorthand value during restoration.
+const BOX_STYLE_PROPERTIES = [
+    "marginTop", "marginRight", "marginBottom", "marginLeft",
+    "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+    "width", "height", "minWidth", "minHeight", "maxWidth", "maxHeight",
+    "overflow", "overflowX", "overflowY", "overscrollBehavior",
+    "overscrollBehaviorX", "overscrollBehaviorY"
+];
+const DOCUMENT_STYLE_PROPERTIES = BOX_STYLE_PROPERTIES.filter((property) => !["maxWidth", "maxHeight"].includes(property));
+const BODY_STYLE_PROPERTIES = [...DOCUMENT_STYLE_PROPERTIES, "position", "top", "right", "bottom", "left", "touchAction"];
 const PARENT_STYLE_PROPERTIES = [...BODY_STYLE_PROPERTIES, "maxWidth", "maxHeight"];
 const CANVAS_STYLE_PROPERTIES = ["display", "width", "height", "maxWidth", "maxHeight", "touchAction"];
 
@@ -50,25 +59,34 @@ export function createFullscreenHost(root, configuredParent) {
         }
         for (const property of properties) {
             if (!records.has(property)) records.set(property, readStyle(element, property));
-            writeStyle(element, property, values[property] || "");
+            writeStyle(element, property, values[property] ?? "");
         }
     }
 
     const documentLike = root?.document;
     if (documentLike) {
         apply(documentLike.documentElement, DOCUMENT_STYLE_PROPERTIES, {
-            margin: "0", padding: "0", width: "100%", height: "100%",
-            minWidth: "100%", minHeight: "100%", overflow: "hidden", overscrollBehavior: "none"
+            marginTop: "0", marginRight: "0", marginBottom: "0", marginLeft: "0",
+            paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0",
+            width: "100%", height: "100%", minWidth: "100%", minHeight: "100%",
+            overflow: "hidden", overflowX: "hidden", overflowY: "hidden",
+            overscrollBehavior: "none", overscrollBehaviorX: "none", overscrollBehaviorY: "none"
         });
         apply(documentLike.body, BODY_STYLE_PROPERTIES, {
-            margin: "0", padding: "0", width: "100%", height: "100%",
-            minWidth: "100%", minHeight: "100%", overflow: "hidden",
-            overscrollBehavior: "none", position: "fixed", inset: "0", touchAction: "none"
+            marginTop: "0", marginRight: "0", marginBottom: "0", marginLeft: "0",
+            paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0",
+            width: "100%", height: "100%", minWidth: "100%", minHeight: "100%",
+            overflow: "hidden", overflowX: "hidden", overflowY: "hidden",
+            overscrollBehavior: "none", overscrollBehaviorX: "none", overscrollBehaviorY: "none",
+            position: "fixed", top: "0", right: "0", bottom: "0", left: "0", touchAction: "none"
         });
         apply(resolveParent(root, configuredParent), PARENT_STYLE_PROPERTIES, {
-            margin: "0", padding: "0", width: "100vw", height: "100vh",
-            minWidth: "0", minHeight: "0", maxWidth: "100vw", maxHeight: "100vh",
-            overflow: "hidden", overscrollBehavior: "none", position: "fixed", inset: "0", touchAction: "none"
+            marginTop: "0", marginRight: "0", marginBottom: "0", marginLeft: "0",
+            paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0",
+            width: "100vw", height: "100vh", minWidth: "0", minHeight: "0",
+            maxWidth: "100vw", maxHeight: "100vh", overflow: "hidden", overflowX: "hidden", overflowY: "hidden",
+            overscrollBehavior: "none", overscrollBehaviorX: "none", overscrollBehaviorY: "none",
+            position: "fixed", top: "0", right: "0", bottom: "0", left: "0", touchAction: "none"
         });
     }
 
@@ -78,9 +96,12 @@ export function createFullscreenHost(root, configuredParent) {
             const canvas = game?.canvas;
             const parent = canvas?.parentElement;
             apply(parent, PARENT_STYLE_PROPERTIES, {
-                margin: "0", padding: "0", width: "100vw", height: "100vh",
-                minWidth: "0", minHeight: "0", maxWidth: "100vw", maxHeight: "100vh",
-                overflow: "hidden", overscrollBehavior: "none", position: "fixed", inset: "0", touchAction: "none"
+                marginTop: "0", marginRight: "0", marginBottom: "0", marginLeft: "0",
+                paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0",
+                width: "100vw", height: "100vh", minWidth: "0", minHeight: "0",
+                maxWidth: "100vw", maxHeight: "100vh", overflow: "hidden", overflowX: "hidden", overflowY: "hidden",
+                overscrollBehavior: "none", overscrollBehaviorX: "none", overscrollBehaviorY: "none",
+                position: "fixed", top: "0", right: "0", bottom: "0", left: "0", touchAction: "none"
             });
             apply(canvas, CANVAS_STYLE_PROPERTIES, {
                 display: "block", width: "100%", height: "100%", maxWidth: "100%", maxHeight: "100%", touchAction: "none"

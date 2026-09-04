@@ -20,7 +20,7 @@ const gui = {
     line(...args) { drawn.push(["line", ...args]); }
 };
 
-function addPointer(id, x, y, kind = "touch") {
+function addPointer(id, x, y, kind = "touch", pointerStore = pointers) {
     const pointer = {
         id: String(id),
         screenX: x,
@@ -32,7 +32,7 @@ function addPointer(id, x, y, kind = "touch") {
         released: false,
         owner: null
     };
-    pointers.set(pointer.id, pointer);
+    pointerStore.set(pointer.id, pointer);
     return pointer;
 }
 
@@ -131,6 +131,30 @@ now = 300;
 horizontal.update();
 assert.equal(horizontal.vector.y, 0, "horizontal axis lock must suppress vertical output");
 
+const blockedCyclePointers = new Map();
+let inputBlocked = false;
+const blockedCycle = createVirtualJoystick({
+    id: "blocked-cycle",
+    mode: "fixed",
+    radius: 48,
+    layout: () => ({ origin: { x: 220, y: 260 }, zone: { x: 0, y: 0, width: 320, height: 360 } })
+}, {
+    ...makeDeps(blockedCyclePointers),
+    inputBlocked: () => inputBlocked
+});
+for (const id of ["modal-1", "modal-2", "modal-3"]) {
+    const pointer = addPointer(id, 220, 260, "touch", blockedCyclePointers);
+    blockedCycle.update();
+    assert.equal(blockedCycle.active, true, "joystick should acquire an available pointer");
+    inputBlocked = true;
+    blockedCycle.update();
+    assert.equal(blockedCycle.active, false, "blocking input should release joystick ownership");
+    inputBlocked = false;
+    pointer.pressed = false;
+}
+assert.equal(blockedCycle.active, false, "released modal pointers must not reacquire without a new press");
+blockedCycle.destroy();
+
 const fadePointers = new Map();
 let fadeNow = 0;
 const fading = createVirtualJoystick({
@@ -176,5 +200,5 @@ fixed.reset();
 dynamic.destroy();
 horizontal.destroy();
 fading.destroy();
-assert.deepEqual(calls.filter(([kind]) => kind === "release").map(([, id]) => id).sort(), ["blocked", "fade", "left", "right"].sort());
+assert.deepEqual(calls.filter(([kind]) => kind === "release").map(([, id]) => id).sort(), ["blocked", "fade", "left", "modal-1", "modal-2", "modal-3", "right"].sort());
 console.log("[ok] Virtual joystick contract tests passed.");

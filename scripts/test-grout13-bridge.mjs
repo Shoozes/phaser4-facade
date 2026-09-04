@@ -102,11 +102,15 @@ const addedFont = bridge.addFont("pixel-3x5", font);
 assert.equal(addedFont.atlasKey, "grout13-font-pixel-3x5");
 assert.equal(bridge.getFont("pixel-3x5").atlasKey, "grout13-font-pixel-3x5");
 assert.throws(() => bridge.addFont("pixel-3x5", font), /already exists/);
-const payloadFont = bridge.addFontPayload("payload-font", compiled.payload, { P: { name: "P" } }, { lineHeight: 8 }, { decodeOptions: { canvasFactory: () => source } });
+const payloadFont = bridge.addFontPayload("payload-font", compiled.payload, { apple: { name: "apple" } }, { lineHeight: 8 }, { decodeOptions: { canvasFactory: () => source } });
 assert.deepEqual(bridge.listFonts().map((item) => item.name), ["pixel-3x5", "payload-font"]);
 assert.equal(bridge.removeFont("payload-font"), true);
 assert.equal(bridge.removeFont("payload-font"), false);
-assert.equal(bridge.addFontPayload("pixel-3x5", compiled.payload, { P: { name: "P" } }, { lineHeight: 8 }, { replace: true, decodeOptions: { canvasFactory: () => source } }).name, "pixel-3x5");
+assert.throws(
+    () => bridge.addFontPayload("invalid-font", compiled.payload, { P: { name: "P" } }, { lineHeight: 8 }, { decodeOptions: { canvasFactory: () => source } }),
+    /references missing atlas frames: P/
+);
+assert.equal(bridge.addFontPayload("pixel-3x5", compiled.payload, { apple: { name: "apple" } }, { lineHeight: 8 }, { replace: true, decodeOptions: { canvasFactory: () => source } }).name, "pixel-3x5");
 
 assert.throws(
     () => installGrout13Bridge(gm, { ...grout13 }),
@@ -174,5 +178,25 @@ rollbackBridge.addPayload("rollback", ["good"]);
 assert.throws(() => rollbackBridge.addPayload("rollback", ["bad"], { replace: true }), /simulated replacement failure/);
 assert.throws(() => rollbackBridge.addPayload("rollback", ["good"]), /already exists/);
 assert.equal(rollbackRegistered.get("rollback").has("apple"), true);
+
+const preRemovalRegistered = new Map();
+let preRemovalCalls = 0;
+const preRemovalBridge = installGrout13Bridge({
+    asset: {
+        addAtlas(key, atlasSource, atlasFrames) {
+            preRemovalCalls += 1;
+            if (preRemovalCalls > 1) throw new Error("failure before removal");
+            preRemovalRegistered.set(key, new Set(Object.keys(atlasFrames)));
+            return { key };
+        },
+        frameExists(key, frame) { return preRemovalRegistered.get(key)?.has(String(frame)) === true; }
+    }
+}, {
+    decodeGrout13Atlas() { return { canvas: rollbackSources.bad, frames }; }
+});
+preRemovalBridge.addPayload("pre-removal", ["good"]);
+assert.throws(() => preRemovalBridge.addPayload("pre-removal", ["bad"], { replace: true }), /failure before removal/);
+assert.equal(preRemovalRegistered.get("pre-removal").has("apple"), true);
+assert.equal(preRemovalCalls, 2, "a failed replacement before removal must not retry addAtlas during rollback");
 
 console.log("[ok] Grout13 bridge injection, isolation, registration, and rejection tests passed.");

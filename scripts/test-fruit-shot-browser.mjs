@@ -13,7 +13,8 @@ const PORT = 4520;
 const PHASER_GLOBAL_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
 const PHASER_MODULE_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js";
 const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
-const FACADE_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@4f0a3406193a0008e29c35e27871382aa240aff0/dist/";
+const FACADE_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2c059f107bde242c074e8642eb750059bc59171c/dist/";
+const FACADE_COMMIT = "2c059f107bde242c074e8642eb750059bc59171c";
 const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/";
 const GROUT_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@7546bfc198f16bc1c784e7c1af34de5e26550e86/dist/";
 const PHASER_GLOBAL_DIST = path.join(ROOT, "node_modules", "phaser", "dist", "phaser.min.js");
@@ -133,6 +134,8 @@ async function assertViewportFit(page, testCase) {
 async function installRoutes(page, testCase) {
     await page.route(/^https:\/\/cdn\.jsdelivr\.net\/gh\//, async (route) => {
         const url = route.request().url();
+        const facadeRevision = url.match(/\/Shoozes\/phaser4-facade@([^/]+)\//)?.[1] || null;
+        const facadeRevisionAllowed = facadeRevision === "main" || facadeRevision === FACADE_COMMIT;
         const fulfill = (filePath, contentType) => route.fulfill({ path: filePath, contentType, headers: HEADERS });
         if (url === PHASER_GLOBAL_CDN) return fulfill(PHASER_GLOBAL_DIST, "text/javascript; charset=utf-8");
         if (url === PHASER_MODULE_CDN || /\/phaserjs\/phaser@[^/]+\/dist\/phaser\.esm\.js$/.test(url)) {
@@ -147,21 +150,27 @@ async function installRoutes(page, testCase) {
             return HAS_LOCAL_GROUT ? fulfill(GROUT_MODULE_DIST, "text/javascript; charset=utf-8") : route.continue();
         }
         if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4\.global\.min\.js$/.test(url)) {
+            if (!facadeRevisionAllowed) return route.abort("failed");
             return testCase.runtimeFallback ? route.abort("failed") : fulfill(FACADE_GLOBAL_DIST, "text/javascript; charset=utf-8");
         }
         if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4-grout13\.global\.min\.js$/.test(url)) {
+            if (!facadeRevisionAllowed) return route.abort("failed");
             return testCase.runtimeFallback ? route.abort("failed") : fulfill(BRIDGE_GLOBAL_DIST, "text/javascript; charset=utf-8");
         }
         if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4\.module\.js$/.test(url)) {
+            if (!facadeRevisionAllowed) return route.abort("failed");
             return fulfill(FACADE_MODULE_DIST, "text/javascript; charset=utf-8");
         }
         if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4-grout13\.module\.js$/.test(url)) {
+            if (!facadeRevisionAllowed) return route.abort("failed");
             return fulfill(BRIDGE_MODULE_DIST, "text/javascript; charset=utf-8");
         }
         if (/\/Shoozes\/phaser4-facade@[^/]+\/examples\/fruit-shot\/config\.js$/.test(url)) {
+            if (!facadeRevisionAllowed) return route.abort("failed");
             return fulfill(FRUIT_SHOT_CONFIG, "text/javascript; charset=utf-8");
         }
         if (/\/Shoozes\/phaser4-facade@[^/]+\/examples\/fruit-shot\/art\.js$/.test(url)) {
+            if (!facadeRevisionAllowed) return route.abort("failed");
             return fulfill(FRUIT_SHOT_ART, "text/javascript; charset=utf-8");
         }
         return route.abort("blockedbyclient");

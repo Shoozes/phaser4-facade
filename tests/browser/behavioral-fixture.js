@@ -55,7 +55,10 @@ export async function runQualification(options) {
         },
         layout: {
             responsive,
-            probes: []
+            probes: [],
+            callbacks: 0,
+            callbackBeforeCreate: false,
+            callbackAfterCreate: false
         },
         keyboard: {
             requested: false,
@@ -286,6 +289,7 @@ export async function runQualification(options) {
         let guiPresentationVerified = false;
         let crossFrameTextVerified = false;
         let crossFrameSpriteVerified = false;
+        let createCompleted = false;
 
         const game = GM.app.start({
             parent: "game",
@@ -311,6 +315,11 @@ export async function runQualification(options) {
             maxCatchUpSteps: 5,
             randomSeed: 42,
             type: render === "canvas" ? "CANVAS" : render === "auto" ? "AUTO" : "WEBGL",
+            layout() {
+                report.layout.callbacks += 1;
+                if (createCompleted) report.layout.callbackAfterCreate = true;
+                else report.layout.callbackBeforeCreate = true;
+            },
             create(api) {
                 const expectedScreenLayers = ["hud", "controls", "overlay", "modal", "fade", "debug"];
                 const actualScreenLayers = Array.from(api.state.screenLayers?.keys?.() || []);
@@ -415,6 +424,7 @@ export async function runQualification(options) {
                     });
                     report.joystick.available = true;
                 }
+                createCompleted = true;
             },
             step(api, deltaSec) {
                 if (runId === "primary") report.frames += 1;
@@ -608,6 +618,11 @@ export async function runQualification(options) {
 
     await waitFor(() => report.frames >= targetFrames, 8000, "primary frames");
     recordCheck("primaryFrames", report.frames >= targetFrames, report.frames);
+    recordCheck(
+        "layoutAfterCreate",
+        report.layout.callbackBeforeCreate === false && report.layout.callbackAfterCreate === true,
+        JSON.stringify(report.layout)
+    );
 
     // Pointer sample during the live game
     report.pointer.requested = true;
@@ -680,6 +695,22 @@ export async function runQualification(options) {
     await delay(50);
     recordCheck("virtualJoystickRelease", !report.joystick.fixedActive && !report.joystick.dynamicActive, JSON.stringify(report.joystick));
 
+    const qualificationModal = GM.ui.notice("Input lifecycle", "The modal must release joystick ownership before input can resume.", {
+        closeOnBackdrop: false,
+        showClose: false,
+        openMs: 0,
+        closeMs: 0,
+        inputBlockMs: 0
+    });
+    await waitFor(() => GM.runtime.state.modals.length === 1 && !report.joystick.fixedActive && !report.joystick.dynamicActive, 2000, "modal joystick release");
+    qualificationModal.close("qualification");
+    await waitFor(() => GM.runtime.state.modals.length === 0, 2000, "modal close");
+    dispatchSyntheticTouch(canvas, "touchstart", [{ identifier: 3, clientX: cx, clientY: cy }]);
+    await waitFor(() => report.joystick.fixedActive, 2000, "joystick reacquisition after modal");
+    recordCheck("modalJoystickReacquisition", report.joystick.fixedActive && report.joystick.fixedPointerId !== null, JSON.stringify(report.joystick));
+    dispatchSyntheticTouch(canvas, "touchend", [{ identifier: 3, clientX: cx, clientY: cy }]);
+    await delay(50);
+
     report.keyboard.requested = true;
     window.dispatchEvent(new KeyboardEvent("keydown", {
         bubbles: true,
@@ -688,7 +719,7 @@ export async function runQualification(options) {
         keyCode: 39,
         which: 39
     }));
-    await waitFor(() => report.keyboard.seenDown || report.keyboard.seenPressed || report.frames > targetFrames + 8, 2000, "keyboard sample");
+    await waitFor(() => report.keyboard.seenDown || report.keyboard.seenPressed, 2000, "keyboard sample");
     window.dispatchEvent(new KeyboardEvent("keyup", {
         bubbles: true,
         key: "ArrowRight",

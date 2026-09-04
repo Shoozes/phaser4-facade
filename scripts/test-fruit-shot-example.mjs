@@ -9,6 +9,7 @@ const CSS_CDN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/example
 const PHASER_GLOBAL_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
 const PHASER_MODULE_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js";
 const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
+const FACADE_COMMIT = "2c059f107bde242c074e8642eb750059bc59171c";
 const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/";
 const CORE_HTML = "examples/fruit-shot.html";
 const GROUT_HTML = "examples/fruit-shot-grout13.html";
@@ -23,6 +24,14 @@ function fail(message) {
 
 function read(relativePath) {
     return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
+}
+
+function checkFacadeRevisions(source, label) {
+    for (const match of source.matchAll(/Shoozes\/phaser4-facade@([^/]+)\//g)) {
+        if (match[1] !== "main" && match[1] !== FACADE_COMMIT) {
+            fail(`${label} uses an unqualified or stale facade revision: ${match[1]}`);
+        }
+    }
 }
 
 function getExecutableInlineScript(html, label) {
@@ -59,6 +68,7 @@ function checkNativeShell() {
 
 function checkAllInOne(relativePath, label, architecture, extraMarkers) {
     const html = read(relativePath);
+    checkFacadeRevisions(html, label);
     if (/<script\s+type=["']module["']/i.test(html) || /<script\s+type=["']importmap["']/i.test(html)) {
         fail(label + " must remain a plain-script all-in-one CDN example.");
     }
@@ -106,6 +116,7 @@ function checkModular() {
     const html = read(MODULAR_HTML);
     const launcher = read(MODULAR_JS);
     const gameplay = read(GAMEPLAY_JS);
+    checkFacadeRevisions(html + launcher + gameplay, "Modular Fruit Shot");
     for (const marker of [
         "meta name=\"apple-mobile-web-app-capable\" content=\"yes\"",
         "meta name=\"mobile-web-app-capable\" content=\"yes\"",
@@ -178,6 +189,7 @@ const coreSource = read(CORE_HTML);
 assert.equal(coreSource.includes("GROUT13"), false, "Core Fruit Shot must not load or require Grout13.");
 function checkGrout13Showcase() {
     const html = read(GROUT_HTML);
+    checkFacadeRevisions(html, "Grout13 Fruit Shot");
     if (html.includes("compileGrout13Atlas") || html.includes("compileFontAtlas")) {
         fail("Grout13 compact showcase must use generated payloads without a browser compiler.");
     }
@@ -257,6 +269,7 @@ function checkGrout13Showcase() {
 checkGrout13Showcase();
 checkModular();
 const canvasStack = read(CANVAS_STACK_HTML);
+checkFacadeRevisions(canvasStack, "Canvas stack example");
 for (const marker of [
     "meta name=\"apple-mobile-web-app-capable\" content=\"yes\"",
     "meta name=\"mobile-web-app-capable\" content=\"yes\"",
