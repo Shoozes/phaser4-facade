@@ -15,6 +15,7 @@ const GROUT_HTML = "examples/fruit-shot-grout13.html";
 const MODULAR_HTML = "examples/fruit-shot-modular.html";
 const MODULAR_JS = "examples/fruit-shot-modular.js";
 const GAMEPLAY_JS = "examples/fruit-shot-gameplay.js";
+const CANVAS_STACK_HTML = "examples/phaser4-facade-grout13-canvas-stack-clipped.html";
 
 function fail(message) {
     throw new Error(message);
@@ -66,10 +67,10 @@ function checkAllInOne(relativePath, label, architecture, extraMarkers) {
         fail(label + " must use GitHub-backed current CDN sources without local file fallbacks.");
     }
     for (const marker of [
-        "href=\"" + CSS_CDN + "\"",
-        "data-gm-app-shell=\"locked\"",
-        "gm-app-surface gm-app-safe-area gm-app-surface--pixel-art",
-        "viewport-fit=cover",
+        "meta name=\"apple-mobile-web-app-capable\" content=\"yes\"",
+        "meta name=\"mobile-web-app-capable\" content=\"yes\"",
+        "meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\"",
+        "host: \"fullscreen\"",
         "SCRIPT_TIMEOUT_MS",
         "function loadFirst",
         "GM.app.start",
@@ -106,10 +107,9 @@ function checkModular() {
     const launcher = read(MODULAR_JS);
     const gameplay = read(GAMEPLAY_JS);
     for (const marker of [
-        "href=\"" + CSS_CDN + "\"",
-        "data-gm-app-shell=\"locked\"",
-        "gm-app-surface gm-app-safe-area gm-app-surface--pixel-art",
-        "viewport-fit=cover",
+        "meta name=\"apple-mobile-web-app-capable\" content=\"yes\"",
+        "meta name=\"mobile-web-app-capable\" content=\"yes\"",
+        "meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\"",
         "type=\"importmap\"",
         "\"phaser\": \"" + PHASER_MODULE_CDN + "\"",
         "\"phaser4-facade\": \"" + FACADE_MAIN + "gm-phaser4.module.js\"",
@@ -152,6 +152,7 @@ function checkModular() {
     ]) {
         if (!gameplay.includes(marker)) fail("Modular Fruit Shot gameplay is missing marker: " + marker);
     }
+    if (!/host:\s*["']fullscreen["']/.test(gameplay)) fail("Modular Fruit Shot gameplay must use the fullscreen host.");
     if (/bitmap_text|\bflipY\s*:\s*true\b/i.test(gameplay)) fail("Modular Fruit Shot must use upright direct-pixel glyph assets.");
     if (/cdn\.jsdelivr\.net\/npm|phaser@4\.1\.0/i.test(html + launcher + gameplay)) {
         fail("Modular Fruit Shot must use GitHub-backed current CDN sources.");
@@ -177,16 +178,21 @@ const coreSource = read(CORE_HTML);
 assert.equal(coreSource.includes("GROUT13"), false, "Core Fruit Shot must not load or require Grout13.");
 function checkGrout13Showcase() {
     const html = read(GROUT_HTML);
+    if (html.includes("compileGrout13Atlas") || html.includes("compileFontAtlas")) {
+        fail("Grout13 compact showcase must use generated payloads without a browser compiler.");
+    }
     if (/<script\s+type=["']module["']/i.test(html) || /<script\s+type=["']importmap["']/i.test(html)) {
         for (const marker of [
-            "data-gm-app-shell=\"locked\"",
+            "meta name=\"apple-mobile-web-app-capable\" content=\"yes\"",
+            "meta name=\"mobile-web-app-capable\" content=\"yes\"",
+            "meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\"",
             "type=\"importmap\"",
             'import { GM } from "phaser4-facade";',
             'import { installGrout13Bridge } from "phaser4-facade/grout13";',
             'import { DEFAULT_FRUIT_SHOT as GAME } from "fruit-shot/config";',
             "installGrout13Bridge(GM, GROUT13);",
-            "GM.grout13.addAtlas",
-            "GM.grout13.addFont",
+            "GM.grout13.addPayload",
+            "GM.grout13.addFontPayload",
             "GM.app.start",
             "GM.layer.stack",
             "D.atlasText",
@@ -212,15 +218,17 @@ function checkGrout13Showcase() {
         fail("Grout13 Fruit Shot must use GitHub-backed current CDN sources without local file fallbacks.");
     }
     for (const marker of [
-        "data-gm-app-shell=\"locked\"",
-        "gm-app-surface gm-app-safe-area gm-app-surface--pixel-art",
-        "viewport-fit=cover",
+        "meta name=\"apple-mobile-web-app-capable\" content=\"yes\"",
+        "meta name=\"mobile-web-app-capable\" content=\"yes\"",
+        "meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\"",
+        "host: \"fullscreen\"",
         "function loadFirst",
         "GM.app.start",
         "const FACADE_MAIN = \"" + FACADE_MAIN + "\"",
         GROUT_MAIN + "grout13.global.min.js",
         "gm-phaser4-grout13.global.min.js",
-        "GM.grout13.addAtlas",
+        "GM.grout13.addPayload",
+        "GM.grout13.addFontPayload",
         "architecture: \"showcase-grout13-facade-fixed-playfield\"",
         "gameplayViewport: { width: 720, height: 720 }",
         "gameplayViewportFixed: true",
@@ -248,4 +256,23 @@ function checkGrout13Showcase() {
 
 checkGrout13Showcase();
 checkModular();
+const canvasStack = read(CANVAS_STACK_HTML);
+for (const marker of [
+    "meta name=\"apple-mobile-web-app-capable\" content=\"yes\"",
+    "meta name=\"mobile-web-app-capable\" content=\"yes\"",
+    "meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\"",
+    "host:\"fullscreen\"",
+    "GM.layer.compose",
+    "GM.camera.createRoomView",
+    "GM.grout13.addPayload",
+    "GM.grout13.addFontPayload",
+    "clipMode:\"portable-frame-cover\""
+]) {
+    if (!canvasStack.includes(marker) && !canvasStack.includes(marker.replace("host:\"", "host: \""))) {
+        fail("Canvas stack example is missing marker: " + marker);
+    }
+}
+if (/compileGrout13Atlas|native-app-shell|data-gm-app-shell|viewport-fit=|theme-color/i.test(canvasStack)) {
+    fail("Canvas stack example must be payload-first and independent of the DOM shell.");
+}
 console.log("[ok] Fruit Shot all-in-one, Grout13, modular, GitHub CDN, and pixel-source contracts passed.");

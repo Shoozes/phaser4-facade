@@ -10,7 +10,6 @@ import { ensureFrontendDeps, launchBrowser, startStaticServer, stopServer } from
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REPORT_ROOT = path.join(ROOT, "runtime-data", "screenshots", "facade-fruit-shot");
 const PORT = 4520;
-const CSS_CDN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css";
 const PHASER_GLOBAL_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
 const PHASER_MODULE_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js";
 const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
@@ -23,13 +22,12 @@ const FACADE_GLOBAL_DIST = path.join(ROOT, "dist", "gm-phaser4.global.min.js");
 const FACADE_MODULE_DIST = path.join(ROOT, "dist", "gm-phaser4.module.js");
 const BRIDGE_GLOBAL_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.global.min.js");
 const BRIDGE_MODULE_DIST = path.join(ROOT, "dist", "gm-phaser4-grout13.module.js");
-const SHELL_CSS = path.join(ROOT, "examples", "native-app-shell.css");
 const FRUIT_SHOT_CONFIG = path.join(ROOT, "examples", "fruit-shot", "config.js");
 const FRUIT_SHOT_ART = path.join(ROOT, "examples", "fruit-shot", "art.js");
+const FRUIT_SHOT_FONT_PAYLOAD = path.join(ROOT, "examples", "fruit-shot", "font-payload.js");
 const GROUT_FIXTURE = resolveGrout13Fixture(ROOT);
 const GROUT_GLOBAL_DIST = GROUT_FIXTURE.globalPath;
 const GROUT_MODULE_DIST = GROUT_FIXTURE.modulePath;
-const GROUT_FONT_DIST = GROUT_MODULE_DIST ? path.join(path.dirname(GROUT_MODULE_DIST), "grout13-font.mjs") : null;
 const HAS_LOCAL_GROUT = Boolean(GROUT_GLOBAL_DIST && GROUT_MODULE_DIST && fs.existsSync(GROUT_GLOBAL_DIST) && fs.existsSync(GROUT_MODULE_DIST));
 const HEADERS = { "access-control-allow-origin": "*" };
 
@@ -115,13 +113,15 @@ async function assertViewportFit(page, testCase) {
             scrollWidth: document.documentElement.scrollWidth,
             scrollHeight: document.documentElement.scrollHeight,
             shellVersion: style.getPropertyValue("--gm-native-app-shell-version").trim(),
+            bodyOverflow: getComputedStyle(document.body).overflow,
             canvas: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null
         };
     });
     const { width, height } = testCase.viewport;
     assert.equal(metrics.innerWidth, width, testCase.name + " viewport width");
     assert.equal(metrics.innerHeight, height, testCase.name + " viewport height");
-    assert.equal(metrics.shellVersion, "1", testCase.name + " should load the native app shell stylesheet");
+    assert.equal(metrics.shellVersion, "", testCase.name + " should not depend on the DOM app shell stylesheet");
+    assert.equal(metrics.bodyOverflow, "hidden", testCase.name + " fullscreen host should lock page scrolling");
     assert.ok(metrics.scrollWidth <= width, testCase.name + " must not create horizontal page scroll");
     assert.ok(metrics.scrollHeight <= height, testCase.name + " must not create vertical page scroll");
     assert.ok(metrics.canvas, testCase.name + " must expose a canvas");
@@ -134,9 +134,6 @@ async function installRoutes(page, testCase) {
     await page.route(/^https:\/\/cdn\.jsdelivr\.net\/gh\//, async (route) => {
         const url = route.request().url();
         const fulfill = (filePath, contentType) => route.fulfill({ path: filePath, contentType, headers: HEADERS });
-        if (url === CSS_CDN || /\/Shoozes\/phaser4-facade@[^/]+\/examples\/native-app-shell\.css$/.test(url)) {
-            return fulfill(SHELL_CSS, "text/css; charset=utf-8");
-        }
         if (url === PHASER_GLOBAL_CDN) return fulfill(PHASER_GLOBAL_DIST, "text/javascript; charset=utf-8");
         if (url === PHASER_MODULE_CDN || /\/phaserjs\/phaser@[^/]+\/dist\/phaser\.esm\.js$/.test(url)) {
             return fulfill(PHASER_MODULE_DIST, "text/javascript; charset=utf-8");
@@ -148,11 +145,6 @@ async function installRoutes(page, testCase) {
         if (url === GROUT_MAIN + "grout13.mjs" || url === GROUT_PIN + "grout13.mjs" ||
             /\/Shoozes\/grout13@[^/]+\/dist\/grout13\.mjs$/.test(url)) {
             return HAS_LOCAL_GROUT ? fulfill(GROUT_MODULE_DIST, "text/javascript; charset=utf-8") : route.continue();
-        }
-        if (/\/Shoozes\/grout13@[^/]+\/dist\/grout13-font\.mjs$/.test(url)) {
-            return GROUT_FONT_DIST && fs.existsSync(GROUT_FONT_DIST)
-                ? fulfill(GROUT_FONT_DIST, "text/javascript; charset=utf-8")
-                : route.continue();
         }
         if (/\/Shoozes\/phaser4-facade@[^/]+\/dist\/gm-phaser4\.global\.min\.js$/.test(url)) {
             return testCase.runtimeFallback ? route.abort("failed") : fulfill(FACADE_GLOBAL_DIST, "text/javascript; charset=utf-8");
@@ -208,7 +200,7 @@ for (const assetPath of [
     FACADE_MODULE_DIST,
     BRIDGE_GLOBAL_DIST,
     BRIDGE_MODULE_DIST,
-    SHELL_CSS
+    FRUIT_SHOT_FONT_PAYLOAD
 ]) {
     if (!fs.existsSync(assetPath)) fail("Fruit Shot browser proof needs local fixture: " + assetPath);
 }
@@ -255,7 +247,6 @@ try {
             await assertViewportFit(page, testCase);
             assert.equal(pageErrors.length, 0, testCase.name + " page errors: " + pageErrors.join(" | "));
             assert.equal(consoleErrors.length, 0, testCase.name + " console errors: " + consoleErrors.join(" | "));
-            await page.locator("#status").evaluate((element) => { element.hidden = true; });
             const screenshot = "fruit-shot-" + testCase.name + ".png";
             await page.screenshot({ path: path.join(REPORT_ROOT, screenshot) });
             results.push({ name: testCase.name, frames: report.frames, shotsFired: report.shotsFired, merges: report.merges, screenshot });

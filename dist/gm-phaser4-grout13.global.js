@@ -162,11 +162,14 @@
     const asset = requireObject(gm.asset, "GM.asset");
     const addAtlas = requireFunction(asset.addAtlas, "GM.asset.addAtlas");
     const frameExists = requireFunction(asset.frameExists, "GM.asset.frameExists");
-    const compile = requireFunction(grout13.compileGrout13Atlas, "GROUT13.compileGrout13Atlas");
+    const compile = typeof grout13.compileGrout13Atlas === "function" ? grout13.compileGrout13Atlas : null;
     const decode = requireFunction(grout13.decodeGrout13Atlas, "GROUT13.decodeGrout13Atlas");
+    const registrations = /* @__PURE__ */ new Map();
     function register(key, source, frames, options = {}, metadata = {}) {
       const normalizedKey = requireKey(key);
       const frameNames = frameMapNames(frames);
+      const previous = registrations.get(normalizedKey) || null;
+      if (previous && options.replace !== true) throw new Error(`Grout13 atlas ${normalizedKey} already exists; pass replace: true to replace it.`);
       let assetRecord;
       let registered = false;
       try {
@@ -183,11 +186,19 @@
           } catch {
           }
         }
+        if (previous) {
+          try {
+            asset.addAtlas(normalizedKey, previous.source, previous.frames, previous.assetOptions);
+            registrations.set(normalizedKey, previous);
+          } catch {
+            registrations.delete(normalizedKey);
+          }
+        }
         throw error;
       }
       const frameMap = frames instanceof Map ? Object.fromEntries(frames.entries()) : frames;
       const hasFrame = (frame) => frameExists(normalizedKey, frame);
-      return {
+      const record = {
         key: normalizedKey,
         width: Number(metadata.width ?? source.width) || 0,
         height: Number(metadata.height ?? source.height) || 0,
@@ -201,8 +212,16 @@
         hasFrame,
         decoded: metadata.decoded,
         source,
-        frames: frameMap
+        frames: frameMap,
+        assetOptions: assetOptions(options),
+        dispose() {
+          if (registrations.get(normalizedKey) !== record) return false;
+          registrations.delete(normalizedKey);
+          return typeof asset.remove === "function" ? asset.remove(normalizedKey) : false;
+        }
       };
+      registrations.set(normalizedKey, record);
+      return record;
     }
     function registerDecoded(key, decoded, options = {}, payload) {
       requireObject(decoded, "Grout13 decoded atlas");
@@ -252,6 +271,7 @@
     const fonts = /* @__PURE__ */ new Map();
     return Object.freeze({
       compile(assets, options = {}) {
+        if (!compile) throw new Error("Grout13 compiler capability is unavailable; use addPayload().");
         return compile(assets, directCompileOptions(options));
       },
       addPayload(key, payload, options = {}) {
@@ -262,6 +282,7 @@
         return registerCompiled(key, compiled, options);
       },
       addAtlas(key, assets, options = {}) {
+        if (!compile) throw new Error("Grout13 compiler capability is unavailable; use addPayload().");
         const compiled = compile(assets, compileOptions(options));
         const added = registerCompiled(key, compiled, options);
         return { ...added, compiled, payload: compiled.payload };
@@ -273,6 +294,8 @@
        */
       addFont(name, font, options = {}) {
         const fontName = requireKey(name);
+        const previous = fonts.get(fontName) || null;
+        if (fonts.has(fontName) && options.replace !== true) throw new Error(`Grout13 font ${fontName} already exists; pass replace: true to replace it.`);
         requireObject(font, "Grout13 compiled font");
         requireObject(font.metrics, "Grout13 compiled font.metrics");
         requireObject(font.glyphs, "Grout13 compiled font.glyphs");
@@ -287,8 +310,32 @@
           glyphs: font.glyphs,
           metrics: font.metrics,
           compiled: font.compiled || null,
-          added
+          added,
+          dispose() {
+            if (fonts.get(fontName) !== record) return false;
+            fonts.delete(fontName);
+            return added.dispose();
+          }
         };
+        if (previous) previous.dispose();
+        fonts.set(fontName, record);
+        return record;
+      },
+      addFontPayload(name, payload, glyphs, metrics, options = {}) {
+        const fontName = requireKey(name);
+        const previous = fonts.get(fontName) || null;
+        requireObject(glyphs, `Grout13 font ${fontName}.glyphs`);
+        requireObject(metrics, `Grout13 font ${fontName}.metrics`);
+        if (fonts.has(fontName) && options.replace !== true) throw new Error(`Grout13 font ${fontName} already exists; pass replace: true to replace it.`);
+        if (!Array.isArray(payload)) throw new TypeError(`Grout13 font ${fontName} payload must be an array.`);
+        const atlasKey = options.atlasKey ? requireKey(options.atlasKey) : `grout13-font-${fontName}`;
+        const added = this.addPayload(atlasKey, payload, options);
+        const record = { name: fontName, atlasKey, glyphs, metrics, compiled: null, added, dispose() {
+          if (fonts.get(fontName) !== record) return false;
+          fonts.delete(fontName);
+          return added.dispose();
+        } };
+        if (previous) previous.dispose();
         fonts.set(fontName, record);
         return record;
       },
@@ -298,6 +345,14 @@
       getFont(name) {
         return fonts.get(requireKey(name)) || null;
       },
+      listFonts() {
+        return Object.freeze(Array.from(fonts.values(), (font) => Object.freeze({ name: font.name, atlasKey: font.atlasKey })));
+      },
+      removeFont(name) {
+        const font = fonts.get(requireKey(name));
+        return font ? font.dispose() : false;
+      },
+      capabilities: Object.freeze({ decode: true, compile: Boolean(compile), payloadBytes: typeof grout13.getGrout13PayloadBytes === "function", fontPayload: true }),
       [BRIDGE_MARKER]: grout13
     });
   }

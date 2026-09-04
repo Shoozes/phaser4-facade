@@ -63,6 +63,7 @@ export function createRuntimeState(scene, cfg) {
             scaleMode: "continuous"
         },
         viewport: createEmptyViewportSnapshot(),
+        viewportInitialized: false,
         render: {
             cssWidth: 0,
             cssHeight: 0,

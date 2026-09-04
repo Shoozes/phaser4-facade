@@ -38,6 +38,18 @@ import "phaser4-facade";
 - Optional fixed step: `simulationHz` / `maxFrameDeltaMs` / `maxCatchUpSteps`.
 - Optional seedable RNG: `randomSeed` or `GM.math.setSeed` (does not replace
   `Math.random`).
+- For a canvas-only page, set `host: "fullscreen"`; the facade restores all
+  inline styles it owns when the game is destroyed. Keep the shared
+  `native-app-shell.css` for mixed DOM/canvas pages.
+- Put once-per-render input polling in `input(gm)` and viewport-dependent
+  positioning in `layout(gm, viewport, previousViewport)`. Do not put either
+  responsibility in fixed-step callbacks.
+- Use `GM.layer.compose()` for ordered, state-free plane dispatch and
+  `GM.camera.createRoomView()` for bounded nested-room transforms. Keep game
+  state, scene transitions, and gameplay rules in the consumer.
+- For Grout13 delivery, prefer `addPayload()` and `addFontPayload()` with a
+  decoder-only bridge. Treat compilation as an authoring capability and use
+  the bridge's idempotent disposal/replacement contracts.
 
 ## Workflow
 

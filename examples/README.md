@@ -3,13 +3,16 @@
 These examples are procedural and runnable. They demonstrate the global and
 module entrypoints without moving game-specific image files into the facade.
 
-## Native app browser shell
+## Host choices
 
-`native-app-shell.css` is the go-to CSS template for fullscreen Phaser pages
-on desktop, tablets, phones, Retina/high-DPI screens, and iOS Safari. It owns
-only the page shell: dynamic viewport units, safe areas, root scroll/bounce
-locking, touch policy, explicit DOM scroll regions, and pixel-art canvas CSS.
-Phaser remains responsible for its backing-buffer resolution.
+The canonical all-canvas examples set `host: "fullscreen"` in `GM.app.start`.
+The facade owns only the required document, body, parent, and canvas inline
+styles, snapshots their previous values, and restores them on destroy. They
+use the canonical mobile head and have no visible DOM UI outside the canvas.
+
+`native-app-shell.css` remains the shared choice for mixed DOM/canvas pages
+that need safe-area overlays or deliberate DOM scroll regions. It owns only
+the page shell; Phaser remains responsible for its backing-buffer resolution.
 
 Use the local stylesheet in a downloaded package:
 
@@ -23,10 +26,10 @@ Use the local stylesheet in a downloaded package:
 </body>
 ```
 
-For a compact public single-file demo, use the GitHub-backed CDN version:
+For a mixed DOM/canvas page, use the local stylesheet in a downloaded package:
 
 ```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css">
+<link rel="stylesheet" href="./native-app-shell.css">
 ```
 
 Use `gm-app-scroll-region` only around deliberate DOM content such as a
@@ -67,10 +70,15 @@ Phaser 4.2.1 and GitHub-backed jsDelivr URLs for public browser loading.
 
 `phaser4-facade-grout13-canvas-stack-clipped.html` is a module-based Grout13
 proof for a single adaptive canvas with persistent underlay, world, frame, and
-overlay planes. It generates its checkerboard, marker, player, target, logo,
-and pixel font assets at boot, then clips a moving room camera inside the
-visible canvas frame. The `__canvasStackProof` object exposes the generated
+overlay planes. It consumes generated payloads, uses `GM.layer.compose()` and
+`GM.camera.createRoomView()`, and uses a portable frame-cover fallback rather
+than claiming renderer clipping. The `__canvasStackProof` object exposes the
 asset, layer, camera, and input contract for browser checks.
+
+The composer routes input once per rendered frame from the top plane downward,
+then runs fixed simulation and drawing from the bottom plane upward. The room
+view keeps world and scene coordinates explicit, so layout callbacks can
+consume `GM.viewport.logicalRect` without rebuilding screen rectangles.
 
 For a reproducible external preview, replace `@main` with a reviewed commit
 SHA. Raw GitHub and Gist file URLs are source artifacts, not executable CDN

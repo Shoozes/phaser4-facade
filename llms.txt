@@ -11,9 +11,30 @@
 - types/grout13.d.ts: optional injected Grout13 bridge declarations.
 - docs/migrations/0.2.0.md: compatibility notes for the promoted runtime.
 - docs/text-and-sprite-options.md: extended text, text-fit, and sprite option contracts.
-- examples/native-app-shell.css: native browser app shell for fullscreen, safe-area, high-DPI, and pixel-art canvas pages.
+- examples/native-app-shell.css: shared shell for mixed DOM/canvas pages; canonical all-canvas examples use `host: "fullscreen"` instead.
 - examples/fruit-shot.html: all-in-one directly-openable core playable merge shooter.
 - examples/fruit-shot-grout13.html: recommended all-in-one directly-openable Grout13 playable merge shooter.
 - examples/fruit-shot-modular.html: HTTP-served modular architecture entrypoint.
 - examples/fruit-shot-gameplay.js: modular Fruit Shot gameplay and direct-pixel asset construction.
+- examples/fruit-shot/font-payload.js: generated payload-first font delivery artifact; do not hand-edit.
+- examples/phaser4-facade-grout13-canvas-stack-clipped.html: payload-backed plane composer and nested room-view proof; frame-cover fallback is intentional, not renderer clipping.
+- src/core/fullscreen-host.js: reversible all-canvas document/body/parent/canvas style ownership.
+- src/core/layer-composer.js: pure ordered plane input/simulation/draw/layout scheduler.
+- src/core/room-view.js: pure bounded nested room view and world/scene transforms.
+- docs/facade/example-source-budget.json: baseline/current readable-source receipts for maintained examples.
 - scripts/test-runtime-reproducibility.mjs: deterministic dist drift check.
+
+## Compact contracts
+
+- Canonical wrapped-WebView head: UTF-8 charset, a non-cover viewport, Apple and
+  mobile web-app capability tags, and the translucent status-bar style tag.
+- `GM.app.start({ host: "fullscreen", input, layout })`: reversible host styles;
+  input once per rendered frame; layout once initially and on material viewport
+  changes.
+- `GM.layer.compose(definitions)`: reverse-order input consumption and
+  forward-order layout/step/draw without owning game state or the app loop.
+- `GM.camera.createRoomView(options)`: bounded room view with
+  `worldToScene`, `sceneToWorld`, `containsWorld`, and `containsScene`.
+- `GM.grout13.addPayload()` and `addFontPayload()` are the delivery path;
+  `compileGrout13Atlas()` is optional authoring capability. Replacement and
+  asset/font disposal are transactional and idempotent.

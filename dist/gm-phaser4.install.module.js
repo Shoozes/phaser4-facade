@@ -3821,6 +3821,222 @@ function createVirtualJoystick(options = {}, deps) {
   );
 }
 
+// phaser4-facade-runtime:src/core/layer-composer.js
+function callbackError(phase, plane, error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  const wrapped = new Error(`GM.layer.compose ${phase} failed for plane "${plane.name}": ${detail}`);
+  wrapped.cause = error;
+  return wrapped;
+}
+function createLayerComposer(definitions) {
+  if (!Array.isArray(definitions) || definitions.length === 0) {
+    throw new TypeError("GM.layer.compose requires a non-empty definition array.");
+  }
+  const planes = definitions.map((definition, index) => {
+    if (!definition || typeof definition !== "object") {
+      throw new TypeError(`GM.layer.compose definition ${index} must be an object.`);
+    }
+    const name = String(definition.name || "").trim();
+    if (!name) throw new TypeError(`GM.layer.compose definition ${index} needs a name.`);
+    const order = definition.order === void 0 ? index : Number(definition.order);
+    if (!Number.isFinite(order)) throw new TypeError(`GM.layer.compose plane "${name}" order must be finite.`);
+    return { ...definition, name, order, index };
+  }).sort((a, b) => a.order - b.order || a.index - b.index);
+  const names = /* @__PURE__ */ new Set();
+  for (const plane of planes) {
+    if (names.has(plane.name)) throw new TypeError(`GM.layer.compose plane names must be unique: ${plane.name}.`);
+    names.add(plane.name);
+  }
+  let destroyed = false;
+  function isEnabled(plane, phase) {
+    try {
+      return typeof plane.enabled === "function" ? plane.enabled() : plane.enabled !== false;
+    } catch (error) {
+      throw callbackError(`${phase}:enabled`, plane, error);
+    }
+  }
+  function invoke(phase, plane, callback, args) {
+    try {
+      callback(...args);
+    } catch (error) {
+      throw callbackError(phase, plane, error);
+    }
+  }
+  const composer = {
+    get planes() {
+      return planes.map(({ name, order }) => Object.freeze({ name, order }));
+    },
+    /** @param {unknown} pointer @param {number} deltaSeconds */
+    input(pointer, deltaSeconds) {
+      if (destroyed) return false;
+      for (let index = planes.length - 1; index >= 0; index -= 1) {
+        const plane = planes[index];
+        if (isEnabled(plane, "input") && typeof plane.input === "function" && plane.input(pointer, deltaSeconds) === true) return true;
+      }
+      return false;
+    },
+    /** @param {number} deltaSeconds */
+    step(deltaSeconds) {
+      if (!destroyed) {
+        for (const plane of planes) if (isEnabled(plane, "step") && typeof plane.step === "function") invoke("step", plane, plane.step, [deltaSeconds]);
+      }
+      return composer;
+    },
+    /** @param {...unknown} args */
+    draw(...args) {
+      if (!destroyed) {
+        for (const plane of planes) if (isEnabled(plane, "draw") && typeof plane.draw === "function") invoke("draw", plane, plane.draw, args);
+      }
+      return composer;
+    },
+    /** @param {...unknown} args */
+    layout(...args) {
+      if (!destroyed) {
+        for (const plane of planes) if (isEnabled(plane, "layout") && typeof plane.layout === "function") invoke("layout", plane, plane.layout, args);
+      }
+      return composer;
+    },
+    destroy() {
+      if (destroyed) return false;
+      destroyed = true;
+      let firstError = null;
+      for (let index = planes.length - 1; index >= 0; index -= 1) {
+        const plane = planes[index];
+        if (typeof plane.destroy !== "function") continue;
+        try {
+          plane.destroy();
+        } catch (error) {
+          if (!firstError) firstError = callbackError("destroy", plane, error);
+        }
+      }
+      if (firstError) throw firstError;
+      return true;
+    }
+  };
+  return composer;
+}
+
+// phaser4-facade-runtime:src/core/room-view.js
+function positive(value, fallback, label) {
+  const number = Number(value === void 0 ? fallback : value);
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new TypeError(`GM.camera.createRoomView ${label} must be positive and finite.`);
+  }
+  return number;
+}
+function coordinate(value, label) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new TypeError(`GM.camera.createRoomView ${label} must be finite.`);
+  return number;
+}
+function paddingValue(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number < 0) {
+    throw new RangeError("GM.camera.createRoomView padding must be finite and non-negative.");
+  }
+  return number;
+}
+function createRoomView(options) {
+  if (!options || typeof options !== "object") throw new TypeError("GM.camera.createRoomView requires options.");
+  const roomWidth = positive(options.roomWidth, 0, "roomWidth");
+  const roomHeight = positive(options.roomHeight, 0, "roomHeight");
+  const configuredViewHeight = positive(options.viewHeight, roomHeight, "viewHeight");
+  const minAspect = positive(options.minAspect, 0.5, "minAspect");
+  const maxAspect = positive(options.maxAspect, 1.5, "maxAspect");
+  if (minAspect > maxAspect) throw new RangeError("GM.camera.createRoomView requires minAspect <= maxAspect.");
+  const followDamping = clamp(Number(options.followDamping ?? 0.82), 0, 1);
+  const view = {
+    roomWidth,
+    roomHeight,
+    viewWidth: Math.min(roomWidth, configuredViewHeight * maxAspect),
+    viewHeight: Math.min(roomHeight, configuredViewHeight),
+    zoom: 1,
+    cx: roomWidth / 2,
+    cy: roomHeight / 2,
+    /** @type {DisplayRect} */
+    display: { x: 0, y: 0, width: 1, height: 1 },
+    visible: { left: 0, top: 0, right: roomWidth, bottom: roomHeight },
+    /** @param {LayoutRect} rect */
+    layout(rect) {
+      if (!rect || typeof rect !== "object") throw new TypeError("GM.camera.createRoomView.layout requires a rectangle.");
+      const x = rect.x === void 0 ? 0 : coordinate(rect.x, "layout.x");
+      const y = rect.y === void 0 ? 0 : coordinate(rect.y, "layout.y");
+      const width = positive(rect.width, 0, "layout.width");
+      const height = positive(rect.height, 0, "layout.height");
+      const aspect = clamp(width / height, minAspect, maxAspect);
+      this.viewHeight = Math.min(configuredViewHeight, roomHeight);
+      this.viewWidth = Math.min(this.viewHeight * aspect, roomWidth);
+      let displayWidth = width;
+      let displayHeight = displayWidth / aspect;
+      if (displayHeight > height) {
+        displayHeight = height;
+        displayWidth = displayHeight * aspect;
+      }
+      this.display.x = x + (width - displayWidth) / 2;
+      this.display.y = y + (height - displayHeight) / 2;
+      this.display.width = displayWidth;
+      this.display.height = displayHeight;
+      this.zoom = Math.min(displayWidth / this.viewWidth, displayHeight / this.viewHeight);
+      return this.clamp();
+    },
+    /** @param {number} x @param {number} y @param {number} deltaSeconds */
+    follow(x, y, deltaSeconds) {
+      const targetX = coordinate(x, "follow.x");
+      const targetY = coordinate(y, "follow.y");
+      const damping = dampFactor(followDamping, Math.max(0, Number(deltaSeconds) || 0), 60);
+      this.cx = targetX + (this.cx - targetX) * damping;
+      this.cy = targetY + (this.cy - targetY) * damping;
+      return this.clamp();
+    },
+    clamp() {
+      const halfWidth = this.viewWidth / 2;
+      const halfHeight = this.viewHeight / 2;
+      this.cx = clamp(this.cx, halfWidth, Math.max(halfWidth, roomWidth - halfWidth));
+      this.cy = clamp(this.cy, halfHeight, Math.max(halfHeight, roomHeight - halfHeight));
+      this.visible.left = this.cx - halfWidth;
+      this.visible.top = this.cy - halfHeight;
+      this.visible.right = this.cx + halfWidth;
+      this.visible.bottom = this.cy + halfHeight;
+      return this;
+    },
+    /** @param {number} x @param {number} y @param {Point} [out] */
+    worldToScene(x, y, out = {}) {
+      out.x = this.display.x + (coordinate(x, "worldToScene.x") - this.visible.left) * this.zoom;
+      out.y = this.display.y + (coordinate(y, "worldToScene.y") - this.visible.top) * this.zoom;
+      return (
+        /** @type {{ x: number, y: number }} */
+        out
+      );
+    },
+    /** @param {number} x @param {number} y @param {Point} [out] */
+    sceneToWorld(x, y, out = {}) {
+      out.x = this.visible.left + (coordinate(x, "sceneToWorld.x") - this.display.x) / this.zoom;
+      out.y = this.visible.top + (coordinate(y, "sceneToWorld.y") - this.display.y) / this.zoom;
+      return (
+        /** @type {{ x: number, y: number }} */
+        out
+      );
+    },
+    /** @param {number} x @param {number} y @param {number} [padding] */
+    containsWorld(x, y, padding = 0) {
+      const worldX = Number(x);
+      const worldY = Number(y);
+      if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) return false;
+      const margin = paddingValue(padding);
+      return worldX >= this.visible.left - margin && worldY >= this.visible.top - margin && worldX <= this.visible.right + margin && worldY <= this.visible.bottom + margin;
+    },
+    /** @param {number} x @param {number} y @param {number} [padding] */
+    containsScene(x, y, padding = 0) {
+      const sceneX = Number(x);
+      const sceneY = Number(y);
+      if (!Number.isFinite(sceneX) || !Number.isFinite(sceneY)) return false;
+      const margin = paddingValue(padding);
+      return sceneX >= this.display.x - margin && sceneY >= this.display.y - margin && sceneX <= this.display.x + this.display.width + margin && sceneY <= this.display.y + this.display.height + margin;
+    }
+  };
+  return view.clamp();
+}
+
 // phaser4-facade-runtime:src/core/atlas-text.js
 function requireCompiledFont(font) {
   const candidate = (
@@ -4305,6 +4521,10 @@ function installFacadeNamespaces(deps) {
       });
       return active().define_layer(depths);
     },
+    /** @param {any[]} definitions */
+    compose(definitions) {
+      return createLayerComposer(definitions);
+    },
     /**
      * @param {string} upper
      * @param {string} lower
@@ -4515,6 +4735,12 @@ function installFacadeNamespaces(deps) {
       return root.Phaser || null;
     }
   };
+  const camera = {
+    /** @param {any} options */
+    createRoomView(options) {
+      return createRoomView(options);
+    }
+  };
   function currentViewport() {
     const activeRuntime = activeOrNull();
     return activeRuntime && activeRuntime.state && activeRuntime.state.viewport || createEmptyViewportSnapshot();
@@ -4627,6 +4853,7 @@ function installFacadeNamespaces(deps) {
   GM.input = input;
   GM.entity = entity;
   GM.layer = layer;
+  GM.camera = camera;
   GM.asset = asset;
   GM.audio = audio;
   GM.ui = ui;
@@ -4661,6 +4888,133 @@ function resolveRenderQuality(cfg) {
     antialias,
     antialiasGL: antialias,
     roundPixels
+  };
+}
+
+// phaser4-facade-runtime:src/core/fullscreen-host.js
+var DOCUMENT_STYLE_PROPERTIES = ["margin", "padding", "width", "height", "minWidth", "minHeight", "overflow", "overscrollBehavior"];
+var BODY_STYLE_PROPERTIES = [...DOCUMENT_STYLE_PROPERTIES, "position", "inset", "touchAction"];
+var PARENT_STYLE_PROPERTIES = [...BODY_STYLE_PROPERTIES, "maxWidth", "maxHeight"];
+var CANVAS_STYLE_PROPERTIES = ["display", "width", "height", "maxWidth", "maxHeight", "touchAction"];
+function resolveParent(root, configuredParent) {
+  const documentLike = root && root.document;
+  if (typeof configuredParent === "string" && documentLike) {
+    return documentLike.getElementById(configuredParent) || documentLike.querySelector(configuredParent);
+  }
+  return configuredParent && typeof configuredParent === "object" ? configuredParent : null;
+}
+function cssName(property) {
+  return property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+function readStyle(element, property) {
+  if (!element?.style) return null;
+  const name = cssName(property);
+  return {
+    value: String(element.style.getPropertyValue(name) || ""),
+    priority: String(element.style.getPropertyPriority(name) || "")
+  };
+}
+function writeStyle(element, property, value) {
+  if (element?.style) element.style.setProperty(cssName(property), value);
+}
+function createFullscreenHost(root, configuredParent) {
+  const touched = /* @__PURE__ */ new Map();
+  let restored = false;
+  function apply(element, properties, values) {
+    if (!element?.style) return;
+    let records = touched.get(element);
+    if (!records) {
+      records = /* @__PURE__ */ new Map();
+      touched.set(element, records);
+    }
+    for (const property of properties) {
+      if (!records.has(property)) records.set(property, readStyle(element, property));
+      writeStyle(element, property, values[property] || "");
+    }
+  }
+  const documentLike = root?.document;
+  if (documentLike) {
+    apply(documentLike.documentElement, DOCUMENT_STYLE_PROPERTIES, {
+      margin: "0",
+      padding: "0",
+      width: "100%",
+      height: "100%",
+      minWidth: "100%",
+      minHeight: "100%",
+      overflow: "hidden",
+      overscrollBehavior: "none"
+    });
+    apply(documentLike.body, BODY_STYLE_PROPERTIES, {
+      margin: "0",
+      padding: "0",
+      width: "100%",
+      height: "100%",
+      minWidth: "100%",
+      minHeight: "100%",
+      overflow: "hidden",
+      overscrollBehavior: "none",
+      position: "fixed",
+      inset: "0",
+      touchAction: "none"
+    });
+    apply(resolveParent(root, configuredParent), PARENT_STYLE_PROPERTIES, {
+      margin: "0",
+      padding: "0",
+      width: "100vw",
+      height: "100vh",
+      minWidth: "0",
+      minHeight: "0",
+      maxWidth: "100vw",
+      maxHeight: "100vh",
+      overflow: "hidden",
+      overscrollBehavior: "none",
+      position: "fixed",
+      inset: "0",
+      touchAction: "none"
+    });
+  }
+  return {
+    /** @param {any} game */
+    applyGame(game) {
+      const canvas = game?.canvas;
+      const parent = canvas?.parentElement;
+      apply(parent, PARENT_STYLE_PROPERTIES, {
+        margin: "0",
+        padding: "0",
+        width: "100vw",
+        height: "100vh",
+        minWidth: "0",
+        minHeight: "0",
+        maxWidth: "100vw",
+        maxHeight: "100vh",
+        overflow: "hidden",
+        overscrollBehavior: "none",
+        position: "fixed",
+        inset: "0",
+        touchAction: "none"
+      });
+      apply(canvas, CANVAS_STYLE_PROPERTIES, {
+        display: "block",
+        width: "100%",
+        height: "100%",
+        maxWidth: "100%",
+        maxHeight: "100%",
+        touchAction: "none"
+      });
+    },
+    restore() {
+      if (restored) return false;
+      restored = true;
+      for (const [element, records] of touched) {
+        for (const [property, original] of records) {
+          const name = cssName(property);
+          if (original?.value) element.style.setProperty(name, original.value, original.priority);
+          else element.style.removeProperty(name);
+        }
+      }
+      touched.clear();
+      return true;
+    }
   };
 }
 
@@ -4708,7 +5062,7 @@ function mergeConfig(config) {
   if (!Number.isFinite(Number(merged.maxRenderResolution)) || Number(merged.maxRenderResolution) <= 0) {
     throw new TypeError("GM.app.start requires a positive finite maxRenderResolution.");
   }
-  for (const callbackName of ["preload", "create", "step", "draw", "ui", "gui", "onCleanupError", "onError"]) {
+  for (const callbackName of ["preload", "create", "step", "input", "layout", "draw", "ui", "gui", "onCleanupError", "onError"]) {
     if (merged[callbackName] !== void 0 && typeof merged[callbackName] !== "function") {
       throw new TypeError(`GM.app.start requires ${callbackName} to be a function when provided.`);
     }
@@ -4730,6 +5084,9 @@ function mergeConfig(config) {
   }
   if (merged.maxCatchUpSteps !== void 0 && (!Number.isFinite(Number(merged.maxCatchUpSteps)) || Number(merged.maxCatchUpSteps) < 1)) {
     throw new TypeError("GM.app.start requires maxCatchUpSteps to be a finite number >= 1.");
+  }
+  if (merged.host !== void 0 && merged.host !== "fullscreen") {
+    throw new TypeError('GM.app.start host must be "fullscreen" when provided.');
   }
   return merged;
 }
@@ -4766,10 +5123,11 @@ function createGameStarter({ root, Phaser, makeScene, installGlobals }) {
     }
     const cfg = mergeConfig(config);
     const globalsDisposer = cfg.globals ? installGlobals() : null;
+    const fullscreenHost = cfg.host === "fullscreen" ? createFullscreenHost(root, cfg.parent) : null;
     const renderQuality = resolveRenderQuality(cfg);
     const startSize = resolveStartSize(root, cfg.parent, cfg.width, cfg.height);
     try {
-      return new Phaser.Game({
+      const game = new Phaser.Game({
         type: resolveGameType(Phaser, cfg.type),
         parent: cfg.parent,
         width: startSize.width,
@@ -4785,7 +5143,13 @@ function createGameStarter({ root, Phaser, makeScene, installGlobals }) {
         },
         scene: makeScene(cfg)
       });
+      if (fullscreenHost) {
+        fullscreenHost.applyGame(game);
+        if (game.events && typeof game.events.once === "function") game.events.once("destroy", fullscreenHost.restore);
+      }
+      return game;
     } catch (error) {
+      if (fullscreenHost) fullscreenHost.restore();
       if (typeof globalsDisposer === "function") globalsDisposer();
       throw error;
     }
@@ -5112,6 +5476,7 @@ function createRuntimeState(scene, cfg) {
       scaleMode: "continuous"
     },
     viewport: createEmptyViewportSnapshot(),
+    viewportInitialized: false,
     render: {
       cssWidth: 0,
       cssHeight: 0,
@@ -5765,7 +6130,8 @@ function installGMRuntime(root, Phaser) {
         state.layout.profile = next.profile;
         state.layout.orientation = next.orientation;
         state.layout.scaleMode = next.scaleMode;
-        state.viewport = next.viewport;
+        const previousViewport = state.viewportInitialized ? copyViewportSnapshot(state.viewport) : void 0;
+        state.viewport = copyViewportSnapshot(next.viewport);
         if (state.world) {
           state.world.setPosition(state.layout.x * resolution, state.layout.y * resolution);
           state.world.setScale(state.layout.scale * resolution);
@@ -5780,6 +6146,16 @@ function installGMRuntime(root, Phaser) {
         }
         scene.cameras.main.setViewport(0, 0, render.width || w, render.height || h);
         for (const modal of state.modals) modal.layout();
+        const viewportChanged = !previousViewport || JSON.stringify(previousViewport) !== JSON.stringify(state.viewport);
+        state.viewportInitialized = true;
+        if (viewportChanged && typeof cfg.layout === "function") {
+          try {
+            cfg.layout(api, copyViewportSnapshot(state.viewport), previousViewport);
+          } catch (error) {
+            if (typeof cfg.onError === "function") cfg.onError(error, { phase: "layout", frame: state.frameId, time: state.currentTime });
+            throw error;
+          }
+        }
         return api;
       },
       updatePointer(pointer) {
@@ -5980,6 +6356,14 @@ function installGMRuntime(root, Phaser) {
           beginRuntimePerfSection(state, "step");
           try {
             updateVirtualJoysticks();
+            if (typeof cfg.input === "function") {
+              try {
+                cfg.input(api);
+              } catch (error) {
+                if (typeof cfg.onError === "function") cfg.onError(error, { phase: "input", frame: state.frameId, time: state.currentTime });
+                throw error;
+              }
+            }
             const simulationHz = Number(cfg.simulationHz) || 0;
             if (simulationHz > 0) {
               const stepMs = 1e3 / simulationHz;

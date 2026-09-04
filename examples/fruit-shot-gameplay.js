@@ -325,6 +325,7 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
 
     GM.app.start({
         parent: "game",
+        host: "fullscreen",
         width: VIEW.width,
         height: VIEW.height,
         responsive: false,
@@ -366,8 +367,6 @@ export function startFruitShotGame({ GM, bridge, proof, renderType, setStatus, f
             proof.inputReady = Boolean(GM.input && typeof GM.input.pointerReleased === "function");
             updatePixelPresentation();
             proof.phase = "running";
-            setStatus("Ready\nPhaser 4.2.1\nModular Grout13 game");
-            window.setTimeout(() => { if (!proof.failed) document.getElementById("status").hidden = true; }, 4000);
         },
         step(_api, deltaSeconds) {
             proof.frames += 1;

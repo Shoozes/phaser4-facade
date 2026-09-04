@@ -93,6 +93,28 @@ Read `GM.viewport.logicalRect`, `visibleRoomRect`, and `screenToRoom()` instead
 of reconstructing `layout.x` / `layout.y`. Put the canvas on
 `gm-app-surface--full-bleed` and keep HUD/DOM chrome on `gm-app-overlay--safe`.
 
+For an all-canvas page, use the reversible host contract instead of authored
+page CSS:
+
+```js
+GM.app.start({
+    parent: "game",
+    host: "fullscreen",
+    input(gm) {
+        // Poll screen-space controls once per rendered frame.
+    },
+    layout(gm, viewport, previousViewport) {
+        // Reposition camera/controls after the initial or changed snapshot.
+    }
+});
+```
+
+The host restores document, body, parent, and canvas inline styles on destroy.
+Use `GM.layer.compose()` for ordered plane dispatch and
+`GM.camera.createRoomView()` for bounded room/world transforms. For compact
+Grout13 delivery, register generated `addPayload()` and `addFontPayload()` data;
+the compiler is optional and belongs to source-authoring workflows.
+
 ## Browser global
 
 For a released consumer, load Phaser first, then the versioned global artifact

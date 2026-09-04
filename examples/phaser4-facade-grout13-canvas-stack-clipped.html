@@ -2,57 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#05070d">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Phaser4 Facade + Grout13 Full-Canvas Stack</title>
-<style>
-:root{
-  --gm-app-safe-area-top:env(safe-area-inset-top,0px);
-  --gm-app-safe-area-right:env(safe-area-inset-right,0px);
-  --gm-app-safe-area-bottom:env(safe-area-inset-bottom,0px);
-  --gm-app-safe-area-left:env(safe-area-inset-left,0px)
-}
-*{box-sizing:border-box}
-html,body,#game{
-  margin:0;padding:0;width:100%;height:100%;height:100dvh;
-  overflow:hidden;background:#05070d;overscroll-behavior:none
-}
-body{
-  position:fixed;inset:0;touch-action:none;
-  user-select:none;-webkit-user-select:none;
-  -webkit-touch-callout:none;-webkit-tap-highlight-color:transparent
-}
-#game,canvas{
-  display:block;position:fixed!important;inset:0;
-  width:100%!important;height:100%!important;
-  margin:0!important;padding:0!important;touch-action:none;
-  image-rendering:pixelated
-}
-#status,#error{
-  position:fixed;z-index:20;pointer-events:none;
-  font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace
-}
-#status{
-  top:max(10px,var(--gm-app-safe-area-top));
-  right:max(10px,var(--gm-app-safe-area-right));
-  color:#fff
-}
-#error{
-  left:max(10px,var(--gm-app-safe-area-left));
-  right:max(10px,var(--gm-app-safe-area-right));
-  bottom:max(10px,var(--gm-app-safe-area-bottom));
-  max-height:38vh;overflow:auto;padding:10px;
-  color:#fff;background:#8e1830;white-space:pre-wrap
-}
-</style>
 </head>
 <body>
 <div id="game"></div>
-<div id="status">Loading generated canvas stack...</div>
-<pre id="error" hidden></pre>
 
 <script type="importmap">
 {
@@ -61,8 +18,8 @@ body{
     "phaser4-facade": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4.module.js",
     "phaser4-facade/grout13": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4-grout13.module.js",
     "grout13": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13.mjs",
-    "grout13/font": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13-font.mjs",
-    "fruit-shot/art": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/examples/fruit-shot/art.js"
+    "fruit-shot/font-payload": "./fruit-shot/font-payload.js",
+    "fruit-shot/atlas-payload": "./fruit-shot/canvas-stack-payload.js"
   }
 }
 </script>
@@ -71,13 +28,11 @@ body{
 import { GM } from "phaser4-facade";
 import { installGrout13Bridge } from "phaser4-facade/grout13";
 import * as GROUT13 from "grout13";
-import { compileFontAtlas } from "grout13/font";
-import { compileFruitShotFont } from "fruit-shot/art";
+import { PIXEL_FONT_PAYLOAD, PIXEL_FONT_GLYPHS, PIXEL_FONT_METRICS } from "fruit-shot/font-payload";
+import { CANVAS_STACK_ATLAS_PAYLOAD } from "fruit-shot/atlas-payload";
 
 installGrout13Bridge(GM, GROUT13);
 
-const statusBox = document.querySelector("#status");
-const errorBox = document.querySelector("#error");
 
 const proof = globalThis.__canvasStackProof = {
   architecture:"single-canvas-stacked-planes",
@@ -129,166 +84,13 @@ const state = {
   messageAge:0
 };
 
-function rectAsset(name,w,h,steps){
-  return {name,spec:{w,h,steps}};
-}
-
 function installGeneratedAssets(){
-  const assets = [
-    rectAsset("checker",32,32,[
-      {type:"rect_filled",x:0,y:0,w:16,h:16,col:COLORS.checkerA},
-      {type:"rect_filled",x:16,y:16,w:16,h:16,col:COLORS.checkerA},
-      {type:"rect_filled",x:16,y:0,w:16,h:16,col:COLORS.checkerB},
-      {type:"rect_filled",x:0,y:16,w:16,h:16,col:COLORS.checkerB}
-    ]),
-    rectAsset("player",48,48,[
-      {type:"rect_filled",x:4,y:8,w:40,h:36,col:0x3b2f1f},
-      {type:"rect_filled",x:8,y:4,w:32,h:36,col:0xffd84f},
-      {type:"rect_filled",x:12,y:8,w:24,h:24,col:0xffef91},
-      {type:"rect_filled",x:14,y:14,w:6,h:6,col:0x182236},
-      {type:"rect_filled",x:28,y:14,w:6,h:6,col:0x182236},
-      {type:"rect_filled",x:16,y:28,w:16,h:4,col:0xa26f16}
-    ]),
-    rectAsset("target",24,24,[
-      {type:"rect_filled",x:10,y:0,w:4,h:24,col:0x71f6ff},
-      {type:"rect_filled",x:0,y:10,w:24,h:4,col:0x71f6ff},
-      {type:"rect_filled",x:6,y:6,w:12,h:12,col:0xffffff}
-    ]),
-    rectAsset("marker",40,40,[
-      {type:"rect_filled",x:0,y:0,w:40,h:8,col:0xffffff},
-      {type:"rect_filled",x:0,y:0,w:8,h:40,col:0xffffff},
-      {type:"rect_filled",x:32,y:0,w:8,h:40,col:0xffffff},
-      {type:"rect_filled",x:0,y:32,w:40,h:8,col:0xffffff}
-    ]),
-    rectAsset("logo",64,64,[
-      {type:"rect_filled",x:8,y:8,w:48,h:48,col:0x15233a},
-      {type:"rect_filled",x:12,y:12,w:40,h:40,col:0x56d4ff},
-      {type:"rect_filled",x:20,y:4,w:24,h:56,col:0xffdf5c},
-      {type:"rect_filled",x:4,y:20,w:56,h:24,col:0xffdf5c},
-      {type:"rect_filled",x:24,y:24,w:16,h:16,col:0xffffff}
-    ])
-  ];
+  GM.grout13.addPayload(ATLAS,CANVAS_STACK_ATLAS_PAYLOAD,{replace:true});
 
-  GM.grout13.addAtlas(ATLAS,assets,{
-    replace:true,
-    preset:"pixel",
-    compileOptions:{atlasOptions:{maxWidth:256,maxHeight:256}}
-  });
-
-  const font = compileFruitShotFont({compileFontAtlas});
-  GM.grout13.addFont(FONT,font,{replace:true});
+  GM.grout13.addFontPayload(FONT,PIXEL_FONT_PAYLOAD,PIXEL_FONT_GLYPHS,PIXEL_FONT_METRICS,{replace:true});
 
   proof.generatedChecker = GM.asset.frameExists(ATLAS,"checker");
   proof.generatedFont = Boolean(GM.grout13.getFont(FONT));
-}
-
-function createCanvasStack(definitions){
-  const planes = definitions
-    .map((plane,index)=>({...plane,index}))
-    .sort((a,b)=>(a.order??a.index)-(b.order??b.index));
-
-  return Object.freeze({
-    step(dt){
-      const pointer = GM.input.primaryPointer();
-      for(let index=planes.length-1;index>=0;index--){
-        const plane=planes[index];
-        if(plane.enabled && !plane.enabled()) continue;
-        if(plane.input && plane.input(pointer,dt)===true) break;
-      }
-      for(const plane of planes){
-        if(plane.enabled && !plane.enabled()) continue;
-        if(plane.step) plane.step(dt);
-      }
-    },
-    draw(){
-      for(const plane of planes){
-        if(plane.enabled && !plane.enabled()) continue;
-        if(plane.draw) plane.draw();
-      }
-    }
-  });
-}
-
-function createRoomCamera(config){
-  const camera = {
-    cx:config.roomWidth/2,
-    cy:config.roomHeight/2,
-    viewWidth:config.viewHeight,
-    viewHeight:config.viewHeight,
-    zoom:1,
-    display:{x:0,y:0,width:1,height:1},
-    visible:{left:0,top:0,right:config.viewHeight,bottom:config.viewHeight},
-
-    layout(screenWidth,screenHeight){
-      const safeW=Math.max(1,screenWidth);
-      const safeH=Math.max(1,screenHeight);
-      const screenAspect=safeW/safeH;
-      const viewAspect=GM.math.clamp(screenAspect,config.minAspect,config.maxAspect);
-
-      this.viewHeight=Math.min(config.viewHeight,config.roomHeight);
-      this.viewWidth=Math.min(this.viewHeight*viewAspect,config.roomWidth);
-
-      let width=safeW;
-      let height=width/viewAspect;
-      if(height>safeH){
-        height=safeH;
-        width=height*viewAspect;
-      }
-
-      this.display.x=(safeW-width)/2;
-      this.display.y=(safeH-height)/2;
-      this.display.width=width;
-      this.display.height=height;
-      this.zoom=Math.min(width/this.viewWidth,height/this.viewHeight);
-      this.clamp();
-      return this;
-    },
-
-    follow(x,y,dt){
-      const damping=GM.math.dampFactor(0.82,dt,60);
-      this.cx=x+(this.cx-x)*damping;
-      this.cy=y+(this.cy-y)*damping;
-      this.clamp();
-    },
-
-    clamp(){
-      const halfW=this.viewWidth/2;
-      const halfH=this.viewHeight/2;
-      this.cx=GM.math.clamp(this.cx,halfW,config.roomWidth-halfW);
-      this.cy=GM.math.clamp(this.cy,halfH,config.roomHeight-halfH);
-      this.visible.left=this.cx-halfW;
-      this.visible.top=this.cy-halfH;
-      this.visible.right=this.cx+halfW;
-      this.visible.bottom=this.cy+halfH;
-    },
-
-    worldToScreen(x,y,out={}){
-      out.x=this.display.x+(x-this.visible.left)*this.zoom;
-      out.y=this.display.y+(y-this.visible.top)*this.zoom;
-      return out;
-    },
-
-    screenToWorld(x,y,out={}){
-      out.x=this.visible.left+(x-this.display.x)/this.zoom;
-      out.y=this.visible.top+(y-this.display.y)/this.zoom;
-      return out;
-    },
-
-    containsScreen(x,y){
-      return x>=this.display.x&&
-        y>=this.display.y&&
-        x<=this.display.x+this.display.width&&
-        y<=this.display.y+this.display.height;
-    },
-
-    containsWorld(x,y,padding=0){
-      return x>=this.visible.left-padding&&
-        y>=this.visible.top-padding&&
-        x<=this.visible.right+padding&&
-        y<=this.visible.bottom+padding;
-    }
-  };
-  return camera;
 }
 
 function beginTransition(next){
@@ -360,15 +162,6 @@ function updatePlayer(dt){
   state.camera.follow(player.x,player.y,dt);
 }
 
-function screenRect(){
-  return {
-    x:0,
-    y:0,
-    width:GM.runtime.roomWidth,
-    height:GM.runtime.roomHeight
-  };
-}
-
 function drawUnderlay(){
   const D=GM.draw;
   const visible=GM.viewport.visibleRoomRect;
@@ -417,8 +210,8 @@ function drawWorldGrid(camera){
   const top=Math.ceil(camera.visible.top/grid)*grid;
 
   for(let x=left;x<=camera.visible.right;x+=grid){
-    camera.worldToScreen(x,camera.visible.top,pointA);
-    camera.worldToScreen(x,camera.visible.bottom,pointB);
+    camera.worldToScene(x,camera.visible.top,pointA);
+    camera.worldToScene(x,camera.visible.bottom,pointB);
     D.line(pointA.x,pointA.y,pointB.x,pointB.y,{
       color:COLORS.grid,
       alpha:0.44,
@@ -427,8 +220,8 @@ function drawWorldGrid(camera){
   }
 
   for(let y=top;y<=camera.visible.bottom;y+=grid){
-    camera.worldToScreen(camera.visible.left,y,pointA);
-    camera.worldToScreen(camera.visible.right,y,pointB);
+    camera.worldToScene(camera.visible.left,y,pointA);
+    camera.worldToScene(camera.visible.right,y,pointB);
     D.line(pointA.x,pointA.y,pointB.x,pointB.y,{
       color:COLORS.grid,
       alpha:0.44,
@@ -439,8 +232,8 @@ function drawWorldGrid(camera){
 
 function drawRoomEdge(camera){
   const D=GM.draw;
-  const left=camera.worldToScreen(0,0,{});
-  const right=camera.worldToScreen(ROOM.width,ROOM.height,{});
+  const left=camera.worldToScene(0,0,{});
+  const right=camera.worldToScene(ROOM.width,ROOM.height,{});
   const x1=Math.max(camera.display.x,left.x);
   const y1=Math.max(camera.display.y,left.y);
   const x2=Math.min(camera.display.x+camera.display.width,right.x);
@@ -480,7 +273,7 @@ function displayIntersects(camera,x,y,halfWidth,halfHeight){
 
 function drawMarker(camera,x,y,color){
   if(!camera.containsWorld(x,y,32)) return;
-  const p=camera.worldToScreen(x,y,{});
+  const p=camera.worldToScene(x,y,{});
   const half=20*camera.zoom;
   if(!displayIntersects(camera,p.x,p.y,half,half)) return;
   GM.draw.spriteExt(ATLAS,"marker",p.x,p.y,{
@@ -494,8 +287,6 @@ function drawMarker(camera,x,y,color){
 function drawGameWorld(){
   const D=GM.draw;
   const camera=state.camera;
-  const screen=screenRect();
-  camera.layout(screen.width,screen.height);
 
   D.layer("World");
   D.rect(
@@ -516,7 +307,7 @@ function drawGameWorld(){
   drawMarker(camera,ROOM.width/2,ROOM.height/2,"#5ef0ff");
 
   if(state.target.active&&camera.containsWorld(state.target.x,state.target.y,48)){
-    const target=camera.worldToScreen(state.target.x,state.target.y,{});
+    const target=camera.worldToScene(state.target.x,state.target.y,{});
     D.spriteExt(ATLAS,"target",target.x,target.y,{
       scale:camera.zoom,
       alpha:0.9
@@ -526,7 +317,7 @@ function drawGameWorld(){
   const alpha=GM.math.clamp(GM.runtime.simulationAlpha,0,1);
   const px=GM.math.lerp(state.player.px,state.player.x,alpha);
   const py=GM.math.lerp(state.player.py,state.player.y,alpha);
-  const player=camera.worldToScreen(px,py,{});
+  const player=camera.worldToScene(px,py,{});
   D.spriteExt(ATLAS,"player",player.x,player.y,{
     scale:camera.zoom,
     originX:0.5,
@@ -634,7 +425,7 @@ function drawWorldFrame(){
 
 function drawSplash(){
   const D=GM.draw;
-  const screen=screenRect();
+  const screen=GM.viewport.logicalRect;
   const cx=screen.width/2;
   const cy=screen.height/2;
 
@@ -654,7 +445,7 @@ function drawSplash(){
 
 function drawTitle(){
   const D=GM.draw;
-  const screen=screenRect();
+  const screen=GM.viewport.logicalRect;
   const cx=screen.width/2;
   const cy=screen.height/2;
 
@@ -686,7 +477,7 @@ function drawWorld(){
 function drawOverlay(){
   const D=GM.draw;
   const visible=GM.viewport.visibleRoomRect;
-  const screen=screenRect();
+  const screen=GM.viewport.logicalRect;
   const pad=24;
 
   D.layer("Overlay");
@@ -768,7 +559,7 @@ function overlayInput(pointer){
   }
 
   if(state.mode==="game"&&pointer.pressed){
-    const screen=screenRect();
+    const screen=GM.viewport.logicalRect;
     const pad=24;
     const pauseX=screen.width-pad-118;
     if(
@@ -788,15 +579,15 @@ function overlayInput(pointer){
 function worldInput(pointer){
   if(state.mode!=="game"||state.paused||!pointer||!pointer.pressed) return false;
   const camera=state.camera;
-  if(!camera.containsScreen(pointer.roomX,pointer.roomY)) return false;
-  camera.screenToWorld(pointer.roomX,pointer.roomY,state.target);
+  if(!camera.containsScene(pointer.roomX,pointer.roomY)) return false;
+  camera.sceneToWorld(pointer.roomX,pointer.roomY,state.target);
   state.target.x=GM.math.clamp(state.target.x,0,ROOM.width);
   state.target.y=GM.math.clamp(state.target.y,0,ROOM.height);
   state.target.active=true;
   return true;
 }
 
-const stack=createCanvasStack([
+const stack=GM.layer.compose([
   {
     name:"underlay",
     order:0,
@@ -855,20 +646,20 @@ function create(){
 
   installGeneratedAssets();
 
-  state.camera=createRoomCamera({
+  state.camera=GM.camera.createRoomView({
     roomWidth:ROOM.width,
     roomHeight:ROOM.height,
     viewHeight:ROOM.viewHeight,
     minAspect:ROOM.minAspect,
     maxAspect:ROOM.maxAspect
   });
-
-  statusBox.hidden=true;
+  state.camera.layout(GM.viewport.logicalRect);
   proof.complete=true;
 }
 
 GM.app.start({
   parent:"game",
+  host:"fullscreen",
   viewport:{
     mode:"adaptive",
     width:720,
@@ -906,15 +697,15 @@ GM.app.start({
   drawValidation:"report",
   layerAssertions:true,
   create,
+  input(){stack.input(GM.input.primaryPointer(),GM.runtime.deltaSec);},
   step(_gm,dt){stack.step(dt);},
   draw(){stack.draw();},
+  layout(_gm,viewport){if(state.camera) state.camera.layout(viewport.logicalRect);},
   onError(error){
     const text=error instanceof Error?(error.stack||error.message):String(error);
     proof.failed=true;
     proof.complete=false;
     proof.errors.push(text);
-    errorBox.hidden=false;
-    errorBox.textContent=text;
   }
 });
 </script>

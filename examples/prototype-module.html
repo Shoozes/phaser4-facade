@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>GM Phaser 4 Prototype</title>
-    <link rel="stylesheet" href="./native-app-shell.css">
 </head>
-<body data-gm-app-shell="locked">
-    <div class="gm-app-shell">
-        <div id="game" class="gm-app-surface gm-app-safe-area"></div>
-    </div>
+<body>
+    <div id="game"></div>
 
     <script type="module">
         import "../dist/gm-phaser4.module.js";
@@ -32,6 +32,7 @@
         };
 
         const game = GM.app.start({
+            host: "fullscreen",
             width: 720,
             height: 1280,
             bleed: 300,

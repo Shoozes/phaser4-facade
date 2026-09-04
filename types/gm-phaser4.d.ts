@@ -395,6 +395,8 @@ interface GMViewportFacade {
 
 interface GMStartConfig {
     parent?: string | object;
+    /** Opt-in host style ownership for an all-canvas fullscreen surface. */
+    host?: "fullscreen";
     width?: number;
     height?: number;
     /** Phaser renderer type: AUTO | CANVAS | WEBGL (string or Phaser constant). */
@@ -444,6 +446,10 @@ interface GMStartConfig {
     preload?: (gm: GMRuntime) => void;
     create?: (gm: GMRuntime) => void;
     step?: (gm: GMRuntime, deltaSeconds: number) => void;
+    /** Called once per rendered frame before fixed-step simulation. */
+    input?: (gm: GMRuntime) => void;
+    /** Called after initial layout and only when the public viewport changes. */
+    layout?: (gm: GMRuntime, viewport: GMViewportSnapshot, previousViewport?: GMViewportSnapshot) => void;
     draw?: (gm: GMRuntime) => void;
     ui?: (gm: GMRuntime) => void;
     gui?: (gm: GMRuntime) => void;
@@ -776,7 +782,56 @@ interface GMLayerFacade {
     define(name: string, depth: number): GMRuntime;
     define(layers: Record<string, number>): GMRuntime;
     stack(names: string[], options?: { start?: number; step?: number }): GMRuntime;
+    compose(definitions: GMLayerDefinition[]): GMLayerComposer;
     assertAbove(upper: string, lower: string): GMRuntime;
+}
+
+interface GMLayerDefinition {
+    name: string;
+    order?: number;
+    enabled?: boolean | (() => boolean);
+    input?: (pointer: GMPrimaryPointer | null, deltaSeconds: number) => boolean;
+    step?: (deltaSeconds: number) => void;
+    draw?: (...args: unknown[]) => void;
+    layout?: (...args: unknown[]) => void;
+    destroy?: () => void;
+}
+
+interface GMLayerComposer {
+    readonly planes: Array<{ name: string; order: number }>;
+    input(pointer: GMPrimaryPointer | null, deltaSeconds: number): boolean;
+    step(deltaSeconds: number): this;
+    draw(...args: unknown[]): this;
+    layout(...args: unknown[]): this;
+    destroy(): boolean;
+}
+
+interface GMRoomViewOptions {
+    roomWidth: number;
+    roomHeight: number;
+    viewHeight?: number;
+    minAspect?: number;
+    maxAspect?: number;
+    followDamping?: number;
+}
+
+interface GMRoomView {
+    readonly roomWidth: number;
+    readonly roomHeight: number;
+    viewWidth: number;
+    viewHeight: number;
+    zoom: number;
+    cx: number;
+    cy: number;
+    display: { x: number; y: number; width: number; height: number };
+    visible: { left: number; top: number; right: number; bottom: number };
+    layout(rect: { x?: number; y?: number; width: number; height: number }): this;
+    follow(x: number, y: number, deltaSeconds: number): this;
+    clamp(): this;
+    worldToScene(x: number, y: number, out?: { x?: number; y?: number }): { x: number; y: number };
+    sceneToWorld(x: number, y: number, out?: { x?: number; y?: number }): { x: number; y: number };
+    containsWorld(x: number, y: number, padding?: number): boolean;
+    containsScene(x: number, y: number, padding?: number): boolean;
 }
 
 interface GMAtlasRgbaSource {
@@ -929,6 +984,7 @@ interface GMFacade {
     input: GMInputFacade;
     entity: GMEntityFacade;
     layer: GMLayerFacade;
+    camera: { createRoomView(options: GMRoomViewOptions): GMRoomView };
     asset: GMAssetFacade;
     audio: GMAudioFacade;
     ui: GMUiFacade;

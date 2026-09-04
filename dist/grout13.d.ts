@@ -64,15 +64,17 @@ export interface Grout13AssetRecord {
     source: object;
     frames: Record<string, unknown>;
     hasFrame(frame: string | number): boolean;
+    dispose(): boolean;
 }
 
 export interface Grout13Module {
-    compileGrout13Atlas(assets: unknown[], options?: Record<string, unknown>): Grout13CompiledAtlas;
+    compileGrout13Atlas?(assets: unknown[], options?: Record<string, unknown>): Grout13CompiledAtlas;
     decodeGrout13Atlas(payload: unknown[], options?: Record<string, unknown>): Grout13DecodedAtlas;
     getGrout13PayloadBytes?(payload: unknown[]): number;
 }
 
 export interface Grout13Bridge {
+    readonly capabilities: { readonly decode: true; readonly compile: boolean; readonly payloadBytes: boolean; readonly fontPayload: true };
     compile(assets: unknown[], options?: Record<string, unknown> | Grout13BridgeOptions): Grout13CompiledAtlas;
     addPayload(key: string, payload: unknown[], options?: Grout13BridgeOptions): Grout13AssetRecord;
     addCompiled(key: string, compiled: Grout13CompiledAtlas, options?: Grout13BridgeOptions): Grout13AssetRecord;
@@ -85,13 +87,23 @@ export interface Grout13Bridge {
         metrics: { tracking?: number; lineHeight?: number; fallback?: string; fallbackFrame?: string };
         compiled?: Grout13CompiledAtlas;
         atlas?: { width: number; height: number; rgba?: ArrayLike<number>; frames?: unknown };
-    }, options?: { atlasKey?: string; replace?: boolean }): {
+    }, options?: { atlasKey?: string; replace?: boolean; decodeOptions?: Record<string, unknown>; compileOptions?: Record<string, unknown> }): {
         name: string;
         atlasKey: string;
         glyphs: Record<string, unknown>;
         metrics: Record<string, unknown>;
         compiled: Grout13CompiledAtlas | null;
         added: Grout13AssetRecord;
+        dispose(): boolean;
+    };
+    addFontPayload(name: string, payload: unknown[], glyphs: Record<string, unknown>, metrics: Record<string, unknown>, options?: { atlasKey?: string; replace?: boolean; decodeOptions?: Record<string, unknown> }): {
+        name: string;
+        atlasKey: string;
+        glyphs: Record<string, unknown>;
+        metrics: Record<string, unknown>;
+        compiled: null;
+        added: Grout13AssetRecord;
+        dispose(): boolean;
     };
     getFont(name: string): {
         name: string;
@@ -99,6 +111,8 @@ export interface Grout13Bridge {
         glyphs: Record<string, unknown>;
         metrics: Record<string, unknown>;
     } | null;
+    listFonts(): Array<{ name: string; atlasKey: string }>;
+    removeFont(name: string): boolean;
 }
 
 export function installGrout13Bridge(gm: object, grout13: Grout13Module): Grout13Bridge;

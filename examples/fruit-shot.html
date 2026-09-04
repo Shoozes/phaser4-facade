@@ -2,48 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#073b4c">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Fruit Shot - Core Phaser 4 Facade CDN</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css">
-    <style>
-        #status,
-        #proof-error {
-            position: fixed;
-            z-index: 10;
-            font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
-            pointer-events: none;
-        }
-
-        #status {
-            top: max(8px, env(safe-area-inset-top, 0px));
-            right: max(8px, env(safe-area-inset-right, 0px));
-            padding: 6px 8px;
-            color: #c9c9df;
-            background: rgba(8, 8, 20, 0.84);
-            border: 1px solid #31314d;
-            border-radius: 6px;
-            white-space: pre-wrap;
-        }
-
-        #proof-error {
-            inset: 0 0 auto;
-            max-height: 42vh;
-            overflow: auto;
-            margin: 0;
-            padding: 10px;
-            color: #ff9c9c;
-            background: #300;
-            white-space: pre-wrap;
-        }
-    </style>
 </head>
-<body data-gm-app-shell="locked">
-    <div id="status" class="gm-app-status" role="status">Fruit Shot core CDN booting...</div>
-    <pre id="proof-error" class="gm-app-error" role="alert" hidden></pre>
-    <div class="gm-app-shell">
-        <div id="game" class="gm-app-surface gm-app-safe-area gm-app-surface--pixel-art gm-app-surface--integer-pixel-art"></div>
-    </div>
+<body>
+    <div id="game"></div>
     <script>
         (function () {
             "use strict";
@@ -54,8 +20,6 @@
             const SCRIPT_TIMEOUT_MS = 12000;
             const renderType = new URLSearchParams(window.location.search).get("render") === "canvas" ? "CANVAS" : "WEBGL";
             const fileMode = window.location.protocol === "file:";
-            const statusBox = document.getElementById("status");
-            const errorBox = document.getElementById("proof-error");
             const reportedErrors = new Set();
             const proof = window.__fruitShotProof = {
                 architecture: "all-in-one-core",
@@ -125,15 +89,11 @@
                 proof.complete = false;
                 proof.phase = "failed";
                 proof.errors.push(text);
-                errorBox.hidden = false;
-                errorBox.textContent += (errorBox.textContent ? "\n\n" : "") + text;
-                statusBox.textContent = "Fruit Shot failed";
                 console.error(error);
             }
 
-            function setStatus(text) {
-                statusBox.hidden = false;
-                statusBox.textContent = text;
+            function setStatus(_text) {
+                // Status belongs to the canvas proof, not the DOM shell.
             }
 
             function loadScript(source) {
@@ -491,6 +451,7 @@
 
                 GM.app.start({
                     parent: "game",
+                    host: "fullscreen",
                     width: VIEW.width,
                     height: VIEW.height,
                     responsive: false,
@@ -527,8 +488,6 @@
                         proof.inputReady = Boolean(GM.input && typeof GM.input.pointerReleased === "function");
                         updatePixelPresentation();
                         proof.phase = "running";
-                        setStatus("Ready\nPhaser " + (window.Phaser.VERSION || "4.2.1") + "\nCore facade atlas");
-                        window.setTimeout(function () { if (!proof.failed) statusBox.hidden = true; }, 4000);
                     },
                     step: function (_gm, deltaSeconds) {
                         proof.frames += 1;

@@ -118,6 +118,9 @@ for (const relativePath of [
     "examples/fruit-shot-modular.html",
     "examples/fruit-shot-modular.js",
     "examples/fruit-shot-gameplay.js",
+    "examples/fruit-shot/font-payload.js",
+    "examples/fruit-shot/atlas-payload.js",
+    "examples/fruit-shot/canvas-stack-payload.js",
     "dist/gm-phaser4.module.js",
     "dist/gm-phaser4.install.module.js",
     "dist/gm-phaser4.global.js",
@@ -140,17 +143,38 @@ if (!Array.isArray(pkg.sideEffects) || pkg.sideEffects.includes("./dist/gm-phase
     fail("facade package should declare side effects explicitly while keeping the pure install entry tree-shakeable.");
 }
 
-for (const [relativePath, stylesheet] of [
-    ["examples/prototype-module.html", "./native-app-shell.css"],
-    ["examples/prototype-cdn.html", "./native-app-shell.css"],
-    ["examples/fruit-shot.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"],
-    ["examples/fruit-shot-grout13.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@06aba3eeadd027cb4854b6a34fde6ce454aa06a1/examples/native-app-shell.css"],
-    ["examples/fruit-shot-modular.html", "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css"]
+const canonicalHeadMarkers = [
+    'meta name="apple-mobile-web-app-capable" content="yes"',
+    'meta name="mobile-web-app-capable" content="yes"',
+    'meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"'
+];
+for (const relativePath of [
+    "examples/prototype-module.html",
+    "examples/prototype-cdn.html",
+    "examples/fruit-shot.html",
+    "examples/fruit-shot-grout13.html",
+    "examples/virtual-joystick.html",
+    "examples/phaser4-facade-grout13-canvas-stack-clipped.html"
 ]) {
     const source = fs.readFileSync(path.join(PACKAGE_ROOT, relativePath), "utf8");
-    if (!source.includes(`href=\"${stylesheet}\"`) || !source.includes('data-gm-app-shell="locked"')) {
-        fail(`${relativePath} must consume the shared locked native app shell.`);
+    for (const marker of canonicalHeadMarkers) {
+        if (!source.includes(marker)) fail(`${relativePath} is missing canonical mobile head marker: ${marker}`);
     }
+    if (/viewport-fit=|theme-color|native-app-shell|data-gm-app-shell|gm-app-surface/i.test(source)) {
+        fail(`${relativePath} must be a self-hosted fullscreen all-canvas example without the shared DOM shell.`);
+    }
+    if (!/host:\s*["']fullscreen["']/.test(source)) fail(`${relativePath} must opt into the reversible fullscreen host.`);
+}
+const modularHtml = fs.readFileSync(path.join(PACKAGE_ROOT, "examples/fruit-shot-modular.html"), "utf8");
+for (const marker of canonicalHeadMarkers) {
+    if (!modularHtml.includes(marker)) fail(`examples/fruit-shot-modular.html is missing canonical mobile head marker: ${marker}`);
+}
+if (/viewport-fit=|theme-color|native-app-shell|data-gm-app-shell|gm-app-surface/i.test(modularHtml)) {
+    fail("examples/fruit-shot-modular.html must be a self-hosted fullscreen all-canvas example without the shared DOM shell.");
+}
+const modularGameplay = fs.readFileSync(path.join(PACKAGE_ROOT, "examples/fruit-shot-gameplay.js"), "utf8");
+if (!/host:\s*["']fullscreen["']/.test(modularGameplay)) {
+    fail("examples/fruit-shot-gameplay.js must own the modular example fullscreen host.");
 }
 
 for (const artifact of [

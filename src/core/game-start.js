@@ -4,6 +4,7 @@ import { DEFAULTS } from "./constants.js";
 import { resolveRenderQuality } from "./game-config.js";
 import { toColor } from "./math.js";
 import { applyViewportToConfig } from "./viewport.js";
+import { createFullscreenHost } from "./fullscreen-host.js";
 
 /**
  * Resolve Phaser renderer type from config. Accepts Phaser constants or
@@ -53,7 +54,7 @@ function mergeConfig(config) {
     if (!Number.isFinite(Number(merged.maxRenderResolution)) || Number(merged.maxRenderResolution) <= 0) {
         throw new TypeError("GM.app.start requires a positive finite maxRenderResolution.");
     }
-    for (const callbackName of ["preload", "create", "step", "draw", "ui", "gui", "onCleanupError", "onError"]) {
+    for (const callbackName of ["preload", "create", "step", "input", "layout", "draw", "ui", "gui", "onCleanupError", "onError"]) {
         if (merged[callbackName] !== undefined && typeof merged[callbackName] !== "function") {
             throw new TypeError(`GM.app.start requires ${callbackName} to be a function when provided.`);
         }
@@ -78,6 +79,9 @@ function mergeConfig(config) {
     if (merged.maxCatchUpSteps !== undefined &&
         (!Number.isFinite(Number(merged.maxCatchUpSteps)) || Number(merged.maxCatchUpSteps) < 1)) {
         throw new TypeError("GM.app.start requires maxCatchUpSteps to be a finite number >= 1.");
+    }
+    if (merged.host !== undefined && merged.host !== "fullscreen") {
+        throw new TypeError('GM.app.start host must be "fullscreen" when provided.');
     }
     return merged;
 }
@@ -131,10 +135,11 @@ export function createGameStarter({ root, Phaser, makeScene, installGlobals }) {
 
         const cfg = mergeConfig(config);
         const globalsDisposer = cfg.globals ? installGlobals() : null;
+        const fullscreenHost = cfg.host === "fullscreen" ? createFullscreenHost(root, cfg.parent) : null;
         const renderQuality = resolveRenderQuality(cfg);
         const startSize = resolveStartSize(root, cfg.parent, cfg.width, cfg.height);
         try {
-            return new Phaser.Game({
+            const game = new Phaser.Game({
                 type: resolveGameType(Phaser, cfg.type),
                 parent: cfg.parent,
                 width: startSize.width,
@@ -150,7 +155,13 @@ export function createGameStarter({ root, Phaser, makeScene, installGlobals }) {
                 },
                 scene: makeScene(cfg)
             });
+            if (fullscreenHost) {
+                fullscreenHost.applyGame(game);
+                if (game.events && typeof game.events.once === "function") game.events.once("destroy", fullscreenHost.restore);
+            }
+            return game;
         } catch (error) {
+            if (fullscreenHost) fullscreenHost.restore();
             if (typeof globalsDisposer === "function") globalsDisposer();
             throw error;
         }

@@ -2,34 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#05050c">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Fruit Shot Merge - Compact Grout13 + Phaser4 Facade</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@06aba3eeadd027cb4854b6a34fde6ce454aa06a1/examples/native-app-shell.css">
-<style>
-:root{
-  --gm-app-safe-area-top:env(safe-area-inset-top,0px);
-  --gm-app-safe-area-right:env(safe-area-inset-right,0px);
-  --gm-app-safe-area-bottom:env(safe-area-inset-bottom,0px);
-  --gm-app-safe-area-left:env(safe-area-inset-left,0px)
-}
-*{box-sizing:border-box}
-html,body,#game{margin:0;width:100%;height:100%;overflow:hidden;background:#11131f}
-body{position:fixed;inset:0;touch-action:none;user-select:none;-webkit-user-select:none}
-#game,canvas{display:block;width:100%;height:100%}
-canvas{image-rendering:pixelated;touch-action:none}
-#status,#error{
-  position:fixed;z-index:10;right:max(12px,var(--gm-app-safe-area-right));
-  font:12px/1.4 ui-monospace,monospace;pointer-events:none
-}
-#status{top:max(12px,var(--gm-app-safe-area-top));color:#fff}
-#error{left:12px;bottom:max(12px,var(--gm-app-safe-area-bottom));padding:8px;background:#8e1830;color:#fff;white-space:pre-wrap}
-</style>
 </head>
-<body data-gm-app-shell="locked">
+<body>
 <div id="game"></div>
-<div id="status">Loading...</div>
-<pre id="error" hidden></pre>
 
 <script type="importmap">
 {
@@ -38,7 +18,8 @@ canvas{image-rendering:pixelated;touch-action:none}
     "phaser4-facade": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4.module.js",
     "phaser4-facade/grout13": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/dist/gm-phaser4-grout13.module.js",
     "grout13": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13.mjs",
-    "grout13/font": "https://cdn.jsdelivr.net/gh/Shoozes/grout13@dd41ded3a8bc1b11b3b733535688b03ef4984bce/dist/grout13-font.mjs",
+    "fruit-shot/font-payload": "./fruit-shot/font-payload.js",
+    "fruit-shot/atlas-payload": "./fruit-shot/atlas-payload.js",
     "fruit-shot/config": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/examples/fruit-shot/config.js",
     "fruit-shot/art": "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@2726c3aac753e8060eabbaf71e54420a7624a867/examples/fruit-shot/art.js"
   }
@@ -49,14 +30,13 @@ canvas{image-rendering:pixelated;touch-action:none}
 import { GM } from "phaser4-facade";
 import { installGrout13Bridge } from "phaser4-facade/grout13";
 import * as GROUT13 from "grout13";
-import { compileFontAtlas } from "grout13/font";
+import { PIXEL_FONT_PAYLOAD, PIXEL_FONT_GLYPHS, PIXEL_FONT_METRICS } from "fruit-shot/font-payload";
+import { FRUIT_SHOT_ATLAS_PAYLOAD } from "fruit-shot/atlas-payload";
 import { DEFAULT_FRUIT_SHOT as GAME } from "fruit-shot/config";
-import { compileFruitShotFont, fruitRadiusFromFrame } from "fruit-shot/art";
+import { fruitRadiusFromFrame } from "fruit-shot/art";
 
 installGrout13Bridge(GM, GROUT13);
 
-const status = document.querySelector("#status");
-const errorBox = document.querySelector("#error");
 const proof = globalThis.__fruitMergeProof = {
   complete:false, failed:false, fileMode:location.protocol === "file:", errors:[], viewport:"720x720", mouse:true, touch:true,
   atlasText:true, grout13:true, fixedSimulation:true
@@ -97,55 +77,9 @@ const fruitCount = () => {
   return n;
 };
 
-const PIXEL = 4;
-function rect(steps,x,y,w,h,col){ steps.push({type:"rect_filled",x,y,w,h,col}); }
-function disc(steps,cx,cy,r,col){
-  const x0=Math.floor(cx-r),x1=Math.ceil(cx+r),y0=Math.floor(cy-r),y1=Math.ceil(cy+r),rr=r*r;
-  for(let y=y0;y<=y1;y+=PIXEL){
-    let start=-1;
-    for(let x=x0;x<=x1+PIXEL;x+=PIXEL){
-      const inside=x<=x1&&((x-cx)**2+(y-cy)**2<=rr);
-      if(inside&&start<0) start=x;
-      if(!inside&&start>=0){rect(steps,start,y,x-start,PIXEL,col);start=-1;}
-    }
-  }
-}
-function fruitAsset([,size,body,shade,light], type){
-  const c=size/2,r=size*.42,s=[];
-  disc(s,c,c+3,r+4,0x251b38);
-  disc(s,c+3,c+6,r,shade);
-  disc(s,c-2,c,r-3,body);
-  disc(s,c-r*.28,c-r*.30,Math.max(6,r*.21),light);
-  rect(s,Math.floor(c-2),0,5,Math.max(8,size*.18|0),0x69432e);
-  rect(s,Math.floor(c+2),5,Math.max(8,size*.18|0),5,0x67dc75);
-  rect(s,Math.floor(c+5),9,Math.max(6,size*.13|0),4,0x2f9d55);
-  return {name:`fruit-${type}`,spec:{w:size,h:size,steps:s}};
-}
-function circleAsset(name,size,rings){
-  const s=[],c=size/2;
-  for(const [r,col,dx=0,dy=0] of rings) disc(s,c+dx,c+dy,r,col);
-  return {name,spec:{w:size,h:size,steps:s}};
-}
 function installAssets(){
-  const art = TIERS.map(fruitAsset);
-  const cue=circleAsset("cue",64,[[30,0x26243b],[27,0xf4fbff], [8,0xbfeeff,-9,-10]]);
-  rect(cue.spec.steps,15,42,34,4,0xc9d4e3);
-  art.push(
-    cue,
-    circleAsset("disc",32,[[15,0xffffff]]),
-    {name:"spark",spec:{w:24,h:24,steps:[
-      {type:"rect_filled",x:10,y:0,w:4,h:24,col:0xffffff},
-      {type:"rect_filled",x:0,y:10,w:24,h:4,col:0xffffff},
-      {type:"rect_filled",x:6,y:6,w:12,h:12,col:0xffffff}
-    ]}},
-    circleAsset("aim-dot",16,[[7,0x4b4d68],[4,0xffffff]])
-  );
-  GM.grout13.addAtlas(ATLAS, art, {
-    replace:true, preset:"pixel",
-    compileOptions:{atlasOptions:{maxWidth:512,maxHeight:512}}
-  });
-  const font = compileFruitShotFont({compileFontAtlas});
-  GM.grout13.addFont(FONT,font,{replace:true});
+  GM.grout13.addPayload(ATLAS, FRUIT_SHOT_ATLAS_PAYLOAD, { replace:true });
+  GM.grout13.addFontPayload(FONT,PIXEL_FONT_PAYLOAD,PIXEL_FONT_GLYPHS,PIXEL_FONT_METRICS,{replace:true});
 }
 
 function spawn(x,y,type=irand(0,2),r=null){
@@ -400,12 +334,12 @@ function create(){
   GM.layer.assertAbove("Aim","Launcher");
   installAssets();
   reset();
-  status.hidden=true;
   proof.complete=true;
 }
 
 GM.app.start({
   parent:"game",
+  host:"fullscreen",
   viewport:{
     mode:"fixed",width:GAME.viewport.width,height:GAME.viewport.height,
     fit:"contain",scaleStep:.25,fitArea:"viewport",safeArea:"vertical",
@@ -430,8 +364,6 @@ GM.app.start({
   onError(error){
     const text=error instanceof Error?(error.stack||error.message):String(error);
     proof.errors.push(text);
-    errorBox.hidden=false;
-    errorBox.textContent=text;
   }
 });
 </script>

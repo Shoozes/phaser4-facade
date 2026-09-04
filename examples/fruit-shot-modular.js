@@ -7,13 +7,9 @@ const renderType = new URLSearchParams(window.location.search).get("render") ===
     ? "CANVAS"
     : "WEBGL";
 const proof = window.__fruitShotModularProof;
-const status = document.getElementById("status");
-const errorBox = document.getElementById("proof-error");
 
 function setStatus(text) {
-    if (!status) return;
-    status.hidden = false;
-    status.textContent = text;
+    void text;
 }
 
 function failProof(error) {
@@ -22,11 +18,6 @@ function failProof(error) {
     proof.complete = false;
     proof.phase = "failed";
     proof.errors.push(message);
-    setStatus("Fruit Shot modular CDN failed");
-    if (errorBox) {
-        errorBox.hidden = false;
-        errorBox.textContent = message;
-    }
     console.error(error);
 }
 

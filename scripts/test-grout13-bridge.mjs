@@ -37,6 +37,7 @@ const grout13 = {
 const bridge = installGrout13Bridge(gm, grout13);
 assert.equal(installGrout13Bridge(gm, grout13), bridge, "same GM/GROUT13 install must be idempotent");
 assert.equal(gm.grout13, bridge);
+assert.deepEqual(bridge.capabilities, { decode: true, compile: true, payloadBytes: false, fontPayload: true });
 
 const result = bridge.addAtlas("fruit", [{ name: "apple" }], {
     compileOptions: { runtimeTarget: "canvas" },
@@ -61,6 +62,9 @@ const payloadResult = bridge.addPayload("fruit-payload", compiled.payload, {
 });
 assert.equal(payloadResult.asset.key, "fruit-payload");
 assert.deepEqual(calls[1][3], {});
+assert.throws(() => bridge.addPayload("fruit-payload", compiled.payload, { decodeOptions: { canvasFactory: () => source } }), /already exists/);
+assert.equal(payloadResult.dispose(), true);
+assert.equal(payloadResult.dispose(), false);
 
 const directCompiled = {
     payload: ["direct"],
@@ -97,6 +101,12 @@ const font = {
 const addedFont = bridge.addFont("pixel-3x5", font);
 assert.equal(addedFont.atlasKey, "grout13-font-pixel-3x5");
 assert.equal(bridge.getFont("pixel-3x5").atlasKey, "grout13-font-pixel-3x5");
+assert.throws(() => bridge.addFont("pixel-3x5", font), /already exists/);
+const payloadFont = bridge.addFontPayload("payload-font", compiled.payload, { P: { name: "P" } }, { lineHeight: 8 }, { decodeOptions: { canvasFactory: () => source } });
+assert.deepEqual(bridge.listFonts().map((item) => item.name), ["pixel-3x5", "payload-font"]);
+assert.equal(bridge.removeFont("payload-font"), true);
+assert.equal(bridge.removeFont("payload-font"), false);
+assert.equal(bridge.addFontPayload("pixel-3x5", compiled.payload, { P: { name: "P" } }, { lineHeight: 8 }, { replace: true, decodeOptions: { canvasFactory: () => source } }).name, "pixel-3x5");
 
 assert.throws(
     () => installGrout13Bridge(gm, { ...grout13 }),
@@ -132,5 +142,37 @@ const parityBridge = installGrout13Bridge({
 });
 assert.throws(() => parityBridge.addPayload("parity", compiled.payload), /missing frames/);
 assert.equal(parityCleanup, true, "frame parity failure should remove the registered texture");
+
+const decoderOnly = installGrout13Bridge({ asset: gm.asset }, {
+    decodeGrout13Atlas() { return decoded; }
+});
+assert.equal(decoderOnly.capabilities.compile, false);
+assert.equal(decoderOnly.addPayload("decoder-only", compiled.payload).frameCount, 1);
+assert.throws(() => decoderOnly.compile([]), /compiler capability is unavailable/);
+assert.throws(() => decoderOnly.addAtlas("compile-only", []), /compiler capability is unavailable/);
+
+const rollbackRegistered = new Map();
+const rollbackGm = {
+    asset: {
+        addAtlas(key, atlasSource, atlasFrames) {
+            if (atlasSource.fail) throw new Error("simulated replacement failure");
+            rollbackRegistered.set(key, new Set(Object.keys(atlasFrames)));
+            return { key };
+        },
+        frameExists(key, frame) { return rollbackRegistered.get(key)?.has(String(frame)) === true; },
+        remove(key) { rollbackRegistered.delete(key); return true; }
+    }
+};
+const rollbackSources = {
+    good: { width: 4, height: 2 },
+    bad: { width: 4, height: 2, fail: true }
+};
+const rollbackBridge = installGrout13Bridge(rollbackGm, {
+    decodeGrout13Atlas(payload) { return { canvas: rollbackSources[payload[0]], frames }; }
+});
+rollbackBridge.addPayload("rollback", ["good"]);
+assert.throws(() => rollbackBridge.addPayload("rollback", ["bad"], { replace: true }), /simulated replacement failure/);
+assert.throws(() => rollbackBridge.addPayload("rollback", ["good"]), /already exists/);
+assert.equal(rollbackRegistered.get("rollback").has("apple"), true);
 
 console.log("[ok] Grout13 bridge injection, isolation, registration, and rejection tests passed.");

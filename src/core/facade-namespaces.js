@@ -15,6 +15,8 @@ import { inferPointerKind, resolvePrimaryPointer } from "./input.js";
 import { assertFinite } from "./debug.js";
 import { createVirtualStick } from "./virtual-stick.js";
 import { createVirtualJoystick as createVirtualJoystickController } from "./virtual-joystick.js";
+import { createLayerComposer } from "./layer-composer.js";
+import { createRoomView } from "./room-view.js";
 import {
     drawAtlasText,
     drawAtlasTextFit,
@@ -373,6 +375,10 @@ export function installFacadeNamespaces(deps) {
             });
             return active().define_layer(depths);
         },
+        /** @param {any[]} definitions */
+        compose(definitions) {
+            return createLayerComposer(definitions);
+        },
         /**
          * @param {string} upper
          * @param {string} lower
@@ -559,6 +565,13 @@ export function installFacadeNamespaces(deps) {
         get library() { return root.Phaser || null; }
     };
 
+    const camera = {
+        /** @param {any} options */
+        createRoomView(options) {
+            return createRoomView(options);
+        }
+    };
+
     function currentViewport() {
         const activeRuntime = activeOrNull();
         return (activeRuntime && activeRuntime.state && activeRuntime.state.viewport)
@@ -641,6 +654,7 @@ export function installFacadeNamespaces(deps) {
     GM.input = input;
     GM.entity = entity;
     GM.layer = layer;
+    GM.camera = camera;
     GM.asset = asset;
     GM.audio = audio;
     GM.ui = ui;

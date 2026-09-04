@@ -60,7 +60,7 @@ import {
     stepRuntimeInstances
 } from "./core/entity.js";
 import { resolveRoomLayout } from "./core/layout.js";
-import { readSafeInsets } from "./core/viewport.js";
+import { copyViewportSnapshot, readSafeInsets } from "./core/viewport.js";
 import { createModal } from "./core/modal.js";
 import {
     beginRuntimePerfFrame,
@@ -766,7 +766,8 @@ export function installGMRuntime(root, Phaser) {
                 state.layout.profile = next.profile;
                 state.layout.orientation = next.orientation;
                 state.layout.scaleMode = next.scaleMode;
-                state.viewport = next.viewport;
+                const previousViewport = state.viewportInitialized ? copyViewportSnapshot(state.viewport) : undefined;
+                state.viewport = copyViewportSnapshot(next.viewport);
 
                 if (state.world) {
                     state.world.setPosition(state.layout.x * resolution, state.layout.y * resolution);
@@ -783,6 +784,17 @@ export function installGMRuntime(root, Phaser) {
 
                 scene.cameras.main.setViewport(0, 0, render.width || w, render.height || h);
                 for (const modal of state.modals) modal.layout();
+
+                const viewportChanged = !previousViewport || JSON.stringify(previousViewport) !== JSON.stringify(state.viewport);
+                state.viewportInitialized = true;
+                if (viewportChanged && typeof cfg.layout === "function") {
+                    try {
+                        cfg.layout(api, copyViewportSnapshot(state.viewport), previousViewport);
+                    } catch (error) {
+                        if (typeof cfg.onError === "function") cfg.onError(error, { phase: "layout", frame: state.frameId, time: state.currentTime });
+                        throw error;
+                    }
+                }
 
                 return api;
             },
@@ -1004,6 +1016,14 @@ export function installGMRuntime(root, Phaser) {
                         // keeps fixed-step catch-up from advancing fade state more
                         // than once for the same wall-clock timestamp.
                         updateVirtualJoysticks();
+                        if (typeof cfg.input === "function") {
+                            try {
+                                cfg.input(api);
+                            } catch (error) {
+                                if (typeof cfg.onError === "function") cfg.onError(error, { phase: "input", frame: state.frameId, time: state.currentTime });
+                                throw error;
+                            }
+                        }
                         const simulationHz = Number(cfg.simulationHz) || 0;
                         if (simulationHz > 0) {
                             const stepMs = 1000 / simulationHz;

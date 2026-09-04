@@ -74,15 +74,30 @@ never changes with the device. `viewport.scaleStep` (or the older
 mean continuous scaling. Read `GM.viewport` for room/screen rectangles and
 transforms instead of mutating `runtime.state.layout`.
 
+All-canvas consumers can set `host: "fullscreen"` to let the facade own the
+document, body, parent, and canvas sizing contract. The host snapshots every
+inline style it changes and restores those values on destroy; consumers that
+omit the option retain their existing DOM behavior. `input(gm)` runs once per
+rendered frame after control polling, before fixed simulation catch-up. An
+optional `layout(gm, viewport, previousViewport)` callback runs after the
+initial layout and only when the public viewport snapshot changes.
+
+`GM.layer.compose(definitions)` provides a small pure plane scheduler: input
+routes from the highest order down until consumed, while layout, step, and draw
+run from the lowest order up. `GM.camera.createRoomView(options)` provides a
+pure nested room view with bounded aspect, follow/clamp, and explicit
+`worldToScene` / `sceneToWorld` conversions.
+
 ## Optional Grout13 bridge
 
 The optional `phaser4-facade/grout13` entrypoint accepts an injected object
-with `compileGrout13Atlas()` and `decodeGrout13Atlas()` functions plus the
-`GM.asset.frameExists` contract. It supports `preset: "pixel"`, direct
-compiled RGBA atlas registration through `addCompiled`, normalized frame and
-payload metadata, and cleanup when Phaser frame parity fails. The core facade
-never imports Grout13, executes generated scripts, fetches data, or adds a
-model/network boundary.
+with required `decodeGrout13Atlas()` and optional `compileGrout13Atlas()`
+functions plus the `GM.asset.frameExists` contract. Payload-first consumers
+use `addPayload()` and `addFontPayload()` without a browser compiler; compiler
+methods remain available when authoring source assets. The bridge exposes
+frozen capability flags, transactional replacement, idempotent disposal, and
+`listFonts()` / `removeFont()`. The core facade never imports Grout13, executes
+generated scripts, fetches data, or adds a model/network boundary.
 
 ```js
 import { GM } from "phaser4-facade";
@@ -93,6 +108,8 @@ installGrout13Bridge(GM, GROUT13);
 GM.grout13.addAtlas("fruit-atlas", assets, {
     preset: "pixel"
 });
+
+GM.grout13.addFontPayload("pixel-3x5", FONT_PAYLOAD, GLYPHS, METRICS);
 ```
 
 Bridge artifacts are separate from the core files:
@@ -128,13 +145,12 @@ separate release decisions.
 - `examples/fruit-shot.html`: directly-openable all-in-one core-facade
   playable merge shooter without Grout13.
 - `examples/phaser4-facade-grout13-canvas-stack-clipped.html`: module-based
-  full-canvas stack proof with generated Grout13 assets, a clipped room
-  camera, and persistent underlay/world/frame/overlay planes.
+  full-canvas stack proof with payload-backed Grout13 assets, a room-view
+  frame-cover fallback, and persistent underlay/world/frame/overlay planes.
 - `examples/fruit-shot-modular.html`: HTTP-served import-map architecture
   split between a dependency launcher and `examples/fruit-shot-gameplay.js`.
 
-`examples/native-app-shell.css` is the responsive native-app page shell shared
-by the public examples. It handles safe areas, desktop/mobile dynamic viewport
-sizes, scroll locking, pixel-art canvas CSS, and the optional
-`gm-app-surface--integer-pixel-art` presentation marker without taking over
-Phaser's high-DPI backing-buffer configuration.
+`examples/native-app-shell.css` remains available for mixed DOM/canvas consumers
+that need safe-area overlays or deliberate scroll regions. The canonical
+all-canvas examples use `host: "fullscreen"` and contain no linked stylesheet
+or visible DOM UI outside the Phaser canvas.
