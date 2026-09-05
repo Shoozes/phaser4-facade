@@ -15,6 +15,7 @@ const PHASER_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phas
 const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
 const ARTIFACT_MANIFEST = readArtifactQualification(ROOT);
 const FACADE_COMMIT = ARTIFACT_MANIFEST.publicCommit;
+const FACADE_REVISIONS = new Set([FACADE_COMMIT, ...(ARTIFACT_MANIFEST.acceptedPins || [])]);
 const FACADE_PIN = `https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@${FACADE_COMMIT}/dist/`;
 const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.global.min.js";
 const GROUT_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@7546bfc198f16bc1c784e7c1af34de5e26550e86/dist/grout13.global.min.js";
@@ -42,7 +43,7 @@ async function installRoutes(page) {
     await page.route(/^https:\/\/cdn\.jsdelivr\.net\/gh\//, (route) => {
         const url = route.request().url();
         const facadeRevision = url.match(/\/Shoozes\/phaser4-facade@([^/]+)\//)?.[1] || null;
-        const facadeRevisionAllowed = facadeRevision === "main" || facadeRevision === FACADE_COMMIT;
+        const facadeRevisionAllowed = facadeRevision === "main" || FACADE_REVISIONS.has(facadeRevision);
         const fulfill = (filePath, contentType) => route.fulfill({ path: filePath, contentType, headers: HEADERS });
         if (url === CSS_CDN || /\/Shoozes\/phaser4-facade@[^/]+\/examples\/native-app-shell\.css$/.test(url)) {
             return fulfill(CSS_DIST, "text/css; charset=utf-8");

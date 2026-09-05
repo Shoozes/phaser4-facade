@@ -10,7 +10,9 @@ const CSS_CDN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/example
 const PHASER_GLOBAL_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
 const PHASER_MODULE_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js";
 const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
-const FACADE_COMMIT = readArtifactQualification(ROOT).publicCommit;
+const ARTIFACT_MANIFEST = readArtifactQualification(ROOT);
+const FACADE_COMMIT = ARTIFACT_MANIFEST.publicCommit;
+const FACADE_REVISIONS = new Set([FACADE_COMMIT, ...(ARTIFACT_MANIFEST.acceptedPins || [])]);
 const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/";
 const CORE_HTML = "examples/fruit-shot.html";
 const GROUT_HTML = "examples/fruit-shot-grout13.html";
@@ -29,7 +31,7 @@ function read(relativePath) {
 
 function checkFacadeRevisions(source, label) {
     for (const match of source.matchAll(/Shoozes\/phaser4-facade@([^/]+)\//g)) {
-        if (match[1] !== "main" && match[1] !== FACADE_COMMIT) {
+        if (match[1] !== "main" && !FACADE_REVISIONS.has(match[1])) {
             fail(`${label} uses an unqualified or stale facade revision: ${match[1]}`);
         }
     }
