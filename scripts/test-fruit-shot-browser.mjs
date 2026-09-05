@@ -191,20 +191,29 @@ async function playOneShot(page, testCase) {
             proof?.playable === true && proof.failed !== true &&
             (proof.inputReady === undefined || proof.inputReady === true));
     }, testCase.proofName, { timeout: 5000 });
+    await page.waitForTimeout(120);
     const box = await page.locator("canvas").boundingBox();
     if (!box) fail(testCase.name + " canvas has no bounding box.");
     const centerX = box.x + box.width * 0.5;
     if (testCase.kind === "grout13" || testCase.kind === "grout13-module") {
         await page.mouse.move(centerX, box.y + box.height * 0.87);
         await page.mouse.down();
-        await page.waitForTimeout(50);
+        await page.waitForFunction(() => {
+            const pointer = window.GM?.input?.primaryPointer?.();
+            return Boolean(pointer?.down);
+        }, null, { timeout: 3000 });
+        await page.waitForTimeout(80);
         await page.mouse.move(centerX, box.y + box.height * 0.33, { steps: 6 });
-        await page.waitForTimeout(50);
+        await page.waitForTimeout(80);
         await page.mouse.up();
     } else {
         await page.mouse.move(centerX, box.y + box.height * 0.84);
         await page.mouse.down();
-        await page.waitForTimeout(50);
+        await page.waitForFunction(() => {
+            const pointer = window.GM?.input?.primaryPointer?.();
+            return Boolean(pointer?.down);
+        }, null, { timeout: 3000 });
+        await page.waitForTimeout(80);
         await page.mouse.up();
     }
     try {
