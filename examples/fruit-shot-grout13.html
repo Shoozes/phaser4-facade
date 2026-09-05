@@ -35,11 +35,16 @@ import { FRUIT_SHOT_ATLAS_PAYLOAD } from "fruit-shot/atlas-payload";
 import { DEFAULT_FRUIT_SHOT as GAME } from "fruit-shot/config";
 import { fruitRadiusFromFrame } from "fruit-shot/art";
 
+const renderType = new URLSearchParams(window.location.search).get("render") === "canvas"
+  ? "CANVAS"
+  : "WEBGL";
 installGrout13Bridge(GM, GROUT13);
 
 const proof = globalThis.__fruitMergeProof = {
   complete:false, failed:false, fileMode:location.protocol === "file:", errors:[], viewport:"720x720", mouse:true, touch:true,
-  atlasText:true, grout13:true, fixedSimulation:true
+  atlasText:true, grout13:true, fixedSimulation:true, render:renderType, playable:false,
+  shotsFired:0, restarts:0, state:"booting", rendererType:null,
+  forceGameOver:null
 };
 
 const ATLAS = "fruit-merge";
@@ -63,7 +68,7 @@ const R = { maxFruit:24, spawnEvery:4.4, dangerCount:4, dangerHold:2.2 };
 const state = {
   balls:[], particles:[], score:0, combo:1, comboAge:0,
   cue:null, cueAge:0, spawnAge:0, dangerAge:0,
-  canShoot:true, gameOver:false, id:0,
+  canShoot:true, gameOver:false, id:0, shotsFired:0, restarts:0,
   aim:{active:false,id:null,x:GAME.viewport.width/2,y:GAME.cueY}
 };
 
@@ -103,14 +108,17 @@ function seed(){
   spawn(360-r*.55,GAME.floorY-r-8,0,r);
   spawn(360+r*.55,GAME.floorY-r-8,0,r);
 }
-function reset(){
+function reset(countRestart=false){
   state.balls.length=state.particles.length=0;
   Object.assign(state,{
     score:0,combo:1,comboAge:0,cue:null,cueAge:0,spawnAge:0,dangerAge:0,
     canShoot:true,gameOver:false
   });
+  if(countRestart) state.restarts+=1;
   state.aim.active=false;
   seed();
+  proof.restarts=state.restarts;
+  proof.state="running";
 }
 
 function move(b,dt){
@@ -182,11 +190,13 @@ function shoot(x,y){
   const cue=spawn(360,GAME.cueY,-1,GAME.launcher.cueRadius);
   cue.vx=n.x*power; cue.vy=n.y*power; cue.age=0;
   state.cue=cue; state.cueAge=0; state.canShoot=false;
+  state.shotsFired+=1;
+  proof.shotsFired=state.shotsFired;
 }
 function input(){
   const p=GM.input.primaryPointer();
   if(state.gameOver){
-    if(p?.released||GM.input.keyPressed(GM.key.SPACE)) reset();
+    if(p?.released || GM.input.keyPressed(GM.key.SPACE) || GM.input.keyPressed(GM.key.ENTER)) reset(true);
     return;
   }
   if(state.canShoot && p?.pressed && !state.aim.active){
@@ -334,6 +344,9 @@ function create(){
   GM.layer.assertAbove("Aim","Launcher");
   installAssets();
   reset();
+  proof.playable=true;
+  proof.rendererType=GM.phaser.game?.renderer?.type ?? null;
+  proof.forceGameOver=()=>{ state.gameOver=true; state.canShoot=false; proof.state="game-over"; };
   proof.complete=true;
 }
 
@@ -351,7 +364,7 @@ GM.app.start({
   simulationHz:60,maxFrameDeltaMs:100,maxCatchUpSteps:5,randomSeed:1337,
   renderQuality:"pixel-art",pixelArt:true,antialias:false,roundPixels:true,
   renderResolution:"auto",maxRenderResolution:3,
-  stage:false,curtain:false,globals:false,drawValidation:"report",layerAssertions:true,
+  stage:false,curtain:false,globals:false,drawValidation:"report",layerAssertions:true,type:renderType,
   background:"#11131f",
   create,step:(_gm,dt)=>step(dt),draw:drawFrame,
   ui(){

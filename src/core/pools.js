@@ -12,6 +12,24 @@
 import { countRuntimePerf } from "./perf-metrics.js";
 
 /**
+ * Phaser keeps texture objects stable until a key is removed. Comparing the
+ * current object lets a pool notice same-key replacement without adding a
+ * public asset revision API or rebinding every sprite on every draw.
+ * @param {any} scene
+ * @param {string} key
+ * @returns {{ known: boolean, value: any }}
+ */
+function readTextureIdentity(scene, key) {
+    const textures = scene?.textures;
+    if (!textures || typeof textures.get !== "function") return { known: false, value: null };
+    try {
+        return { known: true, value: textures.get(key) };
+    } catch {
+        return { known: false, value: null };
+    }
+}
+
+/**
  * Reset every mutable presentation field that a text draw can touch. Phaser
  * Draw reconciliation owns text style changes through its signature cache, so
  * resetting style here would force a style write on every pooled draw.
@@ -93,6 +111,7 @@ export function makeSpritePool(scene, parent, state = null) {
          */
         take(key, frame) {
             const normalizedFrame = frame === undefined ? null : frame;
+            const textureIdentity = readTextureIdentity(scene, key);
             let item = this.items[this.cursor];
             if (!item) {
                 item = scene.add.sprite(0, 0, key, normalizedFrame);
@@ -100,10 +119,19 @@ export function makeSpritePool(scene, parent, state = null) {
                 this.items.push(item);
                 item.__gmRuntimeTextureKey = key;
                 item.__gmRuntimeFrame = normalizedFrame;
+                item.__gmRuntimeTextureIdentity = textureIdentity.value;
             } else if (item.__gmRuntimeTextureKey !== key || item.__gmRuntimeFrame !== normalizedFrame) {
                 item.setTexture(key, normalizedFrame);
                 item.__gmRuntimeTextureKey = key;
                 item.__gmRuntimeFrame = normalizedFrame;
+                item.__gmRuntimeTextureIdentity = textureIdentity.value;
+            } else if (
+                textureIdentity.known &&
+                textureIdentity.value &&
+                item.__gmRuntimeTextureIdentity !== textureIdentity.value
+            ) {
+                item.setTexture(key, normalizedFrame);
+                item.__gmRuntimeTextureIdentity = textureIdentity.value;
             }
             // Fully reset mutable Phaser sprite state for pool reuse safety.
             if (typeof item.setOrigin === "function") item.setOrigin(0.5, 0.5);

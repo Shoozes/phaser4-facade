@@ -506,6 +506,8 @@ async function runCell(browser, baseUrl, cell) {
             "virtualStickVector",
             "virtualStickSingleOwner",
             "virtualStickCancelSafe",
+            "modalJoystickCycles",
+            "modalZeroDuration",
             "primaryFrames",
             "pointerObserved",
             "keyboardObserved",

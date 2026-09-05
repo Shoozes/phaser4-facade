@@ -134,11 +134,13 @@ export function createGameStarter({ root, Phaser, makeScene, installGlobals }) {
         }
 
         const cfg = mergeConfig(config);
-        const globalsDisposer = cfg.globals ? installGlobals() : null;
-        const fullscreenHost = cfg.host === "fullscreen" ? createFullscreenHost(root, cfg.parent) : null;
-        const renderQuality = resolveRenderQuality(cfg);
-        const startSize = resolveStartSize(root, cfg.parent, cfg.width, cfg.height);
+        let globalsDisposer = null;
+        let fullscreenHost = null;
         try {
+            globalsDisposer = cfg.globals ? installGlobals() : null;
+            fullscreenHost = cfg.host === "fullscreen" ? createFullscreenHost(root, cfg.parent) : null;
+            const renderQuality = resolveRenderQuality(cfg);
+            const startSize = resolveStartSize(root, cfg.parent, cfg.width, cfg.height);
             const game = new Phaser.Game({
                 type: resolveGameType(Phaser, cfg.type),
                 parent: cfg.parent,

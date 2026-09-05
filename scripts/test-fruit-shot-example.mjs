@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readArtifactQualification } from "./facade-artifact-qualification.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CSS_CDN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css";
 const PHASER_GLOBAL_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
 const PHASER_MODULE_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js";
 const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
-const FACADE_COMMIT = "8829c319997905b22491c10e992e5c7a54a2b7a9";
+const FACADE_COMMIT = readArtifactQualification(ROOT).publicCommit;
 const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/";
 const CORE_HTML = "examples/fruit-shot.html";
 const GROUT_HTML = "examples/fruit-shot-grout13.html";
@@ -209,6 +210,10 @@ function checkGrout13Showcase() {
             "GM.layer.stack",
             "D.atlasText",
             "GM.input.primaryPointer",
+            "const renderType",
+            "type:renderType",
+            "forceGameOver",
+            "rendererType",
             "GAME.floorY",
             "__fruitMergeProof"
         ]) {

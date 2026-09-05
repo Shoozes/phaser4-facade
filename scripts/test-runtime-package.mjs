@@ -115,6 +115,7 @@ for (const relativePath of [
     "examples/fruit-shot-grout13.html",
     "examples/virtual-joystick.html",
     "examples/phaser4-facade-grout13-canvas-stack-clipped.html",
+    "examples/grout-vault-all-in-one.html",
     "examples/fruit-shot-modular.html",
     "examples/fruit-shot-modular.js",
     "examples/fruit-shot-gameplay.js",
@@ -154,7 +155,8 @@ for (const relativePath of [
     "examples/fruit-shot.html",
     "examples/fruit-shot-grout13.html",
     "examples/virtual-joystick.html",
-    "examples/phaser4-facade-grout13-canvas-stack-clipped.html"
+    "examples/phaser4-facade-grout13-canvas-stack-clipped.html",
+    "examples/grout-vault-all-in-one.html"
 ]) {
     const source = fs.readFileSync(path.join(PACKAGE_ROOT, relativePath), "utf8");
     for (const marker of canonicalHeadMarkers) {

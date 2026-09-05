@@ -2396,6 +2396,15 @@ ${details}`);
   }
 
   // phaser4-facade-runtime:src/core/pools.js
+  function readTextureIdentity(scene, key) {
+    const textures = scene?.textures;
+    if (!textures || typeof textures.get !== "function") return { known: false, value: null };
+    try {
+      return { known: true, value: textures.get(key) };
+    } catch {
+      return { known: false, value: null };
+    }
+  }
   function resetRuntimeTextItem(item) {
     if (typeof item.setPosition === "function") item.setPosition(0, 0);
     if (typeof item.setOrigin === "function") item.setOrigin(0, 0);
@@ -2457,6 +2466,7 @@ ${details}`);
        */
       take(key, frame) {
         const normalizedFrame = frame === void 0 ? null : frame;
+        const textureIdentity = readTextureIdentity(scene, key);
         let item = this.items[this.cursor];
         if (!item) {
           item = scene.add.sprite(0, 0, key, normalizedFrame);
@@ -2464,10 +2474,15 @@ ${details}`);
           this.items.push(item);
           item.__gmRuntimeTextureKey = key;
           item.__gmRuntimeFrame = normalizedFrame;
+          item.__gmRuntimeTextureIdentity = textureIdentity.value;
         } else if (item.__gmRuntimeTextureKey !== key || item.__gmRuntimeFrame !== normalizedFrame) {
           item.setTexture(key, normalizedFrame);
           item.__gmRuntimeTextureKey = key;
           item.__gmRuntimeFrame = normalizedFrame;
+          item.__gmRuntimeTextureIdentity = textureIdentity.value;
+        } else if (textureIdentity.known && textureIdentity.value && item.__gmRuntimeTextureIdentity !== textureIdentity.value) {
+          item.setTexture(key, normalizedFrame);
+          item.__gmRuntimeTextureIdentity = textureIdentity.value;
         }
         if (typeof item.setOrigin === "function") item.setOrigin(0.5, 0.5);
         if (typeof item.setFlip === "function") item.setFlip(false, false);
@@ -4927,10 +4942,8 @@ ${details}`);
     "minHeight",
     "maxWidth",
     "maxHeight",
-    "overflow",
     "overflowX",
     "overflowY",
-    "overscrollBehavior",
     "overscrollBehaviorX",
     "overscrollBehaviorY"
   ];
@@ -4971,11 +4984,14 @@ ${details}`);
       }
       for (const property of properties) {
         if (!records.has(property)) records.set(property, readStyle(element, property));
+      }
+      for (const property of properties) {
         writeStyle(element, property, values[property] ?? "");
       }
     }
     const documentLike = root?.document;
     if (documentLike) {
+      const parent = resolveParent(root, configuredParent);
       apply(documentLike.documentElement, DOCUMENT_STYLE_PROPERTIES, {
         marginTop: "0",
         marginRight: "0",
@@ -4989,10 +5005,8 @@ ${details}`);
         height: "100%",
         minWidth: "100%",
         minHeight: "100%",
-        overflow: "hidden",
         overflowX: "hidden",
         overflowY: "hidden",
-        overscrollBehavior: "none",
         overscrollBehaviorX: "none",
         overscrollBehaviorY: "none"
       });
@@ -5009,10 +5023,8 @@ ${details}`);
         height: "100%",
         minWidth: "100%",
         minHeight: "100%",
-        overflow: "hidden",
         overflowX: "hidden",
         overflowY: "hidden",
-        overscrollBehavior: "none",
         overscrollBehaviorX: "none",
         overscrollBehaviorY: "none",
         position: "fixed",
@@ -5022,7 +5034,7 @@ ${details}`);
         left: "0",
         touchAction: "none"
       });
-      apply(resolveParent(root, configuredParent), PARENT_STYLE_PROPERTIES, {
+      apply(parent, PARENT_STYLE_PROPERTIES, {
         marginTop: "0",
         marginRight: "0",
         marginBottom: "0",
@@ -5037,10 +5049,8 @@ ${details}`);
         minHeight: "0",
         maxWidth: "100vw",
         maxHeight: "100vh",
-        overflow: "hidden",
         overflowX: "hidden",
         overflowY: "hidden",
-        overscrollBehavior: "none",
         overscrollBehaviorX: "none",
         overscrollBehaviorY: "none",
         position: "fixed",
@@ -5071,10 +5081,8 @@ ${details}`);
           minHeight: "0",
           maxWidth: "100vw",
           maxHeight: "100vh",
-          overflow: "hidden",
           overflowX: "hidden",
           overflowY: "hidden",
-          overscrollBehavior: "none",
           overscrollBehaviorX: "none",
           overscrollBehaviorY: "none",
           position: "fixed",
@@ -5213,11 +5221,13 @@ ${details}`);
         throw new Error("Phaser must be loaded before gm-phaser4.js starts a game.");
       }
       const cfg = mergeConfig(config);
-      const globalsDisposer = cfg.globals ? installGlobals() : null;
-      const fullscreenHost = cfg.host === "fullscreen" ? createFullscreenHost(root, cfg.parent) : null;
-      const renderQuality = resolveRenderQuality(cfg);
-      const startSize = resolveStartSize(root, cfg.parent, cfg.width, cfg.height);
+      let globalsDisposer = null;
+      let fullscreenHost = null;
       try {
+        globalsDisposer = cfg.globals ? installGlobals() : null;
+        fullscreenHost = cfg.host === "fullscreen" ? createFullscreenHost(root, cfg.parent) : null;
+        const renderQuality = resolveRenderQuality(cfg);
+        const startSize = resolveStartSize(root, cfg.parent, cfg.width, cfg.height);
         const game = new Phaser.Game({
           type: resolveGameType(Phaser, cfg.type),
           parent: cfg.parent,

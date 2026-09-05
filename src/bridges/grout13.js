@@ -1,5 +1,8 @@
 // @ts-check
 
+import { addRuntimeCleanup } from "../core/cleanup.js";
+import { addAtlasTexture, removeTexture, textureFrameExists } from "../core/assets.js";
+
 const BRIDGE_MARKER = Symbol.for("phaser4-facade.grout13.bridge");
 const PIXEL_PRESET = Object.freeze({
     strict: true,
@@ -187,55 +190,124 @@ function compiledSource(compiled) {
 }
 
 function createBridge(gm, grout13) {
-    const asset = requireObject(gm.asset, "GM.asset");
-    const addAtlas = requireFunction(asset.addAtlas, "GM.asset.addAtlas");
-    const frameExists = requireFunction(asset.frameExists, "GM.asset.frameExists");
     const compile = typeof grout13.compileGrout13Atlas === "function" ? grout13.compileGrout13Atlas : null;
     const decode = requireFunction(grout13.decodeGrout13Atlas, "GROUT13.decodeGrout13Atlas");
     /** @type {Map<string, any>} */
     const registrations = new Map();
+    /** @type {WeakSet<object>} */
+    const hookedOwners = new WeakSet();
+
+    function resolveAssetContext() {
+        const owner = gm._active;
+        if (!owner || owner.state?.cleanedUp) {
+            throw new Error("GM.grout13 requires an active GM runtime.");
+        }
+        const scene = owner.scene;
+        const textures = scene?.textures;
+        if (!scene || !textures) {
+            throw new Error("GM.grout13 requires an active runtime with a Phaser texture manager.");
+        }
+        if (typeof textures.exists !== "function" || typeof textures.get !== "function") {
+            throw new Error("GM.grout13 requires a compatible Phaser texture manager.");
+        }
+        return {
+            owner,
+            scene,
+            textureManager: textures,
+            addAtlas(key, source, frames, options) {
+                return addAtlasTexture(scene, key, source, frames, options);
+            },
+            frameExists(key, frame) {
+                return textureFrameExists(scene, key, frame);
+            },
+            remove(key) {
+                return removeTexture(scene, key);
+            }
+        };
+    }
+
+    function isLive(record) {
+        if (!record || record.invalidated || record.owner !== gm._active || record.owner.state?.cleanedUp) return false;
+        if (record.textureManager !== record.owner.scene?.textures) return false;
+        try {
+            return record.textureManager.get(record.key) === record.texture;
+        } catch {
+            return false;
+        }
+    }
+
+    function invalidateRecord(record) {
+        if (!record) return;
+        record.invalidated = true;
+        if (registrations.get(record.key) === record) registrations.delete(record.key);
+    }
+
+    function ensureOwnerCleanup(owner) {
+        if (hookedOwners.has(owner)) return;
+        hookedOwners.add(owner);
+        addRuntimeCleanup(owner.state, () => {
+            for (const record of registrations.values()) {
+                if (record.owner === owner) invalidateRecord(record);
+            }
+            for (const font of fonts.values()) {
+                if (font.owner === owner) {
+                    font.invalidated = true;
+                    if (fonts.get(font.name) === font) fonts.delete(font.name);
+                }
+            }
+        });
+    }
 
     function register(key, source, frames, options = {}, metadata = {}) {
         const normalizedKey = requireKey(key);
+        const context = resolveAssetContext();
         const frameNames = frameMapNames(frames);
-        const previous = registrations.get(normalizedKey) || null;
+        let previous = registrations.get(normalizedKey) || null;
+        if (previous && !isLive(previous)) {
+            invalidateRecord(previous);
+            previous = null;
+        }
         if (previous && options.replace !== true) throw new Error(`Grout13 atlas ${normalizedKey} already exists; pass replace: true to replace it.`);
         let assetRecord;
         let registered = false;
-        let previousRemoved = false;
         try {
-            if (previous && options.replace === true && typeof asset.remove === "function") {
-                const removed = asset.remove(normalizedKey);
-                if (removed === false) throw new Error(`Grout13 atlas ${normalizedKey} could not remove its previous registration.`);
-                previousRemoved = true;
-            }
-            assetRecord = addAtlas(normalizedKey, source, frames, assetOptions(options));
+            assetRecord = context.addAtlas(normalizedKey, source, frames, assetOptions(options));
             registered = true;
-            const missing = frameNames.filter((name) => !frameExists(normalizedKey, name));
+            const missing = frameNames.filter((name) => !context.frameExists(normalizedKey, name));
             if (missing.length > 0) {
                 throw new Error(`Grout13 atlas registration is missing frames: ${missing.join(", ")}`);
             }
         } catch (error) {
-            if (registered && typeof asset.remove === "function") {
-                try { asset.remove(normalizedKey); } catch { /* preserve the registration error */ }
+            if (registered) {
+                try { context.remove(normalizedKey); } catch { /* preserve the registration error */ }
             }
-            if (previous && previousRemoved) {
+            if (previous) {
                 try {
-                    asset.addAtlas(normalizedKey, previous.source, previous.frames, previous.assetOptions);
+                    const restored = context.addAtlas(normalizedKey, previous.source, previous.frames, {
+                        ...previous.assetOptions,
+                        replace: true
+                    });
+                    if (!restored || !context.frameExists(normalizedKey, previous.frameNames[0])) {
+                        throw new Error("restored atlas failed frame validation");
+                    }
+                    previous.texture = restored.texture;
+                    previous.asset = restored;
+                    previous.textureManager = context.textureManager;
                     registrations.set(normalizedKey, previous);
-                } catch { registrations.delete(normalizedKey); }
-            } else if (previous) {
-                // The asset layer rejected the replacement before removing the
-                // old texture. Leave its registry entry intact; retrying an
-                // addAtlas call here would collide with the still-live key.
-                registrations.set(normalizedKey, previous);
+                } catch {
+                    invalidateRecord(previous);
+                }
             }
             throw error;
         }
         const frameMap = frames instanceof Map ? Object.fromEntries(frames.entries()) : frames;
-        const hasFrame = (frame) => frameExists(normalizedKey, frame);
         const record = {
             key: normalizedKey,
+            owner: context.owner,
+            scene: context.scene,
+            textureManager: context.textureManager,
+            texture: assetRecord?.texture,
+            invalidated: false,
             width: Number(metadata.width ?? source.width) || 0,
             height: Number(metadata.height ?? source.height) || 0,
             frameNames,
@@ -245,17 +317,23 @@ function createBridge(gm, grout13) {
             payloadBytes: metadata.payload === undefined ? 0 : payloadBytes(metadata.payload, metadata.compiled, grout13),
             runtimeContract: metadata.compiled?.runtimeContract,
             asset: assetRecord,
-            hasFrame,
+            hasFrame: (frame) => isLive(record) && context.frameExists(normalizedKey, frame),
             decoded: metadata.decoded,
             source,
             frames: frameMap,
             assetOptions: assetOptions(options),
             dispose() {
                 if (registrations.get(normalizedKey) !== record) return false;
+                if (!isLive(record)) {
+                    invalidateRecord(record);
+                    return false;
+                }
                 registrations.delete(normalizedKey);
-                return typeof asset.remove === "function" ? asset.remove(normalizedKey) : false;
+                record.invalidated = true;
+                return context.remove(normalizedKey);
             }
         };
+        ensureOwnerCleanup(context.owner);
         registrations.set(normalizedKey, record);
         return record;
     }

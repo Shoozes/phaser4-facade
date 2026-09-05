@@ -53,6 +53,10 @@ export async function runQualification(options) {
             dynamicVector: { x: 0, y: 0 },
             activePointers: []
         },
+        modal: {
+            cycles: [],
+            zeroDuration: null
+        },
         layout: {
             responsive,
             probes: [],
@@ -92,10 +96,11 @@ export async function runQualification(options) {
             pageX: touch.clientX + window.scrollX,
             pageY: touch.clientY + window.scrollY
         }));
+        const activeTouches = /touch(?:end|cancel)$/u.test(type) ? [] : touches;
         Object.defineProperties(event, {
             changedTouches: { configurable: true, value: touches },
-            targetTouches: { configurable: true, value: touches },
-            touches: { configurable: true, value: touches }
+            targetTouches: { configurable: true, value: activeTouches },
+            touches: { configurable: true, value: activeTouches }
         });
         canvas.dispatchEvent(event);
     }
@@ -695,21 +700,75 @@ export async function runQualification(options) {
     await delay(50);
     recordCheck("virtualJoystickRelease", !report.joystick.fixedActive && !report.joystick.dynamicActive, JSON.stringify(report.joystick));
 
-    const qualificationModal = GM.ui.notice("Input lifecycle", "The modal must release joystick ownership before input can resume.", {
+    function pointerSnapshot() {
+        return {
+            modalCount: GM.runtime.state.modals.length,
+            transitions: GM.runtime.state.inputGate.transitions,
+            pausedUntil: GM.runtime.state.inputGate.pausedUntil,
+            blockerEnabled: Boolean(GM.runtime.state.inputBlocker?.input?.enabled),
+            requested: {
+                fixed: joystickControllers.movement?.enabled,
+                dynamic: joystickControllers.aim?.enabled
+            },
+            effective: {
+                fixed: report.joystick.fixedActive,
+                dynamic: report.joystick.dynamicActive
+            },
+            owners: (GM.input.activePointers?.() || []).map((pointer) => ({ id: pointer.id, owner: pointer.owner, down: pointer.down }))
+        };
+    }
+
+    function dispatchTouchPoint(type, identifier, x, y) {
+        dispatchSyntheticTouch(canvas, type, [{ identifier, clientX: x, clientY: y }]);
+    }
+
+    async function completeModalCycle(cycle) {
+        await waitFor(() => GM.runtime.state.inputGate.transitions === 0 && GM.runtime.currentTime >= GM.runtime.state.inputGate.pausedUntil && !GM.runtime.state.inputBlocker?.input?.enabled, 2000, `input gate ready before modal cycle ${cycle}`);
+        const joystickPointerId = 2;
+        const modalPointerId = 3;
+        dispatchTouchPoint("touchstart", joystickPointerId, cx, cy);
+        await waitFor(() => report.joystick.fixedActive, 2000, `fresh joystick acquisition before modal cycle ${cycle}`);
+        const qualificationModal = GM.ui.notice("Input lifecycle", "The modal must release joystick ownership before input can resume.", {
+            closeOnBackdrop: false,
+            showClose: false
+        });
+        await waitFor(() => GM.runtime.state.modals.length === 1 && qualificationModal.ready && !report.joystick.fixedActive && !report.joystick.dynamicActive, 4000, `modal ready and joystick release ${cycle}`);
+        const beforeClose = pointerSnapshot();
+        const okX = (qualificationModal.okRect.x1 + qualificationModal.okRect.x2) / 2;
+        const okY = (qualificationModal.okRect.y1 + qualificationModal.okRect.y2) / 2;
+        const canvasRect = canvas.getBoundingClientRect();
+        dispatchTouchPoint("touchstart", modalPointerId, canvasRect.left + okX, canvasRect.top + okY);
+        dispatchTouchPoint("touchend", modalPointerId, canvasRect.left + okX, canvasRect.top + okY);
+        await waitFor(() => GM.runtime.state.modals.length === 0, 4000, `real modal button close ${cycle}`);
+        await waitFor(() => GM.runtime.state.inputGate.transitions === 0 && GM.runtime.currentTime >= GM.runtime.state.inputGate.pausedUntil, 4000, `modal suppression completion ${cycle}`);
+        dispatchTouchPoint("touchend", joystickPointerId, cx, cy);
+        dispatchTouchPoint("touchstart", joystickPointerId, cx, cy);
+        await waitFor(() => report.joystick.fixedActive, 2000, `joystick reacquisition after modal ${cycle}`);
+        const afterClose = pointerSnapshot();
+        recordCheck(`modalJoystickReacquisition${cycle}`, afterClose.effective.fixed && report.joystick.fixedPointerId !== null, JSON.stringify(afterClose));
+        report.modal.cycles.push({ cycle, beforeClose, afterClose, ok: true });
+        dispatchTouchPoint("touchend", joystickPointerId, cx, cy);
+        await delay(80);
+    }
+
+    for (let cycle = 0; cycle < 3; cycle += 1) await completeModalCycle(cycle);
+    recordCheck("modalJoystickCycles", report.modal.cycles.length === 3 && report.modal.cycles.every((cycle) => cycle.ok), JSON.stringify(report.modal.cycles));
+
+    // Keep the zero-duration boundary separate from the normal-timing path.
+    const zeroModal = GM.ui.notice("Zero duration", "Zero-duration transitions must still release and restore input.", {
         closeOnBackdrop: false,
         showClose: false,
         openMs: 0,
+        backdropMs: 0,
         closeMs: 0,
         inputBlockMs: 0
     });
-    await waitFor(() => GM.runtime.state.modals.length === 1 && !report.joystick.fixedActive && !report.joystick.dynamicActive, 2000, "modal joystick release");
-    qualificationModal.close("qualification");
-    await waitFor(() => GM.runtime.state.modals.length === 0, 2000, "modal close");
-    dispatchSyntheticTouch(canvas, "touchstart", [{ identifier: 3, clientX: cx, clientY: cy }]);
-    await waitFor(() => report.joystick.fixedActive, 2000, "joystick reacquisition after modal");
-    recordCheck("modalJoystickReacquisition", report.joystick.fixedActive && report.joystick.fixedPointerId !== null, JSON.stringify(report.joystick));
-    dispatchSyntheticTouch(canvas, "touchend", [{ identifier: 3, clientX: cx, clientY: cy }]);
-    await delay(50);
+    await waitFor(() => zeroModal.ready, 2000, "zero-duration modal ready");
+    zeroModal.close("zero-duration");
+    await waitFor(() => GM.runtime.state.modals.length === 0, 2000, "zero-duration modal close");
+    await waitFor(() => GM.runtime.state.inputGate.transitions === 0, 2000, "zero-duration input transition");
+    report.modal.zeroDuration = pointerSnapshot();
+    recordCheck("modalZeroDuration", report.modal.zeroDuration.modalCount === 0 && report.modal.zeroDuration.transitions === 0, JSON.stringify(report.modal.zeroDuration));
 
     report.keyboard.requested = true;
     window.dispatchEvent(new KeyboardEvent("keydown", {

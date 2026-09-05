@@ -5,6 +5,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolveGrout13Fixture } from "./grout13-fixture.mjs";
+import { assertLocalArtifactHashes, readArtifactQualification } from "./facade-artifact-qualification.mjs";
 import { ensureFrontendDeps, launchBrowser, startStaticServer, stopServer } from "./smoke/smoke-server.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -13,8 +14,9 @@ const PORT = 4520;
 const PHASER_GLOBAL_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
 const PHASER_MODULE_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.esm.js";
 const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
-const FACADE_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@8829c319997905b22491c10e992e5c7a54a2b7a9/dist/";
-const FACADE_COMMIT = "8829c319997905b22491c10e992e5c7a54a2b7a9";
+const ARTIFACT_MANIFEST = readArtifactQualification(ROOT);
+const FACADE_COMMIT = ARTIFACT_MANIFEST.publicCommit;
+const FACADE_PIN = `https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@${FACADE_COMMIT}/dist/`;
 const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/";
 const GROUT_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@7546bfc198f16bc1c784e7c1af34de5e26550e86/dist/";
 const PHASER_GLOBAL_DIST = path.join(ROOT, "node_modules", "phaser", "dist", "phaser.min.js");
@@ -55,11 +57,14 @@ function assertProof(report, testCase) {
     if (testCase.kind === "grout13-module") {
         assert.deepEqual(report.errors, [], testCase.name + " proof errors");
         assert.equal(report.viewport, "720x720", testCase.name + " fixed room");
+        assert.equal(report.render, testCase.render === "canvas" ? "CANVAS" : "WEBGL", testCase.name + " render mode");
+        assert.equal(report.rendererType, testCase.render === "canvas" ? 1 : 2, testCase.name + " actual Phaser renderer");
         assert.equal(report.mouse, true, testCase.name + " exposes mouse input");
         assert.equal(report.touch, true, testCase.name + " exposes touch input");
         assert.equal(report.atlasText, true, testCase.name + " draws atlas text");
         assert.equal(report.grout13, true, testCase.name + " installs its Grout13 atlas");
         assert.equal(report.fixedSimulation, true, testCase.name + " advances fixed simulation");
+        assert.equal(report.playable, true, testCase.name + " exposes playable state");
         return;
     }
     assert.equal(report.render, testCase.render === "canvas" ? "CANVAS" : "WEBGL", testCase.name + " render mode");
@@ -178,27 +183,39 @@ async function installRoutes(page, testCase) {
 }
 
 async function playOneShot(page, testCase) {
-    if (testCase.kind === "grout13-module") return;
+    await page.waitForFunction(() => {
+        const gate = window.GM?.runtime?.state?.inputGate;
+        return Boolean(gate && gate.transitions === 0 && window.GM.runtime.currentTime >= gate.pausedUntil);
+    }, undefined, { timeout: 5000 });
     const box = await page.locator("canvas").boundingBox();
     if (!box) fail(testCase.name + " canvas has no bounding box.");
     const centerX = box.x + box.width * 0.5;
-    if (testCase.kind === "grout13") {
+    if (testCase.kind === "grout13" || testCase.kind === "grout13-module") {
         await page.mouse.move(centerX, box.y + box.height * 0.87);
         await page.mouse.down();
+        await page.waitForTimeout(50);
         await page.mouse.move(centerX, box.y + box.height * 0.33, { steps: 6 });
+        await page.waitForTimeout(50);
         await page.mouse.up();
     } else {
         await page.mouse.move(centerX, box.y + box.height * 0.84);
         await page.mouse.down();
+        await page.waitForTimeout(50);
         await page.mouse.up();
     }
-    await page.waitForFunction((name) => window[name]?.shotsFired >= 1, testCase.proofName, { timeout: 10000 });
-    if (testCase.kind !== "grout13") {
+    try {
+        await page.waitForFunction((name) => window[name]?.shotsFired >= 1, testCase.proofName, { timeout: 10000 });
+    } catch (error) {
+        const report = await page.evaluate((name) => window[name] || null, testCase.proofName);
+        fail(testCase.name + " did not observe a shot: " + JSON.stringify(report));
+    }
+    if (testCase.kind !== "grout13" && testCase.kind !== "grout13-module") {
         await page.waitForFunction((name) => window[name]?.merges >= 1, testCase.proofName, { timeout: 10000 });
     }
 }
 
 ensureFrontendDeps(ROOT);
+assertLocalArtifactHashes(ARTIFACT_MANIFEST, ROOT);
 if (GROUT_FIXTURE.hasOverride && !HAS_LOCAL_GROUT) {
     fail("Fruit Shot browser proof received an incomplete GROUT13_* fixture override.");
 }
@@ -248,9 +265,16 @@ try {
             assertProof(report, testCase);
             await playOneShot(page, testCase);
             report = await page.evaluate((name) => window[name], testCase.proofName);
-            if (testCase.kind !== "grout13-module") {
-                assert.ok(report.shotsFired >= 1, testCase.name + " must accept a player shot");
-                if (testCase.kind !== "grout13") assert.ok(report.merges >= 1, testCase.name + " player shot must resolve a merge");
+            assert.ok(report.shotsFired >= 1, testCase.name + " must accept a player shot");
+            if (testCase.kind !== "grout13" && testCase.kind !== "grout13-module") {
+                assert.ok(report.merges >= 1, testCase.name + " player shot must resolve a merge");
+            }
+            if (testCase.kind === "grout13-module") {
+                await page.evaluate((name) => window[name].forceGameOver(), testCase.proofName);
+                const box = await page.locator("canvas").boundingBox();
+                if (!box) fail(testCase.name + " canvas has no bounding box for restart");
+                await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
+                await page.waitForFunction((name) => window[name]?.restarts >= 1 && window[name]?.state === "running", testCase.proofName, { timeout: 10000 });
             }
             assert.equal(await page.locator("canvas").count(), 1, testCase.name + " Fruit Shot should create one canvas");
             await assertViewportFit(page, testCase);

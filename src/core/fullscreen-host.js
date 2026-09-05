@@ -6,8 +6,7 @@ const BOX_STYLE_PROPERTIES = [
     "marginTop", "marginRight", "marginBottom", "marginLeft",
     "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
     "width", "height", "minWidth", "minHeight", "maxWidth", "maxHeight",
-    "overflow", "overflowX", "overflowY", "overscrollBehavior",
-    "overscrollBehaviorX", "overscrollBehaviorY"
+    "overflowX", "overflowY", "overscrollBehaviorX", "overscrollBehaviorY"
 ];
 const DOCUMENT_STYLE_PROPERTIES = BOX_STYLE_PROPERTIES.filter((property) => !["maxWidth", "maxHeight"].includes(property));
 const BODY_STYLE_PROPERTIES = [...DOCUMENT_STYLE_PROPERTIES, "position", "top", "right", "bottom", "left", "touchAction"];
@@ -57,35 +56,43 @@ export function createFullscreenHost(root, configuredParent) {
             records = new Map();
             touched.set(element, records);
         }
+        // Read every untouched declaration before the first write. A style
+        // setter, observer, or browser normalization may affect another
+        // declaration synchronously.
         for (const property of properties) {
             if (!records.has(property)) records.set(property, readStyle(element, property));
+        }
+        for (const property of properties) {
             writeStyle(element, property, values[property] ?? "");
         }
     }
 
     const documentLike = root?.document;
     if (documentLike) {
+        // Resolve selectors before mutating documentElement or body so an
+        // invalid configured selector cannot leave a partially applied host.
+        const parent = resolveParent(root, configuredParent);
         apply(documentLike.documentElement, DOCUMENT_STYLE_PROPERTIES, {
             marginTop: "0", marginRight: "0", marginBottom: "0", marginLeft: "0",
             paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0",
             width: "100%", height: "100%", minWidth: "100%", minHeight: "100%",
-            overflow: "hidden", overflowX: "hidden", overflowY: "hidden",
-            overscrollBehavior: "none", overscrollBehaviorX: "none", overscrollBehaviorY: "none"
+            overflowX: "hidden", overflowY: "hidden",
+            overscrollBehaviorX: "none", overscrollBehaviorY: "none"
         });
         apply(documentLike.body, BODY_STYLE_PROPERTIES, {
             marginTop: "0", marginRight: "0", marginBottom: "0", marginLeft: "0",
             paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0",
             width: "100%", height: "100%", minWidth: "100%", minHeight: "100%",
-            overflow: "hidden", overflowX: "hidden", overflowY: "hidden",
-            overscrollBehavior: "none", overscrollBehaviorX: "none", overscrollBehaviorY: "none",
+            overflowX: "hidden", overflowY: "hidden",
+            overscrollBehaviorX: "none", overscrollBehaviorY: "none",
             position: "fixed", top: "0", right: "0", bottom: "0", left: "0", touchAction: "none"
         });
-        apply(resolveParent(root, configuredParent), PARENT_STYLE_PROPERTIES, {
+        apply(parent, PARENT_STYLE_PROPERTIES, {
             marginTop: "0", marginRight: "0", marginBottom: "0", marginLeft: "0",
             paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0",
             width: "100vw", height: "100vh", minWidth: "0", minHeight: "0",
-            maxWidth: "100vw", maxHeight: "100vh", overflow: "hidden", overflowX: "hidden", overflowY: "hidden",
-            overscrollBehavior: "none", overscrollBehaviorX: "none", overscrollBehaviorY: "none",
+            maxWidth: "100vw", maxHeight: "100vh", overflowX: "hidden", overflowY: "hidden",
+            overscrollBehaviorX: "none", overscrollBehaviorY: "none",
             position: "fixed", top: "0", right: "0", bottom: "0", left: "0", touchAction: "none"
         });
     }
@@ -99,8 +106,8 @@ export function createFullscreenHost(root, configuredParent) {
                 marginTop: "0", marginRight: "0", marginBottom: "0", marginLeft: "0",
                 paddingTop: "0", paddingRight: "0", paddingBottom: "0", paddingLeft: "0",
                 width: "100vw", height: "100vh", minWidth: "0", minHeight: "0",
-                maxWidth: "100vw", maxHeight: "100vh", overflow: "hidden", overflowX: "hidden", overflowY: "hidden",
-                overscrollBehavior: "none", overscrollBehaviorX: "none", overscrollBehaviorY: "none",
+                maxWidth: "100vw", maxHeight: "100vh", overflowX: "hidden", overflowY: "hidden",
+                overscrollBehaviorX: "none", overscrollBehaviorY: "none",
                 position: "fixed", top: "0", right: "0", bottom: "0", left: "0", touchAction: "none"
             });
             apply(canvas, CANVAS_STYLE_PROPERTIES, {

@@ -5,6 +5,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveGrout13Fixture } from "./grout13-fixture.mjs";
+import { readArtifactQualification } from "./facade-artifact-qualification.mjs";
 import { ensureFrontendDeps, launchBrowser } from "./smoke/smoke-server.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -12,8 +13,9 @@ const REPORT_ROOT = path.join(ROOT, "runtime-data", "screenshots", "facade-fruit
 const CSS_CDN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/examples/native-app-shell.css";
 const PHASER_CDN = "https://cdn.jsdelivr.net/gh/phaserjs/phaser@v4.2.1/dist/phaser.min.js";
 const FACADE_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@main/dist/";
-const FACADE_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@8829c319997905b22491c10e992e5c7a54a2b7a9/dist/";
-const FACADE_COMMIT = "8829c319997905b22491c10e992e5c7a54a2b7a9";
+const ARTIFACT_MANIFEST = readArtifactQualification(ROOT);
+const FACADE_COMMIT = ARTIFACT_MANIFEST.publicCommit;
+const FACADE_PIN = `https://cdn.jsdelivr.net/gh/Shoozes/phaser4-facade@${FACADE_COMMIT}/dist/`;
 const GROUT_MAIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.global.min.js";
 const GROUT_PIN = "https://cdn.jsdelivr.net/gh/Shoozes/grout13@7546bfc198f16bc1c784e7c1af34de5e26550e86/dist/grout13.global.min.js";
 const PHASER_DIST = path.join(ROOT, "node_modules", "phaser", "dist", "phaser.min.js");

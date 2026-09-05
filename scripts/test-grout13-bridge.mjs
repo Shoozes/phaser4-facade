@@ -1,26 +1,52 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { installGrout13Bridge } from "../src/bridges/grout13.js";
+import { runRuntimeCleanup } from "../src/core/cleanup.js";
+import { makeSpritePool } from "../src/core/pools.js";
 
 const source = { width: 4, height: 2 };
 const frames = Object.assign(Object.create(null), {
     apple: { x: 0, y: 0, w: 2, h: 2 }
 });
-const decoded = { width: 4, height: 2, canvas: source, frames };
-const calls = [];
-const registered = new Map();
-const gm = {
-    asset: {
-        addAtlas(...args) {
-            calls.push(args);
-            registered.set(args[0], new Set(Object.keys(args[2])));
-            return { key: args[0], frameCount: Object.keys(args[2]).length };
-        },
-        frameExists(key, frame) { return registered.get(key)?.has(String(frame)) === true; },
-        remove(key) { registered.delete(key); return true; }
-    }
-};
+const fontFrames = Object.fromEntries(["S", "C", "O", "R", "E", "space"].map((name) => [
+    name, { x: 0, y: 0, w: 2, h: 2 }
+]));
 const compiled = { payload: [4, 2, "ffffff", "0", [0, 0, 2, 2], "apple"] };
+
+function makeRuntime({ missingFrames = false, failSource = false, failCalls = 0 } = {}) {
+    const registered = new Map();
+    let addCalls = 0;
+    const textures = {
+        exists(key) { return registered.has(String(key)); },
+        get(key) { return registered.get(String(key)) || null; },
+        addAtlasJSONHash(key, atlasSource, data) {
+            addCalls += 1;
+            if ((failSource && atlasSource.fail) || addCalls <= failCalls) {
+                throw new Error(addCalls <= failCalls ? "failure before registration" : "simulated replacement failure");
+            }
+            const texture = {
+                key,
+                source: atlasSource,
+                frames: new Set(Object.keys(data.frames)),
+                has(frame) { return !missingFrames && this.frames.has(String(frame)); }
+            };
+            registered.set(String(key), texture);
+            return texture;
+        },
+        remove(key) {
+            registered.delete(String(key));
+            return true;
+        }
+    };
+    const owner = {
+        scene: { textures },
+        state: { cleanup: [], cleanedUp: false }
+    };
+    return { owner, textures, registered, get addCalls() { return addCalls; } };
+}
+
+const runtimeA = makeRuntime();
+const gm = { _active: runtimeA.owner };
 const grout13 = {
     compileGrout13Atlas(assets, options) {
         assert.deepEqual(assets, [{ name: "apple" }]);
@@ -28,9 +54,9 @@ const grout13 = {
         return compiled;
     },
     decodeGrout13Atlas(payload, options) {
-        assert.deepEqual(payload, compiled.payload);
         assert.equal(typeof options.canvasFactory, "function");
-        return decoded;
+        if (payload[0] !== "font") assert.deepEqual(payload, compiled.payload);
+        return { width: 4, height: 2, canvas: source, frames: payload[0] === "font" ? fontFrames : frames };
     }
 };
 
@@ -46,11 +72,7 @@ const result = bridge.addAtlas("fruit", [{ name: "apple" }], {
 });
 assert.equal(result.asset.key, "fruit");
 assert.equal(result.payload, compiled.payload);
-assert.equal(calls.length, 1);
-assert.equal(calls[0][0], "fruit");
-assert.equal(calls[0][1], source);
-assert.equal(calls[0][2], frames);
-assert.deepEqual(calls[0][3], { replace: true });
+assert.equal(runtimeA.addCalls, 1);
 assert.deepEqual(result.frameNames, ["apple"]);
 assert.equal(result.frameCount, 1);
 assert.equal(result.hasFrame("apple"), true);
@@ -61,7 +83,6 @@ const payloadResult = bridge.addPayload("fruit-payload", compiled.payload, {
     decodeOptions: { canvasFactory: () => source }
 });
 assert.equal(payloadResult.asset.key, "fruit-payload");
-assert.deepEqual(calls[1][3], {});
 assert.throws(() => bridge.addPayload("fruit-payload", compiled.payload, { decodeOptions: { canvasFactory: () => source } }), /already exists/);
 assert.equal(payloadResult.dispose(), true);
 assert.equal(payloadResult.dispose(), false);
@@ -73,6 +94,14 @@ const directCompiled = {
     runtimeContract: { formatVersion: 13 },
     bytes: { payload: 7 }
 };
+globalThis.ImageData = class {
+    constructor(data, width, height) { this.data = data; this.width = width; this.height = height; }
+};
+globalThis.document = {
+    createElement() {
+        return { width: 0, height: 0, getContext() { return { putImageData() {} }; } };
+    }
+};
 const directResult = bridge.addCompiled("direct", directCompiled);
 assert.equal(directResult.source.rgba.length, 16);
 assert.equal(directResult.decoded.canvas, undefined, "compiled RGBA path should not require a decode canvas");
@@ -81,24 +110,14 @@ assert.equal(directResult.payloadBytes, 7);
 assert.equal(directResult.hasFrame("direct"), true);
 
 const font = {
-    glyphs: {
-        S: { name: "S", width: 12, height: 20, advance: 12 },
-        C: { name: "C", width: 12, height: 20, advance: 12 },
-        O: { name: "O", width: 12, height: 20, advance: 12 },
-        R: { name: "R", width: 12, height: 20, advance: 12 },
-        E: { name: "E", width: 12, height: 20, advance: 12 },
-        space: { name: "space", width: 8, height: 20, advance: 8 }
-    },
+    glyphs: Object.fromEntries(Object.keys(fontFrames).map((name) => [name, { name, width: 12, height: 20, advance: 12 }])),
     metrics: { tracking: 4, lineHeight: 24, fallback: "E", fallbackFrame: "E" },
     compiled: {
         payload: ["font"],
-        atlas: { width: 8, height: 8, rgba: new Uint8ClampedArray(256) },
-        frames: Object.keys({ S: 1, C: 1, O: 1, R: 1, E: 1, space: 1 }).map((name) => ({
-            name, x: 0, y: 0, width: 8, height: 8
-        }))
+        frames: Object.keys(fontFrames).map((name) => ({ name, x: 0, y: 0, width: 2, height: 2 }))
     }
 };
-const addedFont = bridge.addFont("pixel-3x5", font);
+const addedFont = bridge.addFont("pixel-3x5", font, { decodeOptions: { canvasFactory: () => source } });
 assert.equal(addedFont.atlasKey, "grout13-font-pixel-3x5");
 assert.equal(bridge.getFont("pixel-3x5").atlasKey, "grout13-font-pixel-3x5");
 assert.throws(() => bridge.addFont("pixel-3x5", font), /already exists/);
@@ -111,92 +130,74 @@ assert.throws(
     /references missing atlas frames: P/
 );
 assert.equal(bridge.addFontPayload("pixel-3x5", compiled.payload, { apple: { name: "apple" } }, { lineHeight: 8 }, { replace: true, decodeOptions: { canvasFactory: () => source } }).name, "pixel-3x5");
+assert.throws(() => installGrout13Bridge(gm, { ...grout13 }), /already installed with a different bridge/);
 
-assert.throws(
-    () => installGrout13Bridge(gm, { ...grout13 }),
-    /already installed with a different bridge/
-);
-const missingCanvasBridge = installGrout13Bridge({ asset: gm.asset }, {
-    compileGrout13Atlas() { return compiled; },
-    decodeGrout13Atlas() { return { frames }; }
-});
-assert.throws(() => missingCanvasBridge.addPayload("bad", compiled.payload), /missing a canvas or RGBA source/);
+assert.throws(() => installGrout13Bridge({ _active: null }, {
+    decodeGrout13Atlas() { return { canvas: source, frames }; }
+}).addPayload("bad", compiled.payload), /active GM runtime/);
 
-const missingFramesGm = {
-    asset: { addAtlas() {} }
-};
-missingFramesGm.asset.frameExists = () => false;
-missingFramesGm.asset.remove = () => true;
-const missingFramesBridge = installGrout13Bridge(missingFramesGm, {
-    compileGrout13Atlas() { return compiled; },
-    decodeGrout13Atlas() { return { canvas: source }; }
+const missingFramesRuntime = makeRuntime({ missingFrames: true });
+const missingFramesBridge = installGrout13Bridge({ _active: missingFramesRuntime.owner }, {
+    decodeGrout13Atlas() { return { canvas: source, frames }; }
 });
 assert.throws(() => missingFramesBridge.addPayload("bad", compiled.payload), /missing frames/);
+assert.equal(missingFramesRuntime.textures.exists("bad"), false, "frame parity failure should remove the registered texture");
 
-let parityCleanup = false;
-const parityBridge = installGrout13Bridge({
-    asset: {
-        addAtlas() { return { key: "parity" }; },
-        frameExists() { return false; },
-        remove() { parityCleanup = true; return true; }
-    }
-}, {
-    compileGrout13Atlas() { return compiled; },
-    decodeGrout13Atlas() { return decoded; }
-});
-assert.throws(() => parityBridge.addPayload("parity", compiled.payload), /missing frames/);
-assert.equal(parityCleanup, true, "frame parity failure should remove the registered texture");
-
-const decoderOnly = installGrout13Bridge({ asset: gm.asset }, {
-    decodeGrout13Atlas() { return decoded; }
-});
-assert.equal(decoderOnly.capabilities.compile, false);
-assert.equal(decoderOnly.addPayload("decoder-only", compiled.payload).frameCount, 1);
-assert.throws(() => decoderOnly.compile([]), /compiler capability is unavailable/);
-assert.throws(() => decoderOnly.addAtlas("compile-only", []), /compiler capability is unavailable/);
-
-const rollbackRegistered = new Map();
-const rollbackGm = {
-    asset: {
-        addAtlas(key, atlasSource, atlasFrames) {
-            if (atlasSource.fail) throw new Error("simulated replacement failure");
-            rollbackRegistered.set(key, new Set(Object.keys(atlasFrames)));
-            return { key };
-        },
-        frameExists(key, frame) { return rollbackRegistered.get(key)?.has(String(frame)) === true; },
-        remove(key) { rollbackRegistered.delete(key); return true; }
-    }
-};
-const rollbackSources = {
-    good: { width: 4, height: 2 },
-    bad: { width: 4, height: 2, fail: true }
-};
-const rollbackBridge = installGrout13Bridge(rollbackGm, {
-    decodeGrout13Atlas(payload) { return { canvas: rollbackSources[payload[0]], frames }; }
+const rollbackRuntime = makeRuntime({ failSource: true });
+const rollbackBridge = installGrout13Bridge({ _active: rollbackRuntime.owner }, {
+    decodeGrout13Atlas(payload) { return { canvas: payload[0] === "bad" ? { ...source, fail: true } : source, frames }; }
 });
 rollbackBridge.addPayload("rollback", ["good"]);
 assert.throws(() => rollbackBridge.addPayload("rollback", ["bad"], { replace: true }), /simulated replacement failure/);
 assert.throws(() => rollbackBridge.addPayload("rollback", ["good"]), /already exists/);
-assert.equal(rollbackRegistered.get("rollback").has("apple"), true);
+assert.equal(rollbackRuntime.textures.get("rollback").source.fail, undefined, "failed replacement must restore the previous atlas");
 
-const preRemovalRegistered = new Map();
-let preRemovalCalls = 0;
-const preRemovalBridge = installGrout13Bridge({
-    asset: {
-        addAtlas(key, atlasSource, atlasFrames) {
-            preRemovalCalls += 1;
-            if (preRemovalCalls > 1) throw new Error("failure before removal");
-            preRemovalRegistered.set(key, new Set(Object.keys(atlasFrames)));
-            return { key };
-        },
-        frameExists(key, frame) { return preRemovalRegistered.get(key)?.has(String(frame)) === true; }
-    }
-}, {
-    decodeGrout13Atlas() { return { canvas: rollbackSources.bad, frames }; }
+const lifecycleA = makeRuntime();
+const lifecycleB = makeRuntime();
+const lifecycleGm = { _active: lifecycleA.owner };
+const lifecycleBridge = installGrout13Bridge(lifecycleGm, {
+    decodeGrout13Atlas() { return { canvas: source, frames }; }
 });
-preRemovalBridge.addPayload("pre-removal", ["good"]);
-assert.throws(() => preRemovalBridge.addPayload("pre-removal", ["bad"], { replace: true }), /failure before removal/);
-assert.equal(preRemovalRegistered.get("pre-removal").has("apple"), true);
-assert.equal(preRemovalCalls, 2, "a failed replacement before removal must not retry addAtlas during rollback");
+const oldRecord = lifecycleBridge.addPayload("shared", ["a"]);
+lifecycleGm._active = lifecycleB.owner;
+const newRecord = lifecycleBridge.addPayload("shared", ["b"]);
+assert.equal(oldRecord.dispose(), false, "a stale runtime handle must not delete a newer runtime texture");
+assert.equal(lifecycleB.textures.exists("shared"), true);
+assert.equal(newRecord.dispose(), true);
+const externalRecord = lifecycleBridge.addPayload("external", ["a"]);
+lifecycleB.textures.remove("external");
+const externalTexture = { key: "external", has() { return true; } };
+lifecycleB.registered.set("external", externalTexture);
+assert.equal(externalRecord.dispose(), false, "a stale handle must not delete an externally reused key");
+assert.equal(lifecycleB.textures.get("external"), externalTexture);
+const cleanupRecord = lifecycleBridge.addPayload("cleanup", ["a"]);
+assert.equal(runRuntimeCleanup(lifecycleB.owner.state, "game_destroy"), true);
+assert.equal(cleanupRecord.dispose(), false, "runtime cleanup must invalidate bridge records");
+assert.equal(lifecycleB.textures.exists("cleanup"), true, "cleanup invalidation must not remove consumer-owned textures");
 
-console.log("[ok] Grout13 bridge injection, isolation, registration, and rejection tests passed.");
+const preRemovalRuntime = makeRuntime({ failCalls: 1 });
+const preRemovalBridge = installGrout13Bridge({ _active: preRemovalRuntime.owner }, {
+    decodeGrout13Atlas() { return { canvas: source, frames }; }
+});
+assert.throws(() => preRemovalBridge.addPayload("pre-removal", ["good"]), /failure before registration/);
+assert.equal(preRemovalRuntime.textures.exists("pre-removal"), false);
+
+const poolCalls = [];
+const poolTextures = new Map([["fruit", { id: "a" }]]);
+const poolItem = {
+    setTexture(key, frame) { poolCalls.push([key, frame]); },
+    setOrigin() {}, setFlip() {}, clearTint() {}, setAlpha() {}, setAngle() {}, setScale() {}, setBlendMode() {}, clearMask() {}, setCrop() {}, setVisible() {}
+};
+const poolScene = {
+    textures: { get(key) { return poolTextures.get(key); } },
+    add: { sprite() { return poolItem; } }
+};
+const poolParent = { add() {} };
+const pool = makeSpritePool(poolScene, poolParent);
+pool.begin(); pool.take("fruit", "apple");
+pool.begin(); pool.take("fruit", "apple");
+poolTextures.set("fruit", { id: "b" });
+pool.begin(); pool.take("fruit", "apple");
+assert.deepEqual(poolCalls, [["fruit", "apple"]], "same-key texture replacement must rebind pooled sprites");
+
+console.log("[ok] Grout13 bridge runtime ownership, replacement rollback, stale handles, fonts, and pool identity tests passed.");
