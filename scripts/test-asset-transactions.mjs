@@ -38,7 +38,7 @@ assert.equal(invalidCanvasTextures.list.hero, oldCanvas);
 const failedCanvasTextures = createTextureManager({ failCanvas: true });
 const oldFailedCanvas = { key: "hero", kind: "old-canvas", destroyed: false };
 failedCanvasTextures.list.hero = oldFailedCanvas;
-assert.throws(() => addCanvasTexture({ textures: failedCanvasTextures }, "hero", canvas, { replace: true }), /could not register texture/);
+assert.throws(() => addCanvasTexture({ textures: failedCanvasTextures }, "hero", canvas, { replace: true }), /registration failed/);
 assert.equal(failedCanvasTextures.list.hero, oldFailedCanvas);
 
 const successfulCanvasTextures = createTextureManager();
@@ -51,7 +51,7 @@ assert.equal(oldSuccessfulCanvas.destroyed, true);
 const outOfBoundsTextures = createTextureManager();
 const oldAtlas = { key: "atlas", kind: "old-atlas", destroyed: false };
 outOfBoundsTextures.list.atlas = oldAtlas;
-assert.throws(() => addAtlasTexture({ textures: outOfBoundsTextures }, "atlas", canvas, { bad: { frame: { x: 3, y: 3, w: 2, h: 2 } } }, { replace: true }), /exceeds source bounds/);
+assert.throws(() => addAtlasTexture({ textures: outOfBoundsTextures }, "atlas", canvas, { bad: { frame: { x: 3, y: 3, w: 2, h: 2 } } }, { replace: true }), /outside source bounds/);
 assert.equal(outOfBoundsTextures.list.atlas, oldAtlas);
 
 const failedAtlasTextures = createTextureManager({ failAtlas: true });

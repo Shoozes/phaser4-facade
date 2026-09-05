@@ -3090,13 +3090,9 @@ ${details}`);
     }
     return scene.textures;
   }
-  function getRegisteredTexture(textures, key) {
-    if (typeof textures.get === "function") return textures.get(key);
-    return textures.list && Object.prototype.hasOwnProperty.call(textures.list, key) ? textures.list[key] : null;
-  }
   function removeRegisteredTexture(textures, key) {
     if (typeof textures.removeKey !== "function") {
-      throw new Error("GM.asset replacement requires Phaser textures.removeKey support.");
+      throw new Error("GM.asset replacement requires textures.removeKey.");
     }
     textures.removeKey(key);
   }
@@ -3106,20 +3102,20 @@ ${details}`);
       throw new Error(`GM.asset texture already exists: ${key}. Pass { replace: true } to overwrite.`);
     }
     if (!textures.list || typeof textures.removeKey !== "function") {
-      throw new Error(`GM.asset cannot safely replace texture without Phaser texture registry support: ${key}`);
+      throw new Error(`GM.asset cannot safely replace texture: ${key}`);
     }
-    const previous = getRegisteredTexture(textures, key);
-    if (!previous) throw new Error(`GM.asset cannot safely resolve the existing texture: ${key}`);
+    const previous = textures.list[key];
+    if (!previous) throw new Error(`GM.asset cannot resolve existing texture: ${key}`);
     return previous;
   }
   function registerTextureTransactionally(textures, key, previous, register) {
     if (previous) removeRegisteredTexture(textures, key);
     try {
       const texture = register();
-      if (!texture) throw new Error(`Phaser could not register texture: ${key}`);
+      if (!texture) throw new Error(`Texture registration failed: ${key}`);
       const registered = textures.list ? textures.list[key] === texture : typeof textures.exists === "function" && textures.exists(key);
       if (!registered) {
-        throw new Error(`Phaser did not expose the registered texture: ${key}`);
+        throw new Error(`Texture was not registered: ${key}`);
       }
       if (previous && previous !== texture && typeof previous.destroy === "function") {
         const current = textures.list[key];
@@ -3144,11 +3140,11 @@ ${details}`);
   function validateAtlasBounds(source, safeFrames) {
     const width = requireNonNegativeInt(source.width, "atlas source width");
     const height = requireNonNegativeInt(source.height, "atlas source height");
-    if (width <= 0 || height <= 0) throw new TypeError("GM.asset.addAtlas source requires positive width and height.");
+    if (width <= 0 || height <= 0) throw new TypeError("GM.asset.addAtlas source needs positive dimensions.");
     for (const [name, frame] of Object.entries(safeFrames)) {
       const { x, y, w, h } = frame.frame;
       if (x + w > width || y + h > height) {
-        throw new RangeError(`GM.asset.addAtlas frame ${name} exceeds source bounds.`);
+        throw new RangeError(`GM.asset.addAtlas frame ${name} is outside source bounds.`);
       }
     }
   }
@@ -3270,14 +3266,8 @@ ${details}`);
       texture,
       frames: Object.keys(safeFrames),
       frameCount: Object.keys(safeFrames).length,
-      width: Number(
-        /** @type {any} */
-        atlasSource.width
-      ) || 0,
-      height: Number(
-        /** @type {any} */
-        atlasSource.height
-      ) || 0,
+      width: atlasSource.width,
+      height: atlasSource.height,
       source: typeof source === "string" ? source : void 0
     };
   }
