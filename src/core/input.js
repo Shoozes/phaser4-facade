@@ -184,7 +184,8 @@ export function createPointerRecord(id, seed) {
         pressed: false,
         released: false,
         owner: null,
-        downTime: Number(seed.time) || 0
+        downTime: Number(seed.time) || 0,
+        downSequence: 0
     };
 }
 
@@ -197,6 +198,7 @@ export function applyPointerDown(record, coords) {
         record.startX = coords.x;
         record.startY = coords.y;
         record.downTime = Number(coords.time) || record.downTime || 0;
+        record.downSequence = Number(record.downSequence) + 1;
         record.pressed = true;
     }
     record.down = true;

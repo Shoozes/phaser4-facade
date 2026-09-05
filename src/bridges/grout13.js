@@ -242,6 +242,12 @@ function createBridge(gm, grout13) {
         if (registrations.get(record.key) === record) registrations.delete(record.key);
     }
 
+    function invalidateFont(font) {
+        if (!font) return;
+        font.invalidated = true;
+        if (fonts.get(font.name) === font) fonts.delete(font.name);
+    }
+
     function ensureOwnerCleanup(owner) {
         if (hookedOwners.has(owner)) return;
         hookedOwners.add(owner);
@@ -250,10 +256,7 @@ function createBridge(gm, grout13) {
                 if (record.owner === owner) invalidateRecord(record);
             }
             for (const font of fonts.values()) {
-                if (font.owner === owner) {
-                    font.invalidated = true;
-                    if (fonts.get(font.name) === font) fonts.delete(font.name);
-                }
+                if (font.owner === owner) invalidateFont(font);
             }
         });
     }
@@ -388,6 +391,40 @@ function createBridge(gm, grout13) {
     /** @type {Map<string, any>} */
     const fonts = new Map();
 
+    function isFontLive(font) {
+        return Boolean(font && !font.invalidated && fonts.get(font.name) === font && isLive(font.added));
+    }
+
+    function liveFont(name) {
+        const font = fonts.get(name);
+        if (!font) return null;
+        if (!isFontLive(font)) {
+            invalidateFont(font);
+            return null;
+        }
+        return font;
+    }
+
+    function createFontRecord(name, atlasKey, glyphs, metrics, compiled, added) {
+        const record = {
+            name,
+            atlasKey,
+            glyphs,
+            metrics,
+            compiled: compiled || null,
+            owner: added.owner,
+            added,
+            invalidated: false,
+            dispose() {
+                if (fonts.get(name) !== record) return false;
+                fonts.delete(name);
+                record.invalidated = true;
+                return added.dispose();
+            }
+        };
+        return record;
+    }
+
     return Object.freeze({
         compile(assets, options = {}) {
             if (!compile) throw new Error("Grout13 compiler capability is unavailable; use addPayload().");
@@ -413,8 +450,8 @@ function createBridge(gm, grout13) {
          */
         addFont(name, font, options = {}) {
             const fontName = requireKey(name);
-            const previous = fonts.get(fontName) || null;
-            if (fonts.has(fontName) && options.replace !== true) throw new Error(`Grout13 font ${fontName} already exists; pass replace: true to replace it.`);
+            const previous = liveFont(fontName);
+            if (previous && options.replace !== true) throw new Error(`Grout13 font ${fontName} already exists; pass replace: true to replace it.`);
             requireObject(font, "Grout13 compiled font");
             requireObject(font.metrics, "Grout13 compiled font.metrics");
             requireObject(font.glyphs, "Grout13 compiled font.glyphs");
@@ -429,36 +466,24 @@ function createBridge(gm, grout13) {
             const added = font.compiled
                 ? registerCompiled(atlasKey, font.compiled, options)
                 : register(atlasKey, font.atlas, font.atlas.frames || {}, options, { width: font.atlas.width, height: font.atlas.height });
-            const record = {
-                name: fontName,
-                atlasKey,
-                glyphs: font.glyphs,
-                metrics: font.metrics,
-                compiled: font.compiled || null,
-                added,
-                dispose() {
-                    if (fonts.get(fontName) !== record) return false;
-                    fonts.delete(fontName);
-                    return added.dispose();
-                }
-            };
+            const record = createFontRecord(fontName, atlasKey, font.glyphs, font.metrics, font.compiled, added);
             if (previous) previous.dispose();
             fonts.set(fontName, record);
             return record;
         },
         addFontPayload(name, payload, glyphs, metrics, options = {}) {
             const fontName = requireKey(name);
-            const previous = fonts.get(fontName) || null;
+            const previous = liveFont(fontName);
             requireObject(glyphs, `Grout13 font ${fontName}.glyphs`);
             requireObject(metrics, `Grout13 font ${fontName}.metrics`);
-            if (fonts.has(fontName) && options.replace !== true) throw new Error(`Grout13 font ${fontName} already exists; pass replace: true to replace it.`);
+            if (previous && options.replace !== true) throw new Error(`Grout13 font ${fontName} already exists; pass replace: true to replace it.`);
             if (!Array.isArray(payload)) throw new TypeError(`Grout13 font ${fontName} payload must be an array.`);
             const atlasKey = options.atlasKey ? requireKey(options.atlasKey) : `grout13-font-${fontName}`;
             const decoded = decode(payload, decodeOptions(options));
             const decodedFrames = resolveFrames(decoded);
             validateFontGlyphs(glyphs, frameMapNames(decodedFrames), fontName);
             const added = registerDecoded(atlasKey, decoded, options, payload);
-            const record = { name: fontName, atlasKey, glyphs, metrics, compiled: null, added, dispose() { if (fonts.get(fontName) !== record) return false; fonts.delete(fontName); return added.dispose(); } };
+            const record = createFontRecord(fontName, atlasKey, glyphs, metrics, null, added);
             if (previous) previous.dispose();
             fonts.set(fontName, record);
             return record;
@@ -467,10 +492,17 @@ function createBridge(gm, grout13) {
          * @param {string} name
          */
         getFont(name) {
-            return fonts.get(requireKey(name)) || null;
+            return liveFont(requireKey(name));
         },
-        listFonts() { return Object.freeze(Array.from(fonts.values(), (font) => Object.freeze({ name: font.name, atlasKey: font.atlasKey }))); },
-        removeFont(name) { const font = fonts.get(requireKey(name)); return font ? font.dispose() : false; },
+        listFonts() {
+            const result = [];
+            for (const font of Array.from(fonts.values())) {
+                if (isFontLive(font)) result.push(Object.freeze({ name: font.name, atlasKey: font.atlasKey }));
+                else invalidateFont(font);
+            }
+            return Object.freeze(result);
+        },
+        removeFont(name) { const font = liveFont(requireKey(name)); return font ? font.dispose() : false; },
         capabilities: Object.freeze({ decode: true, compile: Boolean(compile), payloadBytes: typeof grout13.getGrout13PayloadBytes === "function", fontPayload: true }),
         [BRIDGE_MARKER]: grout13
     });

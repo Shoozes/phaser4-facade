@@ -21,8 +21,15 @@ for (const marker of [
     "GM.grout13.addFontPayload",
     "GM.camera.createRoomView",
     "GM.layer.compose",
+    "GM.input.createVirtualJoystick",
+    "layer:\"controls\"",
+    "pointerKinds",
+    "pulseButtonRect",
+    "pausePointerId",
+    "resumePointerId",
     "drones:",
     "triggerPulse",
+    "keyPressed(GM.key.SPACE)",
     "health:",
     "collection:",
     "outcome:",
@@ -34,6 +41,7 @@ for (const marker of [
 }
 assert.equal(/fruit-shot\/(?:font|atlas)-payload|\bfrom\s+["']\.\//i.test(html), false, "Grout Vault must embed game-owned payloads without local module imports");
 assert.equal(/compileGrout13Atlas|native-app-shell|data-gm-app-shell|viewport-fit=|theme-color/i.test(html), false, "Grout Vault must be payload-first and DOM-shell independent");
+assert.equal(/if\s*\(\s*pointer\.released\s*\)\s*\{\s*state\.paused\s*=\s*false/.test(html), false, "Grout Vault must not resume from the activating pause release");
 assert.equal(/\bTODO\b|\bFIXME\b/.test(html), false, "Grout Vault must not ship unfinished markers");
 
 const executable = html

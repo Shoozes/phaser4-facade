@@ -156,7 +156,7 @@ const lifecycleA = makeRuntime();
 const lifecycleB = makeRuntime();
 const lifecycleGm = { _active: lifecycleA.owner };
 const lifecycleBridge = installGrout13Bridge(lifecycleGm, {
-    decodeGrout13Atlas() { return { canvas: source, frames }; }
+    decodeGrout13Atlas(payload) { return { canvas: source, frames: payload[0] === "font" ? fontFrames : frames }; }
 });
 const oldRecord = lifecycleBridge.addPayload("shared", ["a"]);
 lifecycleGm._active = lifecycleB.owner;
@@ -170,6 +170,61 @@ const externalTexture = { key: "external", has() { return true; } };
 lifecycleB.registered.set("external", externalTexture);
 assert.equal(externalRecord.dispose(), false, "a stale handle must not delete an externally reused key");
 assert.equal(lifecycleB.textures.get("external"), externalTexture);
+
+const lifecycleFontOptions = { decodeOptions: { canvasFactory: () => source } };
+lifecycleGm._active = lifecycleA.owner;
+const apiFontA = lifecycleBridge.addFont("lifecycle-api", font, lifecycleFontOptions);
+lifecycleGm._active = lifecycleB.owner;
+const apiFontB = lifecycleBridge.addFont("lifecycle-api", font, lifecycleFontOptions);
+assert.equal(apiFontA.dispose(), false, "a stale compiled-font handle must not delete a new runtime font");
+assert.equal(lifecycleBridge.getFont("lifecycle-api"), apiFontB);
+assert.deepEqual(lifecycleBridge.listFonts().map((item) => item.name), ["lifecycle-api"]);
+
+const lifecycleC = makeRuntime();
+const payloadFontA = lifecycleBridge.addFontPayload(
+    "lifecycle-payload",
+    ["font"],
+    font.glyphs,
+    font.metrics,
+    lifecycleFontOptions
+);
+lifecycleGm._active = lifecycleC.owner;
+const payloadFontB = lifecycleBridge.addFontPayload(
+    "lifecycle-payload",
+    ["font"],
+    font.glyphs,
+    font.metrics,
+    lifecycleFontOptions
+);
+assert.equal(payloadFontA.dispose(), false, "a stale payload-font handle must not delete a new runtime font");
+assert.equal(lifecycleBridge.getFont("lifecycle-payload"), payloadFontB);
+
+const externallyReusedFont = lifecycleBridge.addFontPayload(
+    "external-font",
+    ["font"],
+    font.glyphs,
+    font.metrics,
+    { ...lifecycleFontOptions, atlasKey: "external-font-atlas" }
+);
+lifecycleC.textures.remove(externallyReusedFont.atlasKey);
+const externalFontTexture = { key: externallyReusedFont.atlasKey, has() { return true; } };
+lifecycleC.registered.set(externallyReusedFont.atlasKey, externalFontTexture);
+assert.equal(externallyReusedFont.dispose(), false, "stale font disposal must not remove an externally reused atlas");
+assert.equal(lifecycleC.textures.get(externallyReusedFont.atlasKey), externalFontTexture);
+
+const cleanupFont = lifecycleBridge.addFontPayload(
+    "cleanup-font",
+    ["font"],
+    font.glyphs,
+    font.metrics,
+    lifecycleFontOptions
+);
+assert.equal(runRuntimeCleanup(lifecycleC.owner.state, "font_cleanup"), true);
+assert.equal(lifecycleBridge.getFont(cleanupFont.name), null, "runtime cleanup must hide stale fonts");
+assert.equal(lifecycleBridge.listFonts().length, 0, "runtime cleanup must remove all stale font listings");
+assert.equal(payloadFontB.dispose(), false, "runtime cleanup must invalidate payload-font handles");
+
+lifecycleGm._active = lifecycleB.owner;
 const cleanupRecord = lifecycleBridge.addPayload("cleanup", ["a"]);
 assert.equal(runRuntimeCleanup(lifecycleB.owner.state, "game_destroy"), true);
 assert.equal(cleanupRecord.dispose(), false, "runtime cleanup must invalidate bridge records");

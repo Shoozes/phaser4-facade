@@ -603,6 +603,7 @@ interface GMPointerState {
     released?: boolean;
     owner: string | null;
     downTime: number;
+    downSequence: number;
 }
 
 interface GMPrimaryPointer {

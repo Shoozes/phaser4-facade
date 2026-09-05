@@ -532,7 +532,8 @@
       pressed: false,
       released: false,
       owner: null,
-      downTime: Number(seed.time) || 0
+      downTime: Number(seed.time) || 0,
+      downSequence: 0
     };
   }
   function applyPointerDown(record, coords) {
@@ -540,6 +541,7 @@
       record.startX = coords.x;
       record.startY = coords.y;
       record.downTime = Number(coords.time) || record.downTime || 0;
+      record.downSequence = Number(record.downSequence) + 1;
       record.pressed = true;
     }
     record.down = true;
@@ -3581,6 +3583,11 @@ ${details}`);
     let opacity = targetOpacity;
     let fadeStartTime = 0;
     let fadeStartOpacity = opacity;
+    const observedDownPointers = /* @__PURE__ */ new Map();
+    function pointerDownSequence(pointer) {
+      const sequence = Number(pointer?.downSequence);
+      return Number.isFinite(sequence) && sequence > 0 ? sequence : null;
+    }
     const stick = createVirtualStick({
       mode: mode === "dynamic" ? "floating" : "fixed",
       origin: layoutOrigin,
@@ -3644,6 +3651,10 @@ ${details}`);
       released = false;
       refreshLayout();
       const pointers = deps.activePointers().filter(Boolean);
+      for (const pointer of pointers) {
+        const id = pointerId(pointer);
+        if (id && !pointer.down) observedDownPointers.delete(id);
+      }
       const ownId = stick.pointerId;
       if (!enabled || deps.inputBlocked()) {
         releaseOwned();
@@ -3663,15 +3674,18 @@ ${details}`);
       }
       if (!stick.active) {
         const candidate = pointers.find((pointer) => {
-          if (pointer.active === false || !pointer.down || pointer.pressed !== true) return false;
+          if (pointer.active === false || !pointer.down) return false;
           const id = pointerId(pointer);
           if (!id || !pointerKinds.has(pointerKind(pointer))) return false;
+          const sequence = pointerDownSequence(pointer);
+          if (observedDownPointers.has(id) && observedDownPointers.get(id) === sequence) return false;
           if (pointer.owner) return false;
           return contains(pointerPoint(pointer), activationZone);
         });
         if (candidate) {
           const id = pointerId(candidate);
           const point = pointerPoint(candidate);
+          observedDownPointers.set(id, pointerDownSequence(candidate));
           stick.press(id, point.x, point.y);
           pressed = true;
         }

@@ -28,6 +28,9 @@ import { GM } from "phaser4-facade";
 import { installGrout13Bridge } from "phaser4-facade/grout13";
 import * as GROUT13 from "grout13";
 
+const renderType = new URLSearchParams(window.location.search).get("render") === "canvas"
+  ? "CANVAS"
+  : "WEBGL";
 /* GENERATED_DATA_BEGIN */
 const CANVAS_STACK_ATLAS_PAYLOAD = Object.freeze([168,56,"101522182236ffd84fffffffffdf5c3b2f1fffef9115233a56d4ffa26f1671f6ff","F1F230V330d4F0N5F0F1F230V330d4F0N5F0F1F230V330d4F0N5F0F1F230V330d4F0N5F0F1F23633N73336d430B8N5B830F1F23633N73336d430B8N5B830F1F23633N73336d430B8N5B830F1F23633N73336d430B8N5B830F1F23633N7333674N074303879N5793830F1F23633N7333674N074303879N5793830F1F236331752775217333674N074303879N5793830F1F236331752775217333674N074303879N5793830F1F236331752775217333674N074303879N5793830F1F236331752775217333674N074303879N5793830F1F236331752775217333674N074303879N5793830F1F236331752775217333674N074303879N5793830F2F13633N7333674N074t5F2F13633N7333674N074t5F2F13633N7333674N074t5F2F13633N7333674N074t5F2F13633N7333674N074J5F4J5F2F13633N7333674N074J5F4J5F2F13633N7333674N074J5F4J5F2F13633N7333674N074J5F4J5F2F1363337FA37333674N074J5F4J5F2F1363337FA37333674N074J5F4J5F2F1363337FA37333674N074J5F4J5F2F1363337FA37333674N074J5F4J5F2F136V33674N074J5F4J5F2F136V33674N074J5F4J5F2F136V33674N074J5F4J5F2F136V33674N074J5F4J5903BH036V336d4J5F4J5903BH036V336d4J5F4J5903BH036V336d4J5F4J5903BH036V336d4J5F4J5903BH0d6d4t5903BH0d6d4t550B4D0d6d4t550B4D0d6d4t550B4$0X03879N5793890B4$0X03879N57938305BB45B$0R03879N57938305BB45B$0R03879N57938305BB45B$0R03879N57938305BB45B$0R03879N5793890B4$0X03879N5793890B4$0X03879N5793890B4$0X0B8N5B890B4$0X0B8N5B8D03B$0b0B8N5B8D03B$0b0B8N5B8D03B$0n0N5P03B$0n0N5P03B$0n0N5P03B$0n0N5F0",[0,0,32,32,32,0,40,40,0,32,24,24,72,0,40,40,112,0,56,56],"checker|player|target|marker|logo"]);
 const PIXEL_FONT_PAYLOAD = [28,500,"ffffff","J170J170J170J1703130713031303130713031303130713031303130713031303130B1703130B1703130B1703130B170313071B0313071B0313071B0313071B0F1B0F1B0F1B0F1F0317031B0317031B0317031B03170317071303130313071303130313071303130313071303130317031303130317031303130317031303130317031303130317031707170317071703170717031707130B1703130B1703130B1703130B1703130713071707130717071307170713071F0713031B0713031B0713031B071303130J170J170J170J170317031303130317031303130317031303130317031303130F1303130F1303130F1303130F1303130717071307170713071707130717071B071J071J071J071F0713031B0713031B0713031B0713031F0317031B0317031B0317031B031703130713071707130717071307170713071703130F1303130F1303130F1303130F130313031303170313031303170313031303170313031303170B1303170B1303170B1303170B13031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F031303170F1303130F1303130F1303130F13031303170313031303170313031303170313031303170313031307130313031307130313031307130313031307130313031B0713031B0713031B0713031B0713031307130B1307130B1307130B1307130B170B1303170B1303170B1303170B1303130317031303130317031303130317031303130317031303130F1303130F1303130F1303130F1303130313071303130313071303130313071303130313071303130B1303170B1303170B1303170B1303170F1303130F1303130F1303130F13031B0713031B0713031B0713031B0713031703130B1703130B1703130B1703130B1703130B1703130B1703130B1703130B170313031303170313031303170313031303170313031303130F1303130F1303130F1303130F1303130313071303130313071303130313071303130313071303130B1303170B1303170B1303170B1303170313071303130313071303130313071303130313071303130F1303130F1303130F1303130F1303130F1303130F1303130F1303130F1303130313071303130313071303130313071303130313071303130B1303170B1303170B1303170B13031F0313031F0313031F0313031F031303170717031707170317071703170717031B03130B1703130B1703130B1703130B130313031703130313031703130313031703130313031703130B1303170B1303170B1303170B1303170313071B0313071B0313071B0313071B03130F1303130F1303130F1303130F1307170J170J170J170F13031B0713031B0713031B0713031B0B1B0313071B0313071B0313071B03130313031F0313031F0313031F0313031F071303130313071303130313071303130313071303130317071J071J071J071F031N031N031N031N031N031N031N031N031N031N031N031R071J071J071J071F071J071J071J071J0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F071J071J071J071J0B1F0B1F0B1F0B1F031N031N031N031N071J071J071J071J031N031N031N031N0B1F0B1F0B1F0B1F0B1F0B1F0B1F0B1F031N031N031N031N071J071J071J071J031N031N031N031N031N031N031N031R071J071J071J071F031N031N031N031N0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031J071J071J071J071F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0B1F0B1F0B1F0B1F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0B1F0B1F0B1F0B1J031N031N031N031N031N031N031N031N031N031N031N031J0B1F0B1F0B1F0B1N031N031N031N031N031N031N031N031N031N031N031N031F0313031F0313031F0313031F0313031J031N031N031N031J0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F071J071J071J071J0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F031N031N031N031N031N031N031N031N031N031N031N031N031N031N031N031N0B1F0B1F0B1F0B1F0313031F0313031F0313031F0313031F0B1F0B1F0B1F0B1F0B1F0B1F0B1F0B1F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0B1F0B1F0B1F0B1F0B1F0B1F0B1F0B1F0B1F0B1F0B1F0B1F0313031F0313031F0313031F0313031J031N031N031N031J0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031F0313031J031N031N031N031J0",[0,0,12,20,0,20,12,20,0,40,12,20,0,60,12,20,0,80,12,20,0,100,12,20,0,120,12,20,0,140,12,20,0,160,12,20,0,180,12,20,0,200,12,20,0,220,12,20,0,240,12,20,0,260,12,20,0,280,12,20,0,300,12,20,0,320,12,20,0,340,12,20,0,360,12,20,0,380,12,20,0,400,12,20,0,420,12,20,0,440,12,20,0,460,12,20,0,480,12,20,12,0,12,20,12,20,12,20,12,40,12,20,12,60,12,20,12,80,12,20,12,100,12,20,12,120,12,20,12,140,12,20,12,160,12,20,12,180,12,20,12,200,12,20,12,220,4,20,12,240,8,20,16,220,12,20],"0|1|2|3|4|5|6|7|8|9|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|.|space|?"];
@@ -60,6 +63,22 @@ const proof = globalThis.__canvasStackProof = {
   restarts:0,
   outcome:null,
   cameraMoved:false,
+  joystickMoved:false,
+  joystickPresses:0,
+  joystickActive:false,
+  joystickEnabled:false,
+  inputBlocked:false,
+  targetActive:false,
+  joystickMagnitude:0,
+  joystickOrigin:null,
+  touchInput:false,
+  touchPulse:false,
+  pauseGesture:false,
+  rendererType:null,
+  render:renderType,
+  pauseRect:null,
+  continueRect:null,
+  pulseRect:null,
   mouse:true,
   touch:true
 };
@@ -107,8 +126,13 @@ const state = {
   camera:null,
   transition:{alpha:1,next:null,direction:-1},
   messageAge:0,
-  cameraMoved:false
+  cameraMoved:false,
+  pausePointerId:null,
+  resumePointerId:null,
+  pulsePointerId:null
 };
+
+let movementJoystick = null;
 
 function installGeneratedAssets(){
   GM.grout13.addPayload(ATLAS,CANVAS_STACK_ATLAS_PAYLOAD,{replace:true});
@@ -126,6 +150,7 @@ function beginTransition(next){
 }
 
 function setMode(next){
+  clearControlGestures();
   state.mode=next;
   state.modeAge=0;
   state.paused=false;
@@ -152,6 +177,86 @@ function setMode(next){
       drone.collected=false;
     });
   }
+  syncMovementControl();
+  updateProof();
+}
+
+function controlsEnabled(){
+  return state.mode==="game"&&
+    !state.paused&&
+    !state.transition.next&&
+    state.transition.alpha<=0.08;
+}
+
+function clearControlGestures(){
+  for(const pointerId of [state.pausePointerId,state.resumePointerId,state.pulsePointerId]){
+    if(pointerId!==null&&pointerId!==undefined) GM.input.releasePointer(pointerId,"button");
+  }
+  state.pausePointerId=null;
+  state.resumePointerId=null;
+  state.pulsePointerId=null;
+}
+
+function syncMovementControl(){
+  if(!movementJoystick) return;
+  const enabled=controlsEnabled();
+  movementJoystick.setEnabled(enabled);
+  if(!enabled) movementJoystick.reset();
+}
+
+function rectContains(rect,x,y){
+  return Boolean(rect)&&
+    x>=rect.x&&
+    x<=rect.x+rect.width&&
+    y>=rect.y&&
+    y<=rect.y+rect.height;
+}
+
+function pauseButtonRect(){
+  const screen=GM.viewport.logicalRect;
+  const pad=24;
+  return {x:screen.width-pad-118,y:pad,width:118,height:54};
+}
+
+function continueButtonRect(){
+  const screen=GM.viewport.logicalRect;
+  return {x:screen.width/2-150,y:screen.height/2,width:300,height:84};
+}
+
+function pulseButtonRect(){
+  const screen=GM.viewport.logicalRect;
+  const pad=24;
+  return {x:screen.width-pad-156,y:screen.height-pad-104,width:132,height:80};
+}
+
+function pointerId(pointer){
+  return String(pointer?.id??pointer?.pointerId??"").trim();
+}
+
+function markTouch(pointer){
+  if(pointer?.kind==="touch") proof.touchInput=true;
+}
+
+function captureButton(pointer){
+  const id=pointerId(pointer);
+  if(!id) return null;
+  GM.input.capturePointer(id,"button");
+  return id;
+}
+
+function releaseButton(pointer){
+  const id=pointerId(pointer);
+  if(id) GM.input.releasePointer(id,"button");
+  return id;
+}
+
+function resumeFromPause(pointer){
+  state.pausePointerId=null;
+  state.resumePointerId=captureButton(pointer);
+  state.paused=false;
+  state.messageAge=0;
+  proof.pauseGesture=true;
+  syncMovementControl();
   updateProof();
 }
 
@@ -164,28 +269,43 @@ function updateProof(){
   proof.restarts=state.restarts;
   proof.outcome=state.outcome;
   proof.cameraMoved=proof.cameraMoved||state.cameraMoved;
+  proof.joystickActive=Boolean(movementJoystick?.active);
+  proof.joystickEnabled=Boolean(movementJoystick?.enabled);
+  proof.inputBlocked=Boolean(GM.runtime.input_blocked?.());
+  proof.targetActive=Boolean(state.target.active);
+  proof.joystickMagnitude=Number(movementJoystick?.magnitude||0);
+  proof.joystickOrigin=movementJoystick?.origin||null;
+  proof.joystickMoved=proof.joystickMoved||Boolean(movementJoystick?.magnitude>0);
+  proof.pauseRect=pauseButtonRect();
+  proof.continueRect=continueButtonRect();
+  proof.pulseRect=pulseButtonRect();
 }
 
 function restart(){
+  clearControlGestures();
   state.restarts+=1;
   state.transition.alpha=0;
   state.transition.direction=1;
   state.transition.next="game";
   state.outcome=null;
+  syncMovementControl();
   updateProof();
 }
 
 function finish(outcome){
   if(state.mode!=="game") return;
+  clearControlGestures();
   state.outcome=outcome;
   state.mode="result";
   state.modeAge=0;
   state.paused=false;
+  syncMovementControl();
   updateProof();
 }
 
 function stepTransition(dt){
   const transition=state.transition;
+  const wasEnabled=controlsEnabled();
   transition.alpha=GM.math.clamp(
     transition.alpha+transition.direction*dt*3.2,
     0,
@@ -194,6 +314,7 @@ function stepTransition(dt){
   if(transition.direction>0&&transition.alpha>=1&&transition.next){
     setMode(transition.next);
   }
+  if(wasEnabled!==controlsEnabled()) syncMovementControl();
 }
 
 function updatePlayer(dt){
@@ -208,6 +329,18 @@ function updatePlayer(dt){
   if(GM.input.keyDown(GM.key.UP)||GM.input.keyDown("W")) dy-=1;
   if(GM.input.keyDown(GM.key.DOWN)||GM.input.keyDown("S")) dy+=1;
 
+  const keyboardLength=Math.hypot(dx,dy);
+  let analog=false;
+  if(keyboardLength===0&&movementJoystick?.active){
+    state.target.active=false;
+  }
+  if(keyboardLength===0&&movementJoystick?.active&&movementJoystick.magnitude>0){
+    const vector=movementJoystick.vector;
+    dx=vector.x;
+    dy=vector.y;
+    analog=true;
+  }
+
   if(dx||dy){
     state.target.active=false;
   }else if(state.target.active){
@@ -220,7 +353,9 @@ function updatePlayer(dt){
   }
 
   if(dx||dy){
-    const direction=GM.math.normalize2(dx,dy);
+    const direction=analog
+      ? {x:dx,y:dy}
+      : GM.math.normalize2(dx,dy);
     const speed=320;
     player.x+=direction.x*speed*dt;
     player.y+=direction.y*speed*dt;
@@ -580,6 +715,11 @@ function drawWorld(){
   else drawSplash();
 }
 
+function drawControls(){
+  if(!controlsEnabled()) return;
+  movementJoystick?.draw();
+}
+
 function drawOverlay(){
   const D=GM.draw;
   const visible=GM.viewport.visibleRoomRect;
@@ -617,6 +757,22 @@ function drawOverlay(){
       color:"#ffe66d",
       align:"center"
     });
+
+    const pulse=pulseButtonRect();
+    D.rect(pulse.x,pulse.y,pulse.x+pulse.width,pulse.y+pulse.height,{
+      color:"#05070d",
+      alpha:0.78
+    });
+    D.atlasText(FONT,"PULSE",pulse.x+pulse.width/2,pulse.y+18,{
+      scale:1.05,
+      color:"#ffe66d",
+      align:"center"
+    });
+    D.atlasText(FONT,"X / SPACE",pulse.x+pulse.width/2,pulse.y+50,{
+      scale:0.68,
+      color:"#a9bfd9",
+      align:"center"
+    });
   }
 
   if(state.mode==="result"){
@@ -639,8 +795,13 @@ function drawOverlay(){
       color:"#ffffff",
       align:"center"
     });
-    D.atlasText(FONT,"TAP TO RESUME",screen.width/2,screen.height/2+36,{
-      scale:1,
+    const resume=continueButtonRect();
+    D.rect(resume.x,resume.y,resume.x+resume.width,resume.y+resume.height,{
+      color:"#05070d",
+      alpha:0.86
+    });
+    D.atlasText(FONT,"CONTINUE",screen.width/2,screen.height/2+26,{
+      scale:1.1,
       color:"#ffe66d",
       align:"center"
     });
@@ -662,10 +823,27 @@ function drawOverlay(){
 function overlayInput(pointer){
   if(!pointer) return false;
 
-  if(state.paused){
+  const id=pointerId(pointer);
+  if(state.resumePointerId&&id===state.resumePointerId){
     if(pointer.released){
-      state.paused=false;
-      state.messageAge=0;
+      releaseButton(pointer);
+      state.resumePointerId=null;
+    }
+    return true;
+  }
+
+  if(state.paused){
+    if(state.pausePointerId&&id===state.pausePointerId){
+      if(pointer.pressed&&rectContains(continueButtonRect(),pointer.roomX,pointer.roomY)){
+        resumeFromPause(pointer);
+      }else if(pointer.released){
+        releaseButton(pointer);
+        state.pausePointerId=null;
+      }
+      return true;
+    }
+    if(pointer.pressed&&rectContains(continueButtonRect(),pointer.roomX,pointer.roomY)){
+      resumeFromPause(pointer);
     }
     return true;
   }
@@ -685,16 +863,11 @@ function overlayInput(pointer){
   }
 
   if(state.mode==="game"&&pointer.pressed){
-    const screen=GM.viewport.logicalRect;
-    const pad=24;
-    const pauseX=screen.width-pad-118;
-    if(
-      pointer.roomX>=pauseX&&
-      pointer.roomX<=screen.width-pad&&
-      pointer.roomY>=pad&&
-      pointer.roomY<=pad+54
-    ){
+    if(rectContains(pauseButtonRect(),pointer.roomX,pointer.roomY)){
+      state.pausePointerId=captureButton(pointer);
       state.paused=true;
+      markTouch(pointer);
+      syncMovementControl();
       updateProof();
       return true;
     }
@@ -703,8 +876,31 @@ function overlayInput(pointer){
   return false;
 }
 
+function controlInput(pointer){
+  if(!pointer) return false;
+  const id=pointerId(pointer);
+  if(!id) return false;
+
+  if(state.pulsePointerId===id){
+    if(pointer.released){
+      releaseButton(pointer);
+      state.pulsePointerId=null;
+    }
+    return true;
+  }
+  if(!controlsEnabled()||pointer.owner) return false;
+  if(pointer.pressed&&rectContains(pulseButtonRect(),pointer.roomX,pointer.roomY)){
+    state.pulsePointerId=captureButton(pointer);
+    markTouch(pointer);
+    proof.touchPulse=proof.touchPulse||pointer.kind==="touch";
+    triggerPulse();
+    return true;
+  }
+  return false;
+}
+
 function worldInput(pointer){
-  if(state.mode!=="game"||state.paused||!pointer||!pointer.pressed) return false;
+  if(state.mode!=="game"||state.paused||!pointer||!pointer.pressed||pointer.owner) return false;
   const camera=state.camera;
   if(!camera.containsScene(pointer.roomX,pointer.roomY)) return false;
   camera.sceneToWorld(pointer.roomX,pointer.roomY,state.target);
@@ -712,6 +908,27 @@ function worldInput(pointer){
   state.target.y=GM.math.clamp(state.target.y,0,ROOM.height);
   state.target.active=true;
   return true;
+}
+
+function inputPointer(pointer){
+  if(!pointer) return null;
+  return {
+    ...pointer,
+    roomX:pointer.x,
+    roomY:pointer.y
+  };
+}
+
+function processAdditionalPointers(primary){
+  if(typeof GM.input.activePointers!=="function") return;
+  const primaryId=primary?.id||null;
+  for(const rawPointer of GM.input.activePointers()){
+    if(!rawPointer||String(rawPointer.id)===String(primaryId)) continue;
+    const pointer=inputPointer(rawPointer);
+    markTouch(pointer);
+    if(overlayInput(pointer)) continue;
+    controlInput(pointer);
+  }
 }
 
 const stack=GM.layer.compose([
@@ -736,6 +953,12 @@ const stack=GM.layer.compose([
       return state.mode==="game";
     },
     draw:drawWorldFrame
+  },
+  {
+    name:"controls",
+    order:18,
+    input:controlInput,
+    draw:drawControls
   },
   {
     name:"overlay",
@@ -774,11 +997,35 @@ function create(){
     maxAspect:ROOM.maxAspect
   });
   state.camera.layout(GM.viewport.logicalRect);
+  movementJoystick=GM.input.createVirtualJoystick({
+    id:"grout-vault-movement",
+    mode:"fixed",
+    layer:"controls",
+    radius:76,
+    deadzone:0.14,
+    pointerKinds:["touch","pen","mouse"],
+    enabled:false,
+    layout(viewport){
+      const safe=viewport.safeScreenRect||viewport.screenRect;
+      return {
+        origin:{x:safe.x+104,y:safe.y+safe.height-112},
+        zone:{x:safe.x,y:safe.y+safe.height*0.32,width:safe.width*0.58,height:safe.height*0.68}
+      };
+    },
+    style:{
+      baseFill:"#07101c",
+      baseStroke:"#d4e8ff",
+      knobFill:"#71f6ff",
+      knobStroke:"#ffffff"
+    }
+  });
   proof.startGame=()=>beginTransition("game");
   proof.triggerPulse=triggerPulse;
   proof.triggerWin=()=>finish("win");
   proof.triggerLoss=()=>finish("loss");
   proof.restart=restart;
+  proof.rendererType=GM.phaser.game?.renderer?.type??null;
+  syncMovementControl();
   updateProof();
   proof.complete=true;
 }
@@ -811,6 +1058,7 @@ GM.app.start({
   maxCatchUpSteps:5,
   randomSeed:1337,
   renderQuality:"pixel-art",
+  type:renderType,
   pixelArt:true,
   antialias:false,
   roundPixels:true,
@@ -824,15 +1072,24 @@ GM.app.start({
   layerAssertions:true,
   create,
   input(){
-    stack.input(GM.input.primaryPointer(),GM.runtime.deltaSec);
+    const primary=GM.input.primaryPointer();
+    processAdditionalPointers(primary);
+    if(movementJoystick?.pressed){
+      proof.joystickPresses+=1;
+      markTouch(GM.input.getPointer?.(movementJoystick.pointerId));
+    }
+    if(movementJoystick?.active&&movementJoystick.magnitude>0) proof.joystickMoved=true;
+    stack.input(primary,GM.runtime.deltaSec);
     if(
       state.mode==="game"&&
       (GM.input.keyPressed("P")||GM.input.keyPressed(GM.key.ESCAPE))
     ){
       state.paused=!state.paused;
+      clearControlGestures();
+      syncMovementControl();
       updateProof();
     }
-    if(GM.input.keyPressed("X")) triggerPulse();
+    if(GM.input.keyPressed("X")||GM.input.keyPressed(GM.key.SPACE)) triggerPulse();
   },
   step(_gm,dt){stack.step(dt);},
   draw(){stack.draw();},

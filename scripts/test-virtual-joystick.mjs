@@ -30,7 +30,8 @@ function addPointer(id, x, y, kind = "touch", pointerStore = pointers) {
         active: true,
         pressed: true,
         released: false,
-        owner: null
+        owner: null,
+        downSequence: 1
     };
     pointerStore.set(pointer.id, pointer);
     return pointer;
@@ -131,6 +132,17 @@ now = 300;
 horizontal.update();
 assert.equal(horizontal.vector.y, 0, "horizontal axis lock must suppress vertical output");
 
+const deferredPointers = new Map();
+const deferredPointer = addPointer("deferred", 180, 180, "touch", deferredPointers);
+deferredPointer.pressed = false;
+const deferred = createVirtualJoystick({
+    id: "deferred-edge",
+    layout: () => ({ origin: { x: 180, y: 180 }, zone: { x: 0, y: 0, width: 320, height: 360 } })
+}, makeDeps(deferredPointers));
+deferred.update();
+assert.equal(deferred.active, true, "a held pointer must still be acquired after its pressed edge was consumed");
+deferred.destroy();
+
 const blockedCyclePointers = new Map();
 let inputBlocked = false;
 const blockedCycle = createVirtualJoystick({
@@ -200,5 +212,5 @@ fixed.reset();
 dynamic.destroy();
 horizontal.destroy();
 fading.destroy();
-assert.deepEqual(calls.filter(([kind]) => kind === "release").map(([, id]) => id).sort(), ["blocked", "fade", "left", "modal-1", "modal-2", "modal-3", "right"].sort());
+assert.deepEqual(calls.filter(([kind]) => kind === "release").map(([, id]) => id).sort(), ["blocked", "deferred", "fade", "left", "modal-1", "modal-2", "modal-3", "right"].sort());
 console.log("[ok] Virtual joystick contract tests passed.");

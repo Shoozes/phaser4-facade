@@ -200,6 +200,13 @@ export function createVirtualJoystick(options = {}, deps) {
     let opacity = targetOpacity;
     let fadeStartTime = 0;
     let fadeStartOpacity = opacity;
+    const observedDownPointers = new Map();
+
+    /** @param {any} pointer */
+    function pointerDownSequence(pointer) {
+        const sequence = Number(pointer?.downSequence);
+        return Number.isFinite(sequence) && sequence > 0 ? sequence : null;
+    }
 
     const stick = createVirtualStick({
         mode: mode === "dynamic" ? "floating" : "fixed",
@@ -275,6 +282,10 @@ export function createVirtualJoystick(options = {}, deps) {
         released = false;
         refreshLayout();
         const pointers = deps.activePointers().filter(Boolean);
+        for (const pointer of pointers) {
+            const id = pointerId(pointer);
+            if (id && !pointer.down) observedDownPointers.delete(id);
+        }
         const ownId = stick.pointerId;
 
         if (!enabled || deps.inputBlocked()) {
@@ -298,15 +309,22 @@ export function createVirtualJoystick(options = {}, deps) {
 
         if (!stick.active) {
             const candidate = pointers.find((pointer) => {
-                if (pointer.active === false || !pointer.down || pointer.pressed !== true) return false;
+                // A native touch can arrive just after the render-frame edge
+                // is consumed. The held/down contract is the stable signal;
+                // ownership and the activation zone still prevent stealing
+                // buttons or gameplay pointers.
+                if (pointer.active === false || !pointer.down) return false;
                 const id = pointerId(pointer);
                 if (!id || !pointerKinds.has(pointerKind(pointer))) return false;
+                const sequence = pointerDownSequence(pointer);
+                if (observedDownPointers.has(id) && observedDownPointers.get(id) === sequence) return false;
                 if (pointer.owner) return false;
                 return contains(pointerPoint(pointer), activationZone);
             });
             if (candidate) {
                 const id = pointerId(candidate);
                 const point = pointerPoint(candidate);
+                observedDownPointers.set(id, pointerDownSequence(candidate));
                 stick.press(id, point.x, point.y);
                 pressed = true;
             }
