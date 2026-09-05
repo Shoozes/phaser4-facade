@@ -174,17 +174,95 @@ function requireTextures(scene) {
     return scene.textures;
 }
 
+/** @param {any} textures @param {string} key */
+function getRegisteredTexture(textures, key) {
+    if (typeof textures.get === "function") return textures.get(key);
+    return textures.list && Object.prototype.hasOwnProperty.call(textures.list, key)
+        ? textures.list[key]
+        : null;
+}
+
+/** @param {any} textures @param {string} key */
+function removeRegisteredTexture(textures, key) {
+    if (typeof textures.removeKey !== "function") {
+        throw new Error("GM.asset replacement requires Phaser textures.removeKey support.");
+    }
+    textures.removeKey(key);
+}
+
 /**
+ * Prepare a same-key replacement without mutating the texture manager. Phaser's
+ * public remove() destroys the old texture immediately, so replacements use
+ * removeKey() and restore the old registry entry if registration fails.
+ *
  * @param {any} textures
  * @param {string} key
  * @param {boolean} replace
+ * @returns {any}
  */
-function ensureReplaceable(textures, key, replace) {
-    if (!textures.exists(key)) return;
+function prepareReplacement(textures, key, replace) {
+    if (!textures.exists(key)) return null;
     if (!replace) {
         throw new Error(`GM.asset texture already exists: ${key}. Pass { replace: true } to overwrite.`);
     }
-    if (typeof textures.remove === "function") textures.remove(key);
+    if (!textures.list || typeof textures.removeKey !== "function") {
+        throw new Error(`GM.asset cannot safely replace texture without Phaser texture registry support: ${key}`);
+    }
+    const previous = getRegisteredTexture(textures, key);
+    if (!previous) throw new Error(`GM.asset cannot safely resolve the existing texture: ${key}`);
+    return previous;
+}
+
+/**
+ * @param {any} textures
+ * @param {string} key
+ * @param {any} previous
+ * @param {() => any} register
+ * @returns {any}
+ */
+function registerTextureTransactionally(textures, key, previous, register) {
+    if (previous) removeRegisteredTexture(textures, key);
+    try {
+        const texture = register();
+        if (!texture) throw new Error(`Phaser could not register texture: ${key}`);
+        const registered = textures.list
+            ? textures.list[key] === texture
+            : typeof textures.exists === "function" && textures.exists(key);
+        if (!registered) {
+            throw new Error(`Phaser did not expose the registered texture: ${key}`);
+        }
+        if (previous && previous !== texture && typeof previous.destroy === "function") {
+            const current = textures.list[key];
+            removeRegisteredTexture(textures, key);
+            try {
+                previous.destroy();
+            } finally {
+                textures.list[key] = current;
+            }
+        }
+        return texture;
+    } catch (error) {
+        if (textures.list && Object.prototype.hasOwnProperty.call(textures.list, key) && textures.list[key] !== previous) {
+            removeRegisteredTexture(textures, key);
+        } else if (!previous && !textures.list && textures.exists(key) && typeof textures.remove === "function") {
+            textures.remove(key);
+        }
+        if (previous) textures.list[key] = previous;
+        throw error;
+    }
+}
+
+/** @param {any} source @param {Record<string, any>} safeFrames */
+function validateAtlasBounds(source, safeFrames) {
+    const width = requireNonNegativeInt(source.width, "atlas source width");
+    const height = requireNonNegativeInt(source.height, "atlas source height");
+    if (width <= 0 || height <= 0) throw new TypeError("GM.asset.addAtlas source requires positive width and height.");
+    for (const [name, frame] of Object.entries(safeFrames)) {
+        const { x, y, w, h } = frame.frame;
+        if (x + w > width || y + h > height) {
+            throw new RangeError(`GM.asset.addAtlas frame ${name} exceeds source bounds.`);
+        }
+    }
 }
 
 /**
@@ -232,16 +310,19 @@ export function addCanvasTexture(scene, key, canvas, options = {}) {
     if (!canvas || typeof canvas !== "object") {
         throw new TypeError("GM.asset.addCanvas requires a canvas.");
     }
-    ensureReplaceable(textures, textureKey, options.replace === true);
     if (typeof textures.addCanvas !== "function") {
         throw new Error("Phaser textures.addCanvas is unavailable.");
     }
-    const texture = textures.addCanvas(textureKey, canvas);
+    const width = requireNonNegativeInt(canvas.width, "canvas width");
+    const height = requireNonNegativeInt(canvas.height, "canvas height");
+    if (width <= 0 || height <= 0) throw new TypeError("GM.asset.addCanvas requires positive width and height.");
+    const previous = prepareReplacement(textures, textureKey, options.replace === true);
+    const texture = registerTextureTransactionally(textures, textureKey, previous, () => textures.addCanvas(textureKey, canvas));
     return {
         key: textureKey,
         texture,
-        width: Number(/** @type {any} */ (canvas).width) || 0,
-        height: Number(/** @type {any} */ (canvas).height) || 0,
+        width,
+        height,
         frames: ["__BASE"]
     };
 }
@@ -270,7 +351,6 @@ export function addAtlasTexture(scene, key, source, frames, options = {}) {
     const textureKey = normalizeTextureKey(key);
     const textures = requireTextures(scene);
     const safeFrames = normalizeAtlasFrames(frames);
-    ensureReplaceable(textures, textureKey, options.replace === true);
 
     let atlasSource = source;
     if (typeof source === "string") {
@@ -294,46 +374,44 @@ export function addAtlasTexture(scene, key, source, frames, options = {}) {
         throw new TypeError("GM.asset.addAtlas source must be a canvas, RGBA source, or existing texture key.");
     }
 
-    try {
-        if (typeof textures.addAtlasJSONHash !== "function") {
-            throw new Error("Phaser textures.addAtlasJSONHash is unavailable.");
-        }
+    validateAtlasBounds(atlasSource, safeFrames);
+    if (typeof textures.addAtlasJSONHash !== "function") {
+        throw new Error("Phaser textures.addAtlasJSONHash is unavailable.");
+    }
+    const previous = prepareReplacement(textures, textureKey, options.replace === true);
+    /** @type {Record<string, any>} */
+    const frameMeta = {};
+    for (const [name, frame] of Object.entries(safeFrames)) {
+        frameMeta[name] = {
+            width: frame.frame.w,
+            height: frame.frame.h,
+            sourceWidth: frame.sourceSize ? frame.sourceSize.w : frame.frame.w,
+            sourceHeight: frame.sourceSize ? frame.sourceSize.h : frame.frame.h,
+            pivot: frame.pivot || null,
+            meta: frame.meta || null
+        };
+    }
+
+    const texture = registerTextureTransactionally(textures, textureKey, previous, () => {
         const data = {
             frames: safeFrames,
             meta: { scale: "1" }
         };
-        const texture = textures.addAtlasJSONHash(textureKey, atlasSource, data);
-        if (!texture) {
-            throw new Error(`Phaser could not register atlas texture: ${textureKey}`);
-        }
-        /** @type {Record<string, any>} */
-        const frameMeta = {};
-        for (const [name, frame] of Object.entries(safeFrames)) {
-            frameMeta[name] = {
-                width: frame.frame.w,
-                height: frame.frame.h,
-                sourceWidth: frame.sourceSize ? frame.sourceSize.w : frame.frame.w,
-                sourceHeight: frame.sourceSize ? frame.sourceSize.h : frame.frame.h,
-                pivot: frame.pivot || null,
-                meta: frame.meta || null
-            };
-        }
-        texture.customData = Object.assign({}, texture.customData, { gmFrameMeta: frameMeta });
-        return {
-            key: textureKey,
-            texture,
-            frames: Object.keys(safeFrames),
-            frameCount: Object.keys(safeFrames).length,
-            width: Number(/** @type {any} */ (atlasSource).width) || 0,
-            height: Number(/** @type {any} */ (atlasSource).height) || 0,
-            source: typeof source === "string" ? source : undefined
-        };
-    } catch (error) {
-        if (typeof textures.remove === "function" && textures.exists(textureKey)) {
-            textures.remove(textureKey);
-        }
-        throw error;
-    }
+        const registered = textures.addAtlasJSONHash(textureKey, atlasSource, data);
+        if (!registered) throw new Error(`Phaser could not register atlas texture: ${textureKey}`);
+        if (!registered.customData) registered.customData = {};
+        registered.customData = Object.assign({}, registered.customData, { gmFrameMeta: frameMeta });
+        return registered;
+    });
+    return {
+        key: textureKey,
+        texture,
+        frames: Object.keys(safeFrames),
+        frameCount: Object.keys(safeFrames).length,
+        width: Number(/** @type {any} */ (atlasSource).width) || 0,
+        height: Number(/** @type {any} */ (atlasSource).height) || 0,
+        source: typeof source === "string" ? source : undefined
+    };
 }
 
 /**

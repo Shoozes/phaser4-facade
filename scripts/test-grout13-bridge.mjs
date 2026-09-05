@@ -15,10 +15,16 @@ const compiled = { payload: [4, 2, "ffffff", "0", [0, 0, 2, 2], "apple"] };
 
 function makeRuntime({ missingFrames = false, failSource = false, failCalls = 0 } = {}) {
     const registered = new Map();
+    const list = Object.create(null);
     let addCalls = 0;
     const textures = {
+        list,
         exists(key) { return registered.has(String(key)); },
         get(key) { return registered.get(String(key)) || null; },
+        removeKey(key) {
+            registered.delete(String(key));
+            delete list[String(key)];
+        },
         addAtlasJSONHash(key, atlasSource, data) {
             addCalls += 1;
             if ((failSource && atlasSource.fail) || addCalls <= failCalls) {
@@ -31,10 +37,12 @@ function makeRuntime({ missingFrames = false, failSource = false, failCalls = 0 
                 has(frame) { return !missingFrames && this.frames.has(String(frame)); }
             };
             registered.set(String(key), texture);
+            list[String(key)] = texture;
             return texture;
         },
         remove(key) {
             registered.delete(String(key));
+            delete list[String(key)];
             return true;
         }
     };
