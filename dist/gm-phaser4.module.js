@@ -5026,8 +5026,10 @@ function createFullscreenHost(root, configuredParent) {
     for (const property of properties) {
       if (!records.has(property)) records.set(property, readStyle(element, property));
       const shorthand = SHORTHAND_PROPERTIES.get(property);
-      const shorthandRecord = shorthand ? readStyle(element, shorthand) : null;
-      if (shorthandRecord?.explicit && !records.has(shorthand)) records.set(shorthand, shorthandRecord);
+      if (shorthand) {
+        const shorthandRecord = readStyle(element, shorthand);
+        if (shorthandRecord?.explicit && !records.has(shorthand)) records.set(shorthand, shorthandRecord);
+      }
     }
     for (const property of properties) {
       writeStyle(element, property, values[property] ?? "");
