@@ -39,13 +39,23 @@ function createCanvas() {
 
 function createTextureManager() {
     const records = new Map();
+    const list = Object.create(null);
     return {
         records,
+        list,
         exists(key) { return records.has(String(key)); },
-        remove(key) { records.delete(String(key)); },
+        remove(key) {
+            records.delete(String(key));
+            delete list[String(key)];
+        },
+        removeKey(key) {
+            records.delete(String(key));
+            delete list[String(key)];
+        },
         addCanvas(key, canvas) {
             const record = { key: String(key), source: [{ image: canvas }] };
             records.set(record.key, record);
+            list[record.key] = record;
             return record;
         },
         addAtlasJSONHash(key, source, data) {
@@ -56,6 +66,7 @@ function createTextureManager() {
                 hasFrame(frame) { return Object.prototype.hasOwnProperty.call(this.frames, frame); }
             };
             records.set(record.key, record);
+            list[record.key] = record;
             return record;
         },
         get(key) { return records.get(String(key)) || null; }
