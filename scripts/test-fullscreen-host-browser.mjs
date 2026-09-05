@@ -23,10 +23,7 @@ try {
         const canvas = document.createElement("canvas");
         parent.append(canvas);
         document.body.append(parent);
-        document.documentElement.style.setProperty("margin-left", "17px");
-        document.documentElement.style.setProperty("padding-top", "9px");
-        document.documentElement.style.setProperty("overflow-x", "scroll", "important");
-        document.documentElement.style.setProperty("overscroll-behavior-y", "contain");
+        document.documentElement.setAttribute("style", "margin-left: 17px; padding-top: 9px; overflow: scroll !important; overscroll-behavior: contain !important;");
         document.body.style.setProperty("top", "11px", "important");
         document.body.style.setProperty("color", "red", "important");
         document.body.style.setProperty("overflow-y", "auto");
@@ -55,6 +52,10 @@ try {
             canvasTouchPriority: canvas.style.getPropertyPriority("touch-action")
         };
         const restored = host.restore();
+        const declarations = (style) => Array.from({ length: style.length }, (_, index) => {
+            const name = style.item(index);
+            return [name, style.getPropertyValue(name), style.getPropertyPriority(name)];
+        });
         return {
             during,
             restored,
@@ -73,7 +74,8 @@ try {
                 color: document.body.style.getPropertyValue("color"),
                 colorPriority: document.body.style.getPropertyPriority("color"),
                 canvasTouchAction: canvas.style.getPropertyValue("touch-action"),
-                canvasTouchPriority: canvas.style.getPropertyPriority("touch-action")
+                canvasTouchPriority: canvas.style.getPropertyPriority("touch-action"),
+                htmlDeclarations: declarations(document.documentElement.style)
             },
             secondRestore: host.restore()
         };
@@ -98,19 +100,27 @@ try {
     assert.deepEqual(result.after, {
         marginLeft: "17px",
         paddingTop: "9px",
-        overflow: "",
+        overflow: "scroll",
         overflowX: "scroll",
         overflowXPriority: "important",
-        overflowY: "",
-        overscroll: "",
-        overscrollX: "",
+        overflowY: "scroll",
+        overscroll: "contain",
+        overscrollX: "contain",
         overscrollY: "contain",
         top: "11px",
         bodyOverflowY: "auto",
         color: "blue",
         colorPriority: "important",
         canvasTouchAction: "pan-x",
-        canvasTouchPriority: "important"
+        canvasTouchPriority: "important",
+        htmlDeclarations: [
+            ["margin-left", "17px", ""],
+            ["padding-top", "9px", ""],
+            ["overflow-x", "scroll", "important"],
+            ["overflow-y", "scroll", "important"],
+            ["overscroll-behavior-x", "contain", "important"],
+            ["overscroll-behavior-y", "contain", "important"]
+        ]
     });
     assert.equal(result.secondRestore, false);
     console.log(`[ok] Fullscreen host browser longhand restoration passed via ${launch.label}.`);

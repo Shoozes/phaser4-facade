@@ -33,6 +33,31 @@ assert.equal(body.style.getPropertyPriority("top"), "important");
 assert.equal(parent.style.getPropertyValue("width"), "40px");
 assert.equal(canvas.style.getPropertyValue("display"), "inline");
 
+function overflowShorthandStyle() {
+    const values = new Map([["overflow", { value: "scroll", priority: "important" }]]);
+    const derivedNames = new Set(["overflow-x", "overflow-y"]);
+    return {
+        get length() { return values.size; },
+        item(index) { return [...values.keys()][index] || ""; },
+        setProperty(name, value, priority = "") { values.set(name, { value: String(value), priority }); },
+        getPropertyValue(name) {
+            if (values.has(name)) return values.get(name).value;
+            return derivedNames.has(name) ? values.get("overflow")?.value || "" : "";
+        },
+        getPropertyPriority(name) {
+            if (values.has(name)) return values.get(name).priority;
+            return derivedNames.has(name) ? values.get("overflow")?.priority || "" : "";
+        },
+        removeProperty(name) { values.delete(name); },
+        declarations() { return [...values]; }
+    };
+}
+const shorthandParentStyle = overflowShorthandStyle();
+const shorthandHost = createFullscreenHost({}, null);
+shorthandHost.applyGame({ canvas: { style: style(), parentElement: { style: shorthandParentStyle } } });
+assert.equal(shorthandHost.restore(), true);
+assert.deepEqual(shorthandParentStyle.declarations(), [["overflow", { value: "scroll", priority: "important" }]]);
+
 let invalidSelectorWrites = 0;
 const invalidStyle = {
     setProperty() { invalidSelectorWrites += 1; },

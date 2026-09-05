@@ -4967,6 +4967,20 @@ var DOCUMENT_STYLE_PROPERTIES = BOX_STYLE_PROPERTIES.filter((property) => !["max
 var BODY_STYLE_PROPERTIES = [...DOCUMENT_STYLE_PROPERTIES, "position", "top", "right", "bottom", "left", "touchAction"];
 var PARENT_STYLE_PROPERTIES = [...BODY_STYLE_PROPERTIES, "maxWidth", "maxHeight"];
 var CANVAS_STYLE_PROPERTIES = ["display", "width", "height", "maxWidth", "maxHeight", "touchAction"];
+var SHORTHAND_PROPERTIES = /* @__PURE__ */ new Map([
+  ["marginTop", "margin"],
+  ["marginRight", "margin"],
+  ["marginBottom", "margin"],
+  ["marginLeft", "margin"],
+  ["paddingTop", "padding"],
+  ["paddingRight", "padding"],
+  ["paddingBottom", "padding"],
+  ["paddingLeft", "padding"],
+  ["overflowX", "overflow"],
+  ["overflowY", "overflow"],
+  ["overscrollBehaviorX", "overscrollBehavior"],
+  ["overscrollBehaviorY", "overscrollBehavior"]
+]);
 function resolveParent(root, configuredParent) {
   const documentLike = root && root.document;
   if (typeof configuredParent === "string" && documentLike) {
@@ -4977,12 +4991,23 @@ function resolveParent(root, configuredParent) {
 function cssName(property) {
   return property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
+function isExplicitStyleDeclaration(style, name, value) {
+  if (typeof style?.length === "number" && typeof style.item === "function") {
+    for (let index = 0; index < style.length; index += 1) {
+      if (style.item(index) === name) return true;
+    }
+    return false;
+  }
+  return value !== "";
+}
 function readStyle(element, property) {
   if (!element?.style) return null;
   const name = cssName(property);
+  const value = String(element.style.getPropertyValue(name) || "");
   return {
-    value: String(element.style.getPropertyValue(name) || ""),
-    priority: String(element.style.getPropertyPriority(name) || "")
+    value,
+    priority: String(element.style.getPropertyPriority(name) || ""),
+    explicit: isExplicitStyleDeclaration(element.style, name, value)
   };
 }
 function writeStyle(element, property, value) {
@@ -5000,6 +5025,9 @@ function createFullscreenHost(root, configuredParent) {
     }
     for (const property of properties) {
       if (!records.has(property)) records.set(property, readStyle(element, property));
+      const shorthand = SHORTHAND_PROPERTIES.get(property);
+      const shorthandRecord = shorthand ? readStyle(element, shorthand) : null;
+      if (shorthandRecord?.explicit && !records.has(shorthand)) records.set(shorthand, shorthandRecord);
     }
     for (const property of properties) {
       writeStyle(element, property, values[property] ?? "");
@@ -5120,10 +5148,12 @@ function createFullscreenHost(root, configuredParent) {
     restore() {
       if (restored) return false;
       restored = true;
+      const shorthandNames = new Set(SHORTHAND_PROPERTIES.values());
       for (const [element, records] of touched) {
-        for (const [property, original] of records) {
+        const entries = [...records].sort(([first], [second]) => Number(shorthandNames.has(first)) - Number(shorthandNames.has(second)));
+        for (const [property, original] of entries) {
           const name = cssName(property);
-          if (original?.value) element.style.setProperty(name, original.value, original.priority);
+          if (original?.explicit) element.style.setProperty(name, original.value, original.priority);
           else element.style.removeProperty(name);
         }
       }

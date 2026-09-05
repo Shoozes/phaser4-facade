@@ -12,6 +12,12 @@ const DOCUMENT_STYLE_PROPERTIES = BOX_STYLE_PROPERTIES.filter((property) => !["m
 const BODY_STYLE_PROPERTIES = [...DOCUMENT_STYLE_PROPERTIES, "position", "top", "right", "bottom", "left", "touchAction"];
 const PARENT_STYLE_PROPERTIES = [...BODY_STYLE_PROPERTIES, "maxWidth", "maxHeight"];
 const CANVAS_STYLE_PROPERTIES = ["display", "width", "height", "maxWidth", "maxHeight", "touchAction"];
+const SHORTHAND_PROPERTIES = new Map([
+    ["marginTop", "margin"], ["marginRight", "margin"], ["marginBottom", "margin"], ["marginLeft", "margin"],
+    ["paddingTop", "padding"], ["paddingRight", "padding"], ["paddingBottom", "padding"], ["paddingLeft", "padding"],
+    ["overflowX", "overflow"], ["overflowY", "overflow"],
+    ["overscrollBehaviorX", "overscrollBehavior"], ["overscrollBehaviorY", "overscrollBehavior"]
+]);
 
 /** @param {any} root @param {any} configuredParent */
 function resolveParent(root, configuredParent) {
@@ -27,13 +33,28 @@ function cssName(property) {
     return property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
+/** @param {any} style @param {string} name @param {string} value */
+function isExplicitStyleDeclaration(style, name, value) {
+    if (typeof style?.length === "number" && typeof style.item === "function") {
+        for (let index = 0; index < style.length; index += 1) {
+            if (style.item(index) === name) return true;
+        }
+        return false;
+    }
+    // Small test doubles may only expose get/setProperty. Their returned value
+    // is the best available signal for an explicitly stored declaration.
+    return value !== "";
+}
+
 /** @param {any} element @param {string} property */
 function readStyle(element, property) {
     if (!element?.style) return null;
     const name = cssName(property);
+    const value = String(element.style.getPropertyValue(name) || "");
     return {
-        value: String(element.style.getPropertyValue(name) || ""),
-        priority: String(element.style.getPropertyPriority(name) || "")
+        value,
+        priority: String(element.style.getPropertyPriority(name) || ""),
+        explicit: isExplicitStyleDeclaration(element.style, name, value)
     };
 }
 
@@ -44,7 +65,7 @@ function writeStyle(element, property, value) {
 
 /** @param {any} root @param {any} configuredParent */
 export function createFullscreenHost(root, configuredParent) {
-    /** @type {Map<any, Map<string, { value: string, priority: string } | null>>} */
+    /** @type {Map<any, Map<string, { value: string, priority: string, explicit: boolean } | null>>} */
     const touched = new Map();
     let restored = false;
 
@@ -61,6 +82,9 @@ export function createFullscreenHost(root, configuredParent) {
         // declaration synchronously.
         for (const property of properties) {
             if (!records.has(property)) records.set(property, readStyle(element, property));
+            const shorthand = SHORTHAND_PROPERTIES.get(property);
+            const shorthandRecord = shorthand ? readStyle(element, shorthand) : null;
+            if (shorthandRecord?.explicit && !records.has(shorthand)) records.set(shorthand, shorthandRecord);
         }
         for (const property of properties) {
             writeStyle(element, property, values[property] ?? "");
@@ -117,10 +141,13 @@ export function createFullscreenHost(root, configuredParent) {
         restore() {
             if (restored) return false;
             restored = true;
+            const shorthandNames = new Set(SHORTHAND_PROPERTIES.values());
             for (const [element, records] of touched) {
-                for (const [property, original] of records) {
+                const entries = [...records].sort(([first], [second]) =>
+                    Number(shorthandNames.has(first)) - Number(shorthandNames.has(second)));
+                for (const [property, original] of entries) {
                     const name = cssName(property);
-                    if (original?.value) element.style.setProperty(name, original.value, original.priority);
+                    if (original?.explicit) element.style.setProperty(name, original.value, original.priority);
                     else element.style.removeProperty(name);
                 }
             }
