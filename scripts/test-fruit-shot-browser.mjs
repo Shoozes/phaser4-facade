@@ -184,10 +184,13 @@ async function installRoutes(page, testCase) {
 }
 
 async function playOneShot(page, testCase) {
-    await page.waitForFunction(() => {
+    await page.waitForFunction((proofName) => {
         const gate = window.GM?.runtime?.state?.inputGate;
-        return Boolean(gate && gate.transitions === 0 && window.GM.runtime.currentTime >= gate.pausedUntil);
-    }, undefined, { timeout: 5000 });
+        const proof = window[proofName];
+        return Boolean(gate && gate.transitions === 0 && window.GM.runtime.currentTime >= gate.pausedUntil &&
+            proof?.playable === true && proof.failed !== true &&
+            (proof.inputReady === undefined || proof.inputReady === true));
+    }, testCase.proofName, { timeout: 5000 });
     const box = await page.locator("canvas").boundingBox();
     if (!box) fail(testCase.name + " canvas has no bounding box.");
     const centerX = box.x + box.width * 0.5;
