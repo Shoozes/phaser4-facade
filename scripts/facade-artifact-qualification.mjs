@@ -7,15 +7,30 @@ import { execFileSync } from "node:child_process";
 /**
  * Read the private template's artifact receipt when present. The public
  * facade checkout intentionally has no private receipt, so its qualification
- * scripts fall back to the checkout's current commit.
+ * scripts use the maintained exact fallback pin or an explicit override.
  * @param {string} packageRoot
  * @returns {{ publicCommit: string, status: string, artifacts: Record<string, string> }}
  */
 export function readArtifactQualification(packageRoot) {
-    const manifestPath = path.join(packageRoot, "docs", "artifact-qualification.json");
-    if (fs.existsSync(manifestPath)) return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const manifestPaths = [
+        path.join(packageRoot, "docs", "artifact-qualification.json"),
+        path.resolve(packageRoot, "..", "..", "..", "docs", "facade", "artifact-qualification.json")
+    ];
+    const manifestPath = manifestPaths.find((candidate) => fs.existsSync(candidate));
+    if (manifestPath) return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     const configuredCommit = String(process.env.FACADE_PUBLIC_COMMIT || "").trim();
-    const publicCommit = configuredCommit || execFileSync("git", ["rev-parse", "HEAD"], { cwd: packageRoot, encoding: "utf8" }).trim();
+    const maintainedExamples = [
+        "examples/fruit-shot.html",
+        "examples/fruit-shot-grout13.html",
+        "examples/phaser4-facade-grout13-canvas-stack-clipped.html",
+        "examples/grout-vault-all-in-one.html"
+    ];
+    const pinnedCommit = maintainedExamples
+        .map((relativePath) => path.join(packageRoot, relativePath))
+        .filter((filePath) => fs.existsSync(filePath))
+        .map((filePath) => fs.readFileSync(filePath, "utf8").match(/Shoozes\/phaser4-facade@([0-9a-f]{40})\//i)?.[1] || "")
+        .find(Boolean) || "";
+    const publicCommit = configuredCommit || pinnedCommit || execFileSync("git", ["rev-parse", "HEAD"], { cwd: packageRoot, encoding: "utf8" }).trim();
     if (!/^[0-9a-f]{40}$/i.test(publicCommit)) throw new Error("FACADE_PUBLIC_COMMIT must be a full facade commit SHA.");
     return { publicCommit, status: "public-checkout", artifacts: {} };
 }
