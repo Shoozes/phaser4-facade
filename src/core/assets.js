@@ -205,11 +205,6 @@ function prepareReplacement(textures, key, replace) {
     return previous;
 }
 
-/** @param {any} texture */
-function readTextureSource(texture) {
-    return texture?.source?.[0]?.image || texture?.source?.[0]?.source || null;
-}
-
 /**
  * A same-key atlas cannot borrow source storage from the texture it replaces.
  * Phaser may return owned canvas sources to CanvasPool when the old texture is
@@ -220,18 +215,9 @@ function readTextureSource(texture) {
  * @param {string} key
  */
 function rejectAliasedReplacement(previous, source, key) {
-    if (previous && source && readTextureSource(previous) === source) {
+    const previousSource = previous?.source?.[0]?.image || previous?.source?.[0]?.source;
+    if (previous && source && previousSource === source) {
         throw new Error(`GM.asset replacement source aliases existing texture: ${key}`);
-    }
-}
-
-/** @param {any} texture */
-function disposeTransactionTexture(texture) {
-    if (!texture || typeof texture.destroy !== "function") return;
-    try {
-        texture.destroy();
-    } catch {
-        // Preserve the registration failure; cleanup is best effort.
     }
 }
 
@@ -285,7 +271,13 @@ function registerTextureTransactionally(textures, key, previous, register) {
             }
         }
         for (const texture of owned) {
-            if (texture !== previous) disposeTransactionTexture(texture);
+            if (texture !== previous && texture && typeof texture.destroy === "function") {
+                try {
+                    texture.destroy();
+                } catch {
+                    // Preserve the registration failure; cleanup is best effort.
+                }
+            }
         }
         if (previous) textures.list[key] = previous;
         throw error;
