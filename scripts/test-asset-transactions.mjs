@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { addAtlasTexture, addCanvasTexture } from "../src/core/assets.js";
 
-function createTextureManager({ failCanvas = false, failAtlas = false } = {}) {
+function createTextureManager({ failCanvas = false, failAtlas = false, failAtlasMetadata = false } = {}) {
     const list = Object.create(null);
     return {
         list,
@@ -30,6 +30,13 @@ function createTextureManager({ failCanvas = false, failAtlas = false } = {}) {
             }
             if (this.exists(key)) return null;
             const texture = { key, kind: "atlas", customData: {}, destroyed: false, destroy() { this.destroyed = true; } };
+            if (failAtlasMetadata) {
+                Object.defineProperty(texture, "customData", {
+                    configurable: true,
+                    get() { return {}; },
+                    set() { throw new Error("simulated atlas metadata failure"); }
+                });
+            }
             this.lastAllocated = texture;
             list[key] = texture;
             return texture;
@@ -52,6 +59,19 @@ failedCanvasTextures.list.hero = oldFailedCanvas;
 assert.throws(() => addCanvasTexture({ textures: failedCanvasTextures }, "hero", canvas, { replace: true }), /registration failed/);
 assert.equal(failedCanvasTextures.list.hero, oldFailedCanvas);
 assert.equal(failedCanvasTextures.lastAllocated.destroyed, true);
+
+const failedMetadataTextures = createTextureManager({ failAtlasMetadata: true });
+const oldMetadataAtlas = { key: "atlas", destroyed: false };
+failedMetadataTextures.list.atlas = oldMetadataAtlas;
+let metadataCandidate;
+const addMetadataAtlas = failedMetadataTextures.addAtlasJSONHash;
+failedMetadataTextures.addAtlasJSONHash = (...args) => {
+    metadataCandidate = addMetadataAtlas.apply(failedMetadataTextures, args);
+    return metadataCandidate;
+};
+assert.throws(() => addAtlasTexture({ textures: failedMetadataTextures }, "atlas", canvas, frames, { replace: true }), /metadata failure/);
+assert.equal(failedMetadataTextures.list.atlas, oldMetadataAtlas);
+assert.equal(metadataCandidate.destroyed, true, "metadata failure must dispose the transaction-owned texture");
 
 const successfulCanvasTextures = createTextureManager();
 const oldSuccessfulCanvas = { key: "hero", kind: "old-canvas", destroyed: false, destroy() { this.destroyed = true; } };
@@ -100,5 +120,14 @@ aliasTextures.list.atlas = aliasedAtlas;
 assert.throws(() => addAtlasTexture({ textures: aliasTextures }, "atlas", aliasSource, frames, { replace: true }), /aliases existing texture/);
 assert.equal(aliasTextures.list.atlas, aliasedAtlas);
 assert.equal(aliasedAtlas.destroyed, false);
+
+let retainedDestroyCount = 0;
+const repeatedTextures = createTextureManager({ failCanvas: true });
+repeatedTextures.list.hero = { key: "hero", destroy() { retainedDestroyCount += 1; } };
+for (let attempt = 0; attempt < 4; attempt += 1) {
+    assert.throws(() => addCanvasTexture({ textures: repeatedTextures }, "hero", canvas, { replace: true }), /registration failed/);
+    assert.equal(repeatedTextures.list.hero.key, "hero");
+}
+assert.equal(retainedDestroyCount, 0, "repeated failures must retain the usable previous texture");
 
 console.log("[ok] Asset replacement transaction tests passed.");
