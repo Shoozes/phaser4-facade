@@ -3110,19 +3110,10 @@ function prepareReplacement(textures, key, replace) {
   if (!previous) throw new Error(`GM.asset cannot resolve existing texture: ${key}`);
   return previous;
 }
-function readTextureSource(texture) {
-  return texture?.source?.[0]?.image || texture?.source?.[0]?.source || null;
-}
 function rejectAliasedReplacement(previous, source, key) {
-  if (previous && source && readTextureSource(previous) === source) {
+  const previousSource = previous?.source?.[0]?.image || previous?.source?.[0]?.source;
+  if (previous && source && previousSource === source) {
     throw new Error(`GM.asset replacement source aliases existing texture: ${key}`);
-  }
-}
-function disposeTransactionTexture(texture) {
-  if (!texture || typeof texture.destroy !== "function") return;
-  try {
-    texture.destroy();
-  } catch {
   }
 }
 function registerTextureTransactionally(textures, key, previous, register) {
@@ -3161,7 +3152,12 @@ function registerTextureTransactionally(textures, key, previous, register) {
       }
     }
     for (const texture of owned) {
-      if (texture !== previous) disposeTransactionTexture(texture);
+      if (texture !== previous && texture && typeof texture.destroy === "function") {
+        try {
+          texture.destroy();
+        } catch {
+        }
+      }
     }
     if (previous) textures.list[key] = previous;
     throw error;
