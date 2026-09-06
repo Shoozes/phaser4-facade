@@ -6,20 +6,31 @@ function createTextureManager({ failCanvas = false, failAtlas = false } = {}) {
     const list = Object.create(null);
     return {
         list,
+        lastAllocated: null,
         exists(key) { return Object.prototype.hasOwnProperty.call(list, key); },
         get(key) { return list[key] || null; },
         removeKey(key) { delete list[key]; },
         addCanvas(key) {
-            if (failCanvas) { list[key] = { key, partial: true }; return null; }
+            if (failCanvas) {
+                this.lastAllocated = { key, partial: true, destroyed: false, destroy() { this.destroyed = true; } };
+                list[key] = this.lastAllocated;
+                return null;
+            }
             if (this.exists(key)) return null;
-            const texture = { key, kind: "canvas", destroyed: false };
+            const texture = { key, kind: "canvas", destroyed: false, destroy() { this.destroyed = true; } };
+            this.lastAllocated = texture;
             list[key] = texture;
             return texture;
         },
         addAtlasJSONHash(key) {
-            if (failAtlas) { list[key] = { key, partial: true }; throw new Error("simulated atlas registration failure"); }
+            if (failAtlas) {
+                this.lastAllocated = { key, partial: true, destroyed: false, destroy() { this.destroyed = true; } };
+                list[key] = this.lastAllocated;
+                throw new Error("simulated atlas registration failure");
+            }
             if (this.exists(key)) return null;
-            const texture = { key, kind: "atlas", customData: {}, destroyed: false };
+            const texture = { key, kind: "atlas", customData: {}, destroyed: false, destroy() { this.destroyed = true; } };
+            this.lastAllocated = texture;
             list[key] = texture;
             return texture;
         }
@@ -40,6 +51,7 @@ const oldFailedCanvas = { key: "hero", kind: "old-canvas", destroyed: false };
 failedCanvasTextures.list.hero = oldFailedCanvas;
 assert.throws(() => addCanvasTexture({ textures: failedCanvasTextures }, "hero", canvas, { replace: true }), /registration failed/);
 assert.equal(failedCanvasTextures.list.hero, oldFailedCanvas);
+assert.equal(failedCanvasTextures.lastAllocated.destroyed, true);
 
 const successfulCanvasTextures = createTextureManager();
 const oldSuccessfulCanvas = { key: "hero", kind: "old-canvas", destroyed: false, destroy() { this.destroyed = true; } };
@@ -47,6 +59,19 @@ successfulCanvasTextures.list.hero = oldSuccessfulCanvas;
 const canvasResult = addCanvasTexture({ textures: successfulCanvasTextures }, "hero", canvas, { replace: true });
 assert.equal(successfulCanvasTextures.list.hero, canvasResult.texture);
 assert.equal(oldSuccessfulCanvas.destroyed, true);
+
+const retiringFailureTextures = createTextureManager();
+const retiringFailureOld = { key: "hero", destroyed: false, destroy() { this.destroyed = true; throw new Error("simulated retirement failure"); } };
+retiringFailureTextures.list.hero = retiringFailureOld;
+let retiringFailureNew;
+const addCanvas = retiringFailureTextures.addCanvas;
+retiringFailureTextures.addCanvas = (...args) => {
+    retiringFailureNew = addCanvas.apply(retiringFailureTextures, args);
+    return retiringFailureNew;
+};
+assert.throws(() => addCanvasTexture({ textures: retiringFailureTextures }, "hero", canvas, { replace: true }), /retirement failure/);
+assert.equal(retiringFailureTextures.list.hero, retiringFailureNew);
+assert.equal(retiringFailureOld.destroyed, true);
 
 const outOfBoundsTextures = createTextureManager();
 const oldAtlas = { key: "atlas", kind: "old-atlas", destroyed: false };
@@ -67,5 +92,13 @@ const atlasResult = addAtlasTexture({ textures: successfulAtlasTextures }, "atla
 assert.equal(successfulAtlasTextures.list.atlas, atlasResult.texture);
 assert.deepEqual(atlasResult.texture.customData.gmFrameMeta.hero, { width: 2, height: 2, sourceWidth: 2, sourceHeight: 2, pivot: null, meta: null });
 assert.equal(oldSuccessfulAtlas.destroyed, true);
+
+const aliasTextures = createTextureManager();
+const aliasSource = { width: 4, height: 4 };
+const aliasedAtlas = { key: "atlas", source: [{ image: aliasSource }], destroyed: false, destroy() { this.destroyed = true; } };
+aliasTextures.list.atlas = aliasedAtlas;
+assert.throws(() => addAtlasTexture({ textures: aliasTextures }, "atlas", aliasSource, frames, { replace: true }), /aliases existing texture/);
+assert.equal(aliasTextures.list.atlas, aliasedAtlas);
+assert.equal(aliasedAtlas.destroyed, false);
 
 console.log("[ok] Asset replacement transaction tests passed.");

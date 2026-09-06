@@ -205,6 +205,36 @@ function prepareReplacement(textures, key, replace) {
     return previous;
 }
 
+/** @param {any} texture */
+function readTextureSource(texture) {
+    return texture?.source?.[0]?.image || texture?.source?.[0]?.source || null;
+}
+
+/**
+ * A same-key atlas cannot borrow source storage from the texture it replaces.
+ * Phaser may return owned canvas sources to CanvasPool when the old texture is
+ * destroyed, invalidating the new atlas after commit.
+ *
+ * @param {any} previous
+ * @param {any} source
+ * @param {string} key
+ */
+function rejectAliasedReplacement(previous, source, key) {
+    if (previous && source && readTextureSource(previous) === source) {
+        throw new Error(`GM.asset replacement source aliases existing texture: ${key}`);
+    }
+}
+
+/** @param {any} texture */
+function disposeTransactionTexture(texture) {
+    if (!texture || typeof texture.destroy !== "function") return;
+    try {
+        texture.destroy();
+    } catch {
+        // Preserve the registration failure; cleanup is best effort.
+    }
+}
+
 /**
  * @param {any} textures
  * @param {string} key
@@ -214,8 +244,12 @@ function prepareReplacement(textures, key, replace) {
  */
 function registerTextureTransactionally(textures, key, previous, register) {
     if (previous) removeRegisteredTexture(textures, key);
+    const owned = new Set();
+    let commitStarted = false;
     try {
         const texture = register();
+        if (texture) owned.add(texture);
+        if (textures.list?.[key]) owned.add(textures.list[key]);
         if (!texture) throw new Error(`Texture registration failed: ${key}`);
         const registered = textures.list
             ? textures.list[key] === texture
@@ -224,20 +258,34 @@ function registerTextureTransactionally(textures, key, previous, register) {
             throw new Error(`Texture was not registered: ${key}`);
         }
         if (previous && previous !== texture && typeof previous.destroy === "function") {
-            const current = textures.list[key];
-            removeRegisteredTexture(textures, key);
-            try {
-                previous.destroy();
-            } finally {
-                textures.list[key] = current;
-            }
+            commitStarted = true;
+            previous.destroy();
         }
         return texture;
     } catch (error) {
+        if (commitStarted) {
+            // The replacement is committed once old-resource retirement begins.
+            // Never restore an old object that may already be destroyed.
+            throw error;
+        }
+
+        const registered = textures.list?.[key];
+        if (registered && registered !== previous) owned.add(registered);
         if (textures.list && Object.prototype.hasOwnProperty.call(textures.list, key) && textures.list[key] !== previous) {
-            removeRegisteredTexture(textures, key);
+            try {
+                removeRegisteredTexture(textures, key);
+            } catch {
+                // Preserve the primary registration failure.
+            }
         } else if (!previous && !textures.list && textures.exists(key) && typeof textures.remove === "function") {
-            textures.remove(key);
+            try {
+                textures.remove(key);
+            } catch {
+                // Preserve the primary registration failure.
+            }
+        }
+        for (const texture of owned) {
+            if (texture !== previous) disposeTransactionTexture(texture);
         }
         if (previous) textures.list[key] = previous;
         throw error;
@@ -371,6 +419,7 @@ export function addAtlasTexture(scene, key, source, frames, options = {}) {
         throw new Error("Phaser textures.addAtlasJSONHash is unavailable.");
     }
     const previous = prepareReplacement(textures, textureKey, options.replace === true);
+    rejectAliasedReplacement(previous, atlasSource, textureKey);
     /** @type {Record<string, any>} */
     const frameMeta = {};
     for (const [name, frame] of Object.entries(safeFrames)) {
