@@ -183,6 +183,38 @@ async function installRoutes(page, testCase) {
     });
 }
 
+async function waitForPressedSimulationFrame(page, proofName) {
+    await page.waitForFunction(() => Boolean(window.GM?.input?.primaryPointer?.()?.down), null, { timeout: 3000 });
+    const pressedFrame = await page.evaluate((name) => Number(window[name]?.frames || 0), proofName);
+    await page.waitForFunction(({ name, frame }) => Number(window[name]?.frames || 0) > frame, {
+        name: proofName,
+        frame: pressedFrame
+    }, { timeout: 3000 });
+}
+
+async function releasePointer(page, testCase) {
+    if (testCase.kind === "grout13" || testCase.kind === "grout13-module") {
+        await page.mouse.up();
+        await page.waitForFunction(() => window.GM?.input?.primaryPointer?.()?.down !== true, null, { timeout: 3000 });
+        return;
+    }
+
+    const before = await page.evaluate((name) => ({
+        proofFrames: Number(window[name]?.frames || 0),
+        runtimeFrame: Number(window.GM?.runtime?.state?.frameId || 0)
+    }), testCase.proofName);
+    await page.mouse.up();
+    await page.waitForFunction(({ name, beforeRelease }) => {
+        const proof = window[name];
+        const pointer = window.GM?.input?.primaryPointer?.();
+        const mouse = window.GM?.runtime?.state?.mouse;
+        const releaseObserved = Boolean(pointer?.released || mouse?.released?.left || Number(proof?.shotsFired || 0) >= 1);
+        const frameAdvanced = Number(proof?.frames || 0) > beforeRelease.proofFrames ||
+            Number(window.GM?.runtime?.state?.frameId || 0) > beforeRelease.runtimeFrame;
+        return releaseObserved && frameAdvanced;
+    }, { name: testCase.proofName, beforeRelease: before }, { timeout: 3000 });
+}
+
 async function playOneShot(page, testCase) {
     await page.waitForFunction((proofName) => {
         const gate = window.GM?.runtime?.state?.inputGate;
@@ -205,16 +237,13 @@ async function playOneShot(page, testCase) {
         await page.waitForTimeout(80);
         await page.mouse.move(centerX, box.y + box.height * 0.33, { steps: 6 });
         await page.waitForTimeout(80);
-        await page.mouse.up();
+        await releasePointer(page, testCase);
     } else {
         await page.mouse.move(centerX, box.y + box.height * 0.84);
         await page.mouse.down();
-        await page.waitForFunction(() => {
-            const pointer = window.GM?.input?.primaryPointer?.();
-            return Boolean(pointer?.down);
-        }, null, { timeout: 3000 });
+        await waitForPressedSimulationFrame(page, testCase.proofName);
         await page.waitForTimeout(80);
-        await page.mouse.up();
+        await releasePointer(page, testCase);
     }
     try {
         await page.waitForFunction((name) => window[name]?.shotsFired >= 1, testCase.proofName, { timeout: 10000 });
